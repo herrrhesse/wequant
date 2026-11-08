@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
-import io
 import json
 import os
 import re
-import secrets
 import socket
 import time
 from collections.abc import Iterable, Iterator
@@ -26,6 +24,7 @@ from pathlib import Path
 
 import polars as pl
 
+from wequant.data.files import atomic_write, parquet_bytes
 from wequant.data.schema import TABLES, Table
 
 KEEP_VERSIONS = 3
@@ -74,12 +73,6 @@ class CommitResult:
 
 def wequant_home() -> Path:
     return Path(os.environ.get("WEQUANT_HOME", "~/.wequant")).expanduser()
-
-
-def parquet_bytes(df: pl.DataFrame) -> bytes:
-    buffer = io.BytesIO()
-    df.write_parquet(buffer, compression="zstd")
-    return buffer.getvalue()
 
 
 def prepare(table: Table, df: pl.DataFrame) -> pl.DataFrame:
@@ -237,8 +230,8 @@ class Store:
             manifest = {"version": result.version, "created_at": _now(), **meta, "tables": new_tables}
             data = json.dumps(manifest, indent=1, ensure_ascii=False).encode("utf-8") + b"\n"
             self._manifest_path(result.version).parent.mkdir(parents=True, exist_ok=True)
-            _atomic_write(self._manifest_path(result.version), data)
-            _atomic_write(self.home / "manifest.json", data)
+            atomic_write(self._manifest_path(result.version), data)
+            atomic_write(self.home / "manifest.json", data)
             result.changed = True
             return result
 
@@ -284,7 +277,7 @@ class Store:
             return old
         rel = f"{name}/{part}.v{result.version}.parquet"
         (self.home / name).mkdir(parents=True, exist_ok=True)
-        _atomic_write(self.home / rel, data)
+        atomic_write(self.home / rel, data)
         result.files_written.append(rel)
         return {"part": part, "path": rel, "rows": rows.height, "sha256": digest}
 
@@ -335,21 +328,6 @@ def _write_fd(fd: int, text: str) -> None:
     os.lseek(fd, 0, os.SEEK_SET)
     os.write(fd, text.encode("utf-8"))
     os.fsync(fd)
-
-
-def _atomic_write(path: Path, data: bytes) -> None:
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
-    with open(tmp, "wb") as out:
-        out.write(data)
-        out.flush()
-        os.fsync(out.fileno())
-    os.replace(tmp, path)
-    if os.name != "nt":  # directories cannot be opened for fsync on Windows
-        fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
 
 
 def _now() -> str:

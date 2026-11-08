@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-baostock = ["baostock>=0.8"]
+baostock = ["baostock>=0.9.4"]  # the release probed in S2.2 (reports itself as 00.9.40); has query_daily_history_k_AStock
 
 [dependency-groups]
 dev = [

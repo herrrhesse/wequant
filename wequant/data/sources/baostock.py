@@ -92,6 +92,14 @@ class BaoStock:
                 if error.code == NOT_LOGGED_IN:
                     self.login()
 
+    def raw(self, method: str, **params) -> pl.DataFrame:
+        """One query's response as returned: every field a string column."""
+        return _frame(*self.query(method, **params))
+
+    def daily_snapshot(self, day: dt.date | str) -> pl.DataFrame:
+        """Every SH/SZ stock's daily row for one day, suspended stocks included, as raw strings."""
+        return self.raw("query_daily_history_k_AStock", date=str(day))
+
     # ------------------------------------------------------------ DataSource
 
     def securities(self) -> pl.DataFrame:
