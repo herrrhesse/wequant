@@ -15,7 +15,9 @@ if TYPE_CHECKING:
     from tools.investment_data.convert import Recovered, Stocks
 
 
-def build(rec: Recovered, stocks: Stocks, ratio: Ratio, dropped: np.ndarray, invalid_members: list[tuple], source: str) -> pl.DataFrame:
+def build(
+    rec: Recovered, stocks: Stocks, ratio: Ratio, dropped: np.ndarray, invalid_members: list[tuple], source: str
+) -> pl.DataFrame:
     rows = [*_dropped_bars(rec, dropped), *_adj_blips(rec, stocks, ratio), *_invalid_members(invalid_members)]
     columns = [c for c in TABLES["data_issues"].schema if c != "source"]
     df = pl.DataFrame(rows, schema={c: TABLES["data_issues"].schema[c] for c in columns}, orient="row")
@@ -56,13 +58,29 @@ def _adj_blips(rec: Recovered, stocks: Stocks, ratio: Ratio) -> list[tuple]:
             "ratio_after": round(float(ratio.run_values[k + 1]), 6),
         }
         code = rec.codes[stocks.code_idx[r]]
-        rows.append(("adj_factor", code, stocks.dates[r].item(), "adj_blip", "excluded_from_adj_factor_and_preclose", _json(detail)))
+        rows.append(
+            (
+                "adj_factor",
+                code,
+                stocks.dates[r].item(),
+                "adj_blip",
+                "excluded_from_adj_factor_and_preclose",
+                _json(detail),
+            )
+        )
     return rows
 
 
 def _invalid_members(invalid_members: list[tuple]) -> list[tuple]:
     return [
-        ("index_members", code, np.datetime64(start, "D").item(), "invalid_member_code", "span_dropped", _json({"list": name, "end_date": end}))
+        (
+            "index_members",
+            code,
+            np.datetime64(start, "D").item(),
+            "invalid_member_code",
+            "span_dropped",
+            _json({"list": name, "end_date": end}),
+        )
         for name, code, start, end in invalid_members
     ]
 

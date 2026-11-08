@@ -12,6 +12,9 @@ dependencies = [
     "polars>=1.0",
 ]
 
+[project.optional-dependencies]
+baostock = ["baostock>=0.8"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -27,3 +30,13 @@ module-root = ""
 [tool.pytest.ini_options]
 testpaths = ["tests", "tools"]
 pythonpath = ["."]
+addopts = "-m 'not network'"
+markers = ["network: talks to a live data source; run with -m network"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]  # the formatter wraps code; long report strings stay whole

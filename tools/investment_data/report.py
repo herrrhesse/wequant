@@ -14,7 +14,15 @@ def render(run: dict, stats: dict) -> str:
     if "verification" in run:
         out += _verification(run)
     if "fields" in stats:
-        out += _fields(stats) + _rounding(stats) + _units(stats) + _ohlc(stats) + _coverage(stats) + _adjustment(stats) + _issues(stats)
+        out += (
+            _fields(stats)
+            + _rounding(stats)
+            + _units(stats)
+            + _ohlc(stats)
+            + _coverage(stats)
+            + _adjustment(stats)
+            + _issues(stats)
+        )
     out += _idempotency(run) + _resources(run)
     return "\n".join(out) + "\n"
 
@@ -46,7 +54,7 @@ def _summary(run: dict, s: dict) -> list[str]:
         f"- **adj_factor:** a new ratio starts when no single ratio fits consecutive days within adjclose's 0.01 元 rounding, and it is recorded only if it moves at least {MIN_STEP:g}.",
         f"- **One-day blips:** a one-day ratio jump whose neighbours agree within {BLIP_RETURN:g} is left out of adj_factor and preclose. They are listed in section 7.",
         "- **Prices:** stock prices are rounded to 0.01 元, index points to 0.001.",
-        "- **Dropped:** stock rows whose amount / volume is outside 0.5×..2× of the close (section 4), stocks left with no rows, and index member spans with malformed codes (section 6).",
+        "- **Dropped:** stock rows whose average price lies outside the day's low–high range (section 4), stocks left with no rows, and index member spans with malformed codes (section 6).",
         "",
     ]
 
@@ -73,7 +81,10 @@ def _fields(s: dict) -> list[str]:
         "",
         f"{f['rows']:,} instrument-days inside the instrument spans; {f['rows_with_data']:,} have data.",
         "",
-        *_table(["field", "finite rows", "coverage"], [(name, f"{n:,}", f"{share:.4%}") for name, (n, share) in f["coverage"].items()]),
+        *_table(
+            ["field", "finite rows", "coverage"],
+            [(name, f"{n:,}", f"{share:.4%}") for name, (n, share) in f["coverage"].items()],
+        ),
         f"- **Instruments with mismatched files:** {len(s['layout']['issues'])}",
         *[f"- **{name.capitalize()}:** {count}" for name, count in f["anomalies"].items()],
         f"- **Days without data:** NaN in every field except the forward-filled factor ({f['factor_filled_rows']:,} rows). They get no row.",
@@ -85,7 +96,10 @@ def _fields(s: dict) -> list[str]:
 def _rounding(s: dict) -> list[str]:
     r = s["rounding"]
     out = ["## 3. Price rounding (stocks)", "", "|raw − round(raw, 2)| in fen:", ""]
-    out += _table(["field", "max", "99.99th pct", f"> {RESIDUAL_FEN} fen"], [(f, f"{x['max']:.4f}", f"{x['p99.99']:.4f}", x["over"]) for f, x in r["fields"].items()])
+    out += _table(
+        ["field", "max", "99.99th pct", f"> {RESIDUAL_FEN} fen"],
+        [(f, f"{x['max']:.4f}", f"{x['p99.99']:.4f}", x["over"]) for f, x in r["fields"].items()],
+    )
     if r["worst"]:
         out += ["Worst closes:", "", *_table(["code", "date", "raw close", "fen"], r["worst"])]
     return out
@@ -99,14 +113,32 @@ def _units(s: dict) -> list[str]:
         f"amount × 1000 / (volume × 100) must lie in [low × 0.99, high × 1.01]; a year below {UNIT_YEAR_MIN} stops the import.",
         "",
     ]
-    out += _table(["year", "stock rows", "pass"], [(y, f"{n:,}", f"{share:.5f}") for y, (n, share) in u["by_year"].items()])
+    out += _table(
+        ["year", "stock rows", "pass"], [(y, f"{n:,}", f"{share:.5f}") for y, (n, share) in u["by_year"].items()]
+    )
+    r = u["rule_change"]
+    out += [
+        "A row is dropped when its average price lies outside [low × (1 − tol), high × (1 + tol)], where tol = 0.01 + 0.5 / amount (千元).",
+        f"This drops {r['new_rows']:,} rows; the earlier screen (average price outside 0.5×..2× of the close) dropped {r['old_rows']:,}.",
+        "",
+    ]
+    columns = ["code", "date", "low", "high", "close", "average price"]
+    if r["kept"]:
+        out += [f"Kept now, dropped by the earlier screen ({len(r['kept'])}):", "", *_table(columns, r["kept"])]
+    if r["added"]:
+        out += [f"Dropped now, kept by the earlier screen ({len(r['added'])}):", "", *_table(columns, r["added"])]
+    out += [f"**Dropped rows with low = high (limit-locked days): {len(u['flat_dropped'])}.**", ""]
+    if u["flat_dropped"]:
+        out += _table(columns, u["flat_dropped"])
     if u["dropped"]:
-        out += [f"Dropped rows whose amount / volume is outside 0.5×..2× of the close ({u['dropped_rows']:,}), by code:", ""]
-        out += _table(["code", "rows", "rows of code", "first", "last", "median ratio"], u["dropped"])
+        out += [f"Dropped rows by code ({u['dropped_rows']:,}):", ""]
+        out += _table(["code", "rows", "rows of code", "first", "last", "median ratio to close"], u["dropped"])
     out.append(f"The stored vwap equals amount × 10 / volume to {u['vwap_max_rel']:.1e} relative.")
     if u["index_points"]:
         lo, hi = u["index_share_price"]
-        out.append(f"For indices amount / volume is an average share price ({lo:.2f}..{hi:.2f} 元), not index points, so the check does not apply.")
+        out.append(
+            f"For indices amount / volume is an average share price ({lo:.2f}..{hi:.2f} 元), not index points, so the check does not apply."
+        )
     return out + [""]
 
 
@@ -132,7 +164,9 @@ def _coverage(s: dict) -> list[str]:
         f"- **Stocks whose data ends more than 30 days before {last}:** {c['stale_stocks']}.",
         f"- **Stale indices:** {', '.join(f'{code} (last {d})' for code, d in c['stale_indices']) or 'none'}.",
         f"- **Stocks removed because every row was dropped:** {', '.join(c['removed_stocks']) or 'none'}.",
-        "- **index_members:** " + ", ".join(f"{code} {n:,}" for code, n in c["members"].items()) + f"; {c['members_not_listed']} spans name codes not in all.txt.",
+        "- **index_members:** "
+        + ", ".join(f"{code} {n:,}" for code, n in c["members"].items())
+        + f"; {c['members_not_listed']} spans name codes not in all.txt.",
         "",
     ]
     if c["dropped_members"]:
@@ -161,12 +195,18 @@ def _adjustment(s: dict) -> list[str]:
     ]
     if a["big_drops"]:
         out += [f"Ratio drops larger than 1% ({len(a['big_drops'])}), for review:", ""]
-        out += _table(["code", "date", "step", "before", "after"], [(c, d, f"{x:+.4f}", f"{r0:.4f}", f"{r1:.4f}") for c, d, x, r0, r1 in a["big_drops"]])
+        out += _table(
+            ["code", "date", "step", "before", "after"],
+            [(c, d, f"{x:+.4f}", f"{r0:.4f}", f"{r1:.4f}") for c, d, x, r0, r1 in a["big_drops"]],
+        )
     if a["blips"]:
         out += [f"Skipped one-day blips ({len(a['blips'])}):", ""]
         out += _table(
             ["code", "date", "close", "adjclose", "ratio before", "blip", "ratio after"],
-            [(c, d, f"{p:.2f}", f"{x:.2f}", f"{r0:.4f}", f"{r1:.4f}", f"{r2:.4f}") for c, d, p, x, r0, r1, r2 in a["blips"]],
+            [
+                (c, d, f"{p:.2f}", f"{x:.2f}", f"{r0:.4f}", f"{r1:.4f}", f"{r2:.4f}")
+                for c, d, p, x, r0, r1, r2 in a["blips"]
+            ],
         )
     return out
 
@@ -175,7 +215,9 @@ def _issues(s: dict) -> list[str]:
     i = s["issues"]
     out = ["## 8. Data issues", "", "Everything dropped or bypassed is recorded in the data_issues table:", ""]
     out += _table(["kind", "action", "rows"], [(k, a, f"{n:,}") for k, a, n in i["by_kind"]])
-    out.append(f"**off_scale rows within {YOUNG_DAYS} trading days of the stock's first day: {len(i['young_off_scale'])}.** These may be real first-days trading, when no price limit applies, dropped by mistake.")
+    out.append(
+        f"**off_scale rows within {YOUNG_DAYS} trading days of the stock's first day: {len(i['young_off_scale'])}.** These may be real first-days trading, when no price limit applies, dropped by mistake."
+    )
     out.append("")
     if i["young_off_scale"]:
         out += _table(["code", "date", "scale", "days since first"], i["young_off_scale"])
@@ -186,17 +228,25 @@ def _idempotency(run: dict) -> list[str]:
     out = ["## 9. Idempotency", ""]
     if "commit" in run:
         c = run["commit"]
-        out.append(f"- **Commit:** version {c.version}, {'new version' if c.changed else 'unchanged'}; {len(c.files_written)} files written, {len(c.files_reused)} reused.")
+        out.append(
+            f"- **Commit:** version {c.version}, {'new version' if c.changed else 'unchanged'}; {len(c.files_written)} files written, {len(c.files_reused)} reused."
+        )
         out.append(f"- **Files written:** {', '.join(c.files_written) or 'none'}.")
     if "repeat" in run:
         r = run["repeat"]
         verdict = "PASS" if r["same_hashes"] and not r["changed"] else "FAIL"
-        out.append(f"- **Re-import of the same input:** {verdict}. All {r['files']} files hash the same: {r['same_hashes']}; new version: {r['changed']}.")
+        out.append(
+            f"- **Re-import of the same input:** {verdict}. All {r['files']} files hash the same: {r['same_hashes']}; new version: {r['changed']}."
+        )
     return out + [""]
 
 
 def _resources(run: dict) -> list[str]:
-    out = ["## 10. Time and disk", "", *_table(["step", "seconds"], [(k, f"{v:.1f}") for k, v in run["timings"].items()])]
+    out = [
+        "## 10. Time and disk",
+        "",
+        *_table(["step", "seconds"], [(k, f"{v:.1f}") for k, v in run["timings"].items()]),
+    ]
     if "disk" in run:
         d = run["disk"]
         out += [

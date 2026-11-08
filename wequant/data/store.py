@@ -254,7 +254,9 @@ class Store:
 
     # ------------------------------------------------------------ internals
 
-    def _write_table(self, name: str, mode: str, df: pl.DataFrame, old_files: list[dict], result: CommitResult) -> list[dict]:
+    def _write_table(
+        self, name: str, mode: str, df: pl.DataFrame, old_files: list[dict], result: CommitResult
+    ) -> list[dict]:
         table = TABLES[name]
         old = {e["part"]: e for e in old_files}
         parts = split_parts(table, prepare(table, df))
@@ -351,7 +353,7 @@ def _atomic_write(path: Path, data: bytes) -> None:
 
 
 def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 
 
 def _date(value: dt.date | str | None) -> dt.date | None:

@@ -39,11 +39,24 @@ def bars(rows):
 
 
 def four_years():
-    return bars([(code, f"{y}-06-0{d}", y * 10 + d) for y in range(2000, 2004) for code in ("600000.SH", "000001.SZ") for d in (1, 2)])
+    return bars(
+        [
+            (code, f"{y}-06-0{d}", y * 10 + d)
+            for y in range(2000, 2004)
+            for code in ("600000.SH", "000001.SZ")
+            for d in (1, 2)
+        ]
+    )
 
 
 def factors(rows):
-    return pl.DataFrame({"code": [r[0] for r in rows], "ex_date": [dt.date.fromisoformat(r[1]) for r in rows], "factor": [r[2] for r in rows]})
+    return pl.DataFrame(
+        {
+            "code": [r[0] for r in rows],
+            "ex_date": [dt.date.fromisoformat(r[1]) for r in rows],
+            "factor": [r[2] for r in rows],
+        }
+    )
 
 
 def entries(store, table, version=None):
@@ -136,8 +149,12 @@ def test_replace_parts_swaps_whole_years_only(store):
 
 
 def test_upsert_on_an_unpartitioned_table_merges_by_key(store):
-    store.commit(META, replace={"adj_factor": factors([("600000.SH", "2001-01-02", 1.0), ("600000.SH", "2002-06-01", 1.1)])})
-    store.commit(META, upsert={"adj_factor": factors([("600000.SH", "2002-06-01", 1.2), ("000001.SZ", "2001-01-02", 1.0)])})
+    store.commit(
+        META, replace={"adj_factor": factors([("600000.SH", "2001-01-02", 1.0), ("600000.SH", "2002-06-01", 1.1)])}
+    )
+    store.commit(
+        META, upsert={"adj_factor": factors([("600000.SH", "2002-06-01", 1.2), ("000001.SZ", "2001-01-02", 1.0)])}
+    )
     out = store.read_table("adj_factor").sort("code", "ex_date")
     assert out.rows() == [
         ("000001.SZ", dt.date(2001, 1, 2), 1.0),

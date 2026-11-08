@@ -13,9 +13,9 @@ import polars as pl
 from wequant.data import codes as codemod
 
 if TYPE_CHECKING:
-    from tools.investment_data.qlib import Panel
     from tools.investment_data.adjustment import Ratio
     from tools.investment_data.convert import Recovered, Stocks
+    from tools.investment_data.qlib import Panel
 
 UNIT_YEAR_MIN = 0.995  # share of a year's stock rows that must pass the unit check
 RESIDUAL_FEN = 0.2  # price residuals above this are listed
@@ -54,7 +54,9 @@ def run_all(
 
 
 def layout(panel: Panel) -> Result:
-    problems = [f"{len(panel.issues)} instruments have feature files that do not match their span"] if panel.issues else []
+    problems = (
+        [f"{len(panel.issues)} instruments have feature files that do not match their span"] if panel.issues else []
+    )
     return {"issues": panel.issues}, problems
 
 
@@ -68,9 +70,13 @@ def fields(panel: Panel) -> Result:
     first_with_data[rows[np.r_[True, panel.code_idx[rows[1:]] != panel.code_idx[rows[:-1]]]]] = True
     core = [f for f in v if f not in ("factor", "change")]
     anomalies = {
-        "rows with data but a NaN field": (has_data & ~np.logical_and.reduce([finite[f] for f in [*core, "factor"]])).sum(),
+        "rows with data but a NaN field": (
+            has_data & ~np.logical_and.reduce([finite[f] for f in [*core, "factor"]])
+        ).sum(),
         "rows with data and NaN change after the first day": (has_data & ~finite["change"] & ~first_with_data).sum(),
-        "rows without data but a finite field": (~has_data & np.logical_or.reduce([finite[f] for f in [*core, "change"]])).sum(),
+        "rows without data but a finite field": (
+            ~has_data & np.logical_or.reduce([finite[f] for f in [*core, "change"]])
+        ).sum(),
         "rows with data and volume <= 0": (has_data & (np.nan_to_num(v["volume"], nan=1) <= 0)).sum(),
         "infinite values": sum(np.isinf(x).sum() for x in v.values()),
     }
@@ -115,11 +121,17 @@ def rounding(rec: Recovered) -> Result:
     stats: dict = {"fields": {}}
     for f in ("open", "high", "low", "close"):
         fen = np.abs(rec.price[f][stock] - np.round(rec.price[f][stock], 2)) * 100
-        stats["fields"][f] = {"max": float(fen.max()), "p99.99": float(np.quantile(fen, 0.9999)), "over": int((fen > RESIDUAL_FEN).sum())}
+        stats["fields"][f] = {
+            "max": float(fen.max()),
+            "p99.99": float(np.quantile(fen, 0.9999)),
+            "over": int((fen > RESIDUAL_FEN).sum()),
+        }
     fen = np.abs(rec.price["close"] - np.round(rec.price["close"], 2)) * 100
     worst = np.flatnonzero(stock & (fen > RESIDUAL_FEN))
     worst = worst[np.argsort(-fen[worst])][:20]
-    stats["worst"] = [(rec.codes[rec.code_idx[k]], str(rec.dates[k]), float(rec.price["close"][k]), float(fen[k])) for k in worst]
+    stats["worst"] = [
+        (rec.codes[rec.code_idx[k]], str(rec.dates[k]), float(rec.price["close"][k]), float(fen[k])) for k in worst
+    ]
     return stats, []
 
 
@@ -142,24 +154,66 @@ def units(rec: Recovered) -> Result:
     for k in np.flatnonzero(off_scale(rec)).tolist():
         by_code.setdefault(int(rec.code_idx[k]), []).append(k)
     dropped = [
-        (rec.codes[c], len(ks), int((rec.code_idx == c).sum()), str(rec.dates[ks[0]]), str(rec.dates[ks[-1]]), round(float(np.median(scale[ks])), 3))
+        (
+            rec.codes[c],
+            len(ks),
+            int((rec.code_idx == c).sum()),
+            str(rec.dates[ks[0]]),
+            str(rec.dates[ks[-1]]),
+            round(float(np.median(scale[ks])), 3),
+        )
         for c, ks in sorted(by_code.items(), key=lambda item: -len(item[1]))
     ]
+
+    new_rule, old_rule = off_scale(rec), close_band_screen(rec)
+    low, high = np.round(rec.price["low"], 2), np.round(rec.price["high"], 2)
+
+    def listed(mask: np.ndarray) -> list[tuple]:
+        return [
+            (
+                rec.codes[rec.code_idx[k]],
+                str(rec.dates[k]),
+                float(low[k]),
+                float(high[k]),
+                round(float(rec.price["close"][k]), 2),
+                round(float(price[k]), 4),
+            )
+            for k in np.flatnonzero(mask).tolist()
+        ]
 
     index = rec.kind == "index"
     stats = {
         "by_year": by_year,
         "dropped": dropped,
         "dropped_rows": sum(n for _, n, *_ in dropped),
+        "rule_change": {
+            "new_rows": int(new_rule.sum()),
+            "old_rows": int(old_rule.sum()),
+            "kept": listed(old_rule & ~new_rule),
+            "added": listed(new_rule & ~old_rule),
+        },
+        "flat_dropped": listed(new_rule & (low == high)),
         "vwap_max_rel": float(np.max(np.abs(rec.price["vwap"] / price - 1))),
         "index_share_price": (float(price[index].min()), float(price[index].max())) if index.any() else None,
-        "index_points": (float(rec.price["close"][index].min()), float(rec.price["close"][index].max())) if index.any() else None,
+        "index_points": (float(rec.price["close"][index].min()), float(rec.price["close"][index].max()))
+        if index.any()
+        else None,
     }
     return stats, problems
 
 
 def off_scale(rec: Recovered) -> np.ndarray:
-    """Stock rows whose amount / volume is not even near the close: volume or amount is off by a unit."""
+    """Stock rows whose average price lies outside the day's range: volume or amount is wrong.
+
+    The tolerance is 1% plus amount's own precision (0.5 千元).
+    """
+    vwap = rec.amount_k * 1000 / (rec.lots * 100)
+    tol = 0.01 + 0.5 / rec.amount_k
+    return (rec.kind == "stock") & ((vwap < rec.price["low"] * (1 - tol)) | (vwap > rec.price["high"] * (1 + tol)))
+
+
+def close_band_screen(rec: Recovered) -> np.ndarray:
+    """The looser screen used before: average price outside 0.5x..2x of the close. Reported for comparison."""
     scale = rec.amount_k * 1000 / (rec.lots * 100) / rec.price["close"]
     return (rec.kind == "stock") & ((scale < 0.5) | (scale > 2))
 
@@ -213,15 +267,29 @@ def adjustment(stocks: Stocks, ratio: Ratio, preclose: np.ndarray, codes: list[s
         "breaks_1e-6_to_1e-4": int(((run_step >= 1e-6) & (run_step <= 1e-4)).sum()),
         "merged": int(ratio.merged_runs.size),
         "blips": [
-            (*where(ratio.run_starts[k]), float(stocks.close[ratio.run_starts[k]]), round(float(stocks.adjclose[ratio.run_starts[k]]), 2),
-             float(ratio.run_values[k - 1]), float(ratio.run_values[k]), float(ratio.run_values[k + 1]))
+            (
+                *where(ratio.run_starts[k]),
+                float(stocks.close[ratio.run_starts[k]]),
+                round(float(stocks.adjclose[ratio.run_starts[k]]), 2),
+                float(ratio.run_values[k - 1]),
+                float(ratio.run_values[k]),
+                float(ratio.run_values[k + 1]),
+            )
             for k in ratio.blip_runs
         ],
         "rows": int(ratio.event_rows.size),
         "events": int(cont.size),
         "event_sizes": np.histogram(np.abs(step), [1e-4, 1e-3, 1e-2, 1e-1, np.inf])[0].tolist(),
         "negative_events": int((step < 0).sum()),
-        "big_drops": [(*where(ratio.event_rows[k]), float(event_ratio[k] / event_ratio[k - 1] - 1), float(event_ratio[k - 1]), float(event_ratio[k])) for k in big_drops],
+        "big_drops": [
+            (
+                *where(ratio.event_rows[k]),
+                float(event_ratio[k] / event_ratio[k - 1] - 1),
+                float(event_ratio[k - 1]),
+                float(event_ratio[k]),
+            )
+            for k in big_drops
+        ],
         "events_per_code_year": dict(zip(*[x.tolist() for x in np.unique(counts, return_counts=True)])),
         "preclose_mismatch": int((preclose[following] != stocks.close[np.flatnonzero(following) - 1]).sum()),
     }
@@ -250,7 +318,9 @@ def ohlc(tables: dict[str, pl.DataFrame]) -> Result:
     return stats, []
 
 
-def coverage(rec: Recovered, tables: dict[str, pl.DataFrame], invalid_members: list[tuple], unmapped_lists: list[str]) -> Result:
+def coverage(
+    rec: Recovered, tables: dict[str, pl.DataFrame], invalid_members: list[tuple], unmapped_lists: list[str]
+) -> Result:
     last = rec.dates.max()
     cutoff = last - np.timedelta64(30, "D")
     stocks = [(c, s) for c, s, k in zip(rec.codes, rec.spans, rec.kinds) if k == "stock"]
@@ -263,7 +333,9 @@ def coverage(rec: Recovered, tables: dict[str, pl.DataFrame], invalid_members: l
         .sort("year")
         .rows(),
         "stale_stocks": sum(s.end < cutoff for _, s in stocks),
-        "stale_indices": [(c, str(s.end)) for c, s, k in zip(rec.codes, rec.spans, rec.kinds) if k == "index" and s.end < cutoff],
+        "stale_indices": [
+            (c, str(s.end)) for c, s, k in zip(rec.codes, rec.spans, rec.kinds) if k == "index" and s.end < cutoff
+        ],
         "calendar": (int(rec.calendar.size), str(rec.calendar[0]), tables["calendar"].height, str(last)),
         "members": dict(members.group_by("index_code").len().sort("index_code").iter_rows()),
         "members_not_listed": int((~members["code"].is_in(list(all_codes))).sum()),

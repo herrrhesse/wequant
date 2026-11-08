@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 _CODE = re.compile(r"(SH|SZ|BJ)([0-9]{6})\Z")
 
 

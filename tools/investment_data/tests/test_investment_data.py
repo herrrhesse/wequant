@@ -6,11 +6,11 @@ import numpy as np
 import polars as pl
 import pytest
 
-from tools.investment_data.tests import synthetic as syn
-from wequant.data.schema import TABLES
 from tools.investment_data import checks, release
 from tools.investment_data.convert import ConventionError, convert
 from tools.investment_data.run import run_import
+from tools.investment_data.tests import synthetic as syn
+from wequant.data.schema import TABLES
 from wequant.data.store import Store
 
 
@@ -70,7 +70,9 @@ def test_adj_factor_records_real_events_only(converted):
     assert [b[:2] for b in a["blips"]] == [("000001.SZ", str(syn.DAYS[25]))]
     assert a["merged"] >= 1
     blip = tables["data_issues"].filter(pl.col("kind") == "adj_blip")
-    assert blip.select("table", "code", "date", "action").rows() == [("adj_factor", "000001.SZ", day(25), "excluded_from_adj_factor_and_preclose")]
+    assert blip.select("table", "code", "date", "action").rows() == [
+        ("adj_factor", "000001.SZ", day(25), "excluded_from_adj_factor_and_preclose")
+    ]
     assert json.loads(blip["detail"].item())["ratio_blip"] == pytest.approx(1.0, abs=1e-3)
     assert day(25) in bars_of(tables, "SZ000001")["date"].to_list()  # the bar itself is kept
 
@@ -176,7 +178,9 @@ def test_index_member_spans_with_malformed_codes_are_dropped(tmp_path):
     assert tables["index_members"].height == sum(len(v) for v in syn.CSI.values())
     assert stats["coverage"]["dropped_members"] == [("csi300.txt", "SHT00018", str(syn.DAYS[0]), str(syn.DAYS[3]))]
     issue = tables["data_issues"].filter(pl.col("kind") == "invalid_member_code")
-    assert issue.select("table", "code", "date", "action").rows() == [("index_members", "SHT00018", day(0), "span_dropped")]
+    assert issue.select("table", "code", "date", "action").rows() == [
+        ("index_members", "SHT00018", day(0), "span_dropped")
+    ]
     assert json.loads(issue["detail"].item()) == {"list": "csi300.txt", "end_date": str(syn.DAYS[3])}
 
 
@@ -233,3 +237,35 @@ def test_run_import_end_to_end_is_idempotent(tmp_path):
     shutil.rmtree(raw / "extracted")
     assert run_import(syn.TAG, home, check_idempotency=False)[0] == 0  # re-extracted: same data
     assert Store(home).manifest()["version"] == 1
+
+
+def test_off_scale_keeps_wide_first_days_and_drops_unit_errors():
+    from tools.investment_data.checks import off_scale
+    from tools.investment_data.convert import Recovered
+
+    # a first trading day (low 20.40, high 202.15, close 98.02, average 26.97), a normal day,
+    # a day whose amount is 10x off, and a limit-locked day with a consistent average price
+    low, high, close, average = (
+        np.array(v)
+        for v in (
+            [20.40, 10.0, 10.0, 12.06],
+            [202.15, 11.0, 11.0, 12.06],
+            [98.02, 10.5, 10.5, 12.06],
+            [26.97, 10.6, 106.0, 12.06],
+        )
+    )
+    lots = np.full(4, 1000.0)
+    rec = Recovered(
+        codes=["301487.SZ"],
+        kinds=np.array(["stock"]),
+        spans=[],
+        calendar=syn.DAYS,
+        code_idx=np.zeros(4, np.int32),
+        dates=syn.DAYS[:4],
+        price={"low": low, "high": high, "close": close, "open": close, "vwap": average},
+        lots=lots,
+        amount_k=average * lots * 100 / 1000,
+        adjclose=close.astype(np.float32),
+        stored_close=close,
+    )
+    assert off_scale(rec).tolist() == [False, False, True, False]

@@ -13,10 +13,9 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from tools.investment_data import adjustment, checks, issues, qlib
 from wequant.data import codes as codemod
-from tools.investment_data import qlib
 from wequant.data.schema import TABLES
-from tools.investment_data import adjustment, checks, issues
 
 FIELDS = ("open", "high", "low", "close", "volume", "amount", "adjclose", "vwap", "factor", "change")
 PRICES = ("open", "high", "low", "close")
@@ -154,21 +153,25 @@ def build_tables(
     """dropped marks Recovered rows left out of bars; stocks left without bars are left out entirely."""
     code = pl.Series("code", rec.codes, dtype=pl.String)
     s = stocks.rows
-    bars = pl.DataFrame(
-        {
-            "code": code.gather(stocks.code_idx),
-            "date": stocks.dates,
-            **{f: _li(rec.price[f][s], decimals=2) for f in PRICES},
-            "volume": _shares(rec.lots[s]),
-            "amount": rec.amount_k[s] * 1000,
-            "preclose": _li(preclose, decimals=2),
-        }
-    ).with_columns(
-        preclose_derived=pl.lit(True),
-        tradestatus=pl.lit(None, dtype=pl.Int8),
-        is_st=pl.lit(None, dtype=pl.Boolean),
-        source=pl.lit(source),
-    ).filter(pl.Series(~dropped[s]))
+    bars = (
+        pl.DataFrame(
+            {
+                "code": code.gather(stocks.code_idx),
+                "date": stocks.dates,
+                **{f: _li(rec.price[f][s], decimals=2) for f in PRICES},
+                "volume": _shares(rec.lots[s]),
+                "amount": rec.amount_k[s] * 1000,
+                "preclose": _li(preclose, decimals=2),
+            }
+        )
+        .with_columns(
+            preclose_derived=pl.lit(True),
+            tradestatus=pl.lit(None, dtype=pl.Int8),
+            is_st=pl.lit(None, dtype=pl.Boolean),
+            source=pl.lit(source),
+        )
+        .filter(pl.Series(~dropped[s]))
+    )
 
     i = np.flatnonzero(rec.kind == "index")
     index_bars = pl.DataFrame(

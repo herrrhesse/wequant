@@ -68,7 +68,15 @@ def make_raw(stock: Stock, seed: int) -> dict[str, np.ndarray]:
         adjclose = np.round(close * _ratio_path(stock), 2)
         if stock.blip is not None:
             adjclose[stock.blip - stock.start] = close[stock.blip - stock.start]
-    return {"open": open_, "high": high, "low": low, "close": close, "volume": lots, "amount": amount_k, "adjclose": adjclose}
+    return {
+        "open": open_,
+        "high": high,
+        "low": low,
+        "close": close,
+        "volume": lots,
+        "amount": amount_k,
+        "adjclose": adjclose,
+    }
 
 
 def normalize(raw: dict[str, np.ndarray], suspended_pos: list[int]) -> dict[str, np.ndarray]:

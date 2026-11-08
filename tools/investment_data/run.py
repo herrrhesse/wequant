@@ -5,9 +5,9 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from wequant.data.schema import TABLES
 from tools.investment_data import release, report
 from tools.investment_data.convert import ConventionError, convert
+from wequant.data.schema import TABLES
 from wequant.data.store import Store, wequant_home
 
 

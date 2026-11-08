@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from tools.investment_data.tests import synthetic as syn
 from tools.investment_data import qlib
+from tools.investment_data.tests import synthetic as syn
 
 
 @pytest.fixture(scope="module")
