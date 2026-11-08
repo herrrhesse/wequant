@@ -1,0 +1,29 @@
+[project]
+name = "wequant"
+version = "0.1.0"
+description = "WeQuant 微框: local A-share stock selection and backtesting"
+readme = "README.md"
+authors = [
+    { name = "hhesse-bot", email = "herrrhesse@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "polars>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "tools"]
+pythonpath = ["."]
