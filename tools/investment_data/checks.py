@@ -205,10 +205,11 @@ def units(rec: Recovered) -> Result:
 def off_scale(rec: Recovered) -> np.ndarray:
     """Stock rows whose average price lies outside the day's range: volume or amount is wrong.
 
-    The tolerance is 1% plus amount's own precision (0.5 千元).
+    The tolerance is 1% plus the precision of amount (0.5 千元) and of volume (0.5 手; some days the source
+    rounded volume to whole lots).
     """
     vwap = rec.amount_k * 1000 / (rec.lots * 100)
-    tol = 0.01 + 0.5 / rec.amount_k
+    tol = 0.01 + 0.5 / rec.amount_k + 0.5 / rec.lots
     return (rec.kind == "stock") & ((vwap < rec.price["low"] * (1 - tol)) | (vwap > rec.price["high"] * (1 + tol)))
 
 

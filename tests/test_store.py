@@ -139,6 +139,15 @@ def test_unchanged_upsert_creates_no_version(store):
     assert store.versions() == [1]
 
 
+def test_the_same_content_in_any_memory_layout_is_one_file(store):
+    df = four_years()
+    store.commit(META, replace={"bars": df})
+    pieces = pl.concat([df.slice(0, 5), df.slice(5, 3), df.slice(8)], rechunk=False)
+    assert pieces.n_chunks() > 1
+    result = store.commit(META, replace={"bars": pieces})
+    assert not result.changed and result.files_written == []
+
+
 def test_replace_parts_swaps_whole_years_only(store):
     store.commit(META, replace={"bars": four_years()})
     result = store.commit(META, replace_parts={"bars": bars([("300750.SZ", "2002-01-05", 7)])})

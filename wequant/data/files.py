@@ -9,10 +9,13 @@ from pathlib import Path
 
 import polars as pl
 
+ROW_GROUP_ROWS = 262_144
+
 
 def parquet_bytes(df: pl.DataFrame) -> bytes:
+    """Parquet bytes that depend only on the content: the writer splits row groups at chunk boundaries."""
     buffer = io.BytesIO()
-    df.write_parquet(buffer, compression="zstd")
+    df.rechunk().write_parquet(buffer, compression="zstd", row_group_size=ROW_GROUP_ROWS)
     return buffer.getvalue()
 
 

@@ -243,29 +243,26 @@ def test_off_scale_keeps_wide_first_days_and_drops_unit_errors():
     from tools.investment_data.checks import off_scale
     from tools.investment_data.convert import Recovered
 
-    # a first trading day (low 20.40, high 202.15, close 98.02, average 26.97), a normal day,
-    # a day whose amount is 10x off, and a limit-locked day with a consistent average price
-    low, high, close, average = (
-        np.array(v)
-        for v in (
-            [20.40, 10.0, 10.0, 12.06],
-            [202.15, 11.0, 11.0, 12.06],
-            [98.02, 10.5, 10.5, 12.06],
-            [26.97, 10.6, 106.0, 12.06],
-        )
-    )
-    lots = np.full(4, 1000.0)
+    # rows: a first trading day (low 20.40, high 202.15, close 98.02, average 26.97); a normal day; a day whose
+    # amount is 10x off; a limit-locked day; and 000503.SZ on 2000-02-16, limit-locked at 51.22 with its volume
+    # rounded to 37 lots (3,747 shares traded), so amount / volume reads 51.87
+    low = np.array([20.40, 10.0, 10.0, 12.06, 51.22])
+    high = np.array([202.15, 11.0, 11.0, 12.06, 51.22])
+    close = np.array([98.02, 10.5, 10.5, 12.06, 51.22])
+    lots = np.array([1000.0, 1000.0, 1000.0, 1000.0, 37.0])
+    amount_k = np.array([26.97, 10.6, 106.0, 12.06, 0.0]) * lots * 100 / 1000
+    amount_k[4] = 51.22 * 3747 / 1000
     rec = Recovered(
         codes=["301487.SZ"],
         kinds=np.array(["stock"]),
         spans=[],
         calendar=syn.DAYS,
-        code_idx=np.zeros(4, np.int32),
-        dates=syn.DAYS[:4],
-        price={"low": low, "high": high, "close": close, "open": close, "vwap": average},
+        code_idx=np.zeros(5, np.int32),
+        dates=syn.DAYS[:5],
+        price={"low": low, "high": high, "close": close, "open": close, "vwap": close},
         lots=lots,
-        amount_k=average * lots * 100 / 1000,
+        amount_k=amount_k,
         adjclose=close.astype(np.float32),
         stored_close=close,
     )
-    assert off_scale(rec).tolist() == [False, False, True, False]
+    assert off_scale(rec).tolist() == [False, False, True, False, False]
