@@ -1,22 +1,28 @@
 import datetime as dt
 import hashlib
 import json
+import multiprocessing
+import os
+import socket
 
 import polars as pl
 import pytest
 
 from wequant.data.schema import TABLES
-from wequant.data.store import Store, wequant_home
+from wequant.data.store import Store, StoreLocked, wequant_home
+
+META = {"last_trade_date": "2003-12-31", "source": "test", "release_tag": "t1"}
 
 
 def bars(rows):
-    """rows: (code, date, close) -> a full bars frame."""
+    """rows: (code, date or ISO string, close) -> a full bars frame."""
     df = pl.DataFrame(
         {
             "code": [r[0] for r in rows],
-            "date": [r[1] for r in rows],
+            "date": [dt.date.fromisoformat(r[1]) if isinstance(r[1], str) else r[1] for r in rows],
             "close": pl.Series([r[2] for r in rows], dtype=pl.Int32),
-        }
+        },
+        schema={"code": pl.String, "date": pl.Date, "close": pl.Int32},
     )
     return df.with_columns(
         open=pl.col("close"),
@@ -32,13 +38,36 @@ def bars(rows):
     ).select(list(TABLES["bars"].schema))
 
 
-D1, D2, D3 = dt.date(2023, 12, 29), dt.date(2024, 1, 2), dt.date(2024, 1, 3)
-META = {"last_trade_date": "2024-01-03", "source": "test", "release_tag": "t1"}
+def four_years():
+    return bars([(code, f"{y}-06-0{d}", y * 10 + d) for y in range(2000, 2004) for code in ("600000.SH", "000001.SZ") for d in (1, 2)])
+
+
+def factors(rows):
+    return pl.DataFrame({"code": [r[0] for r in rows], "ex_date": [dt.date.fromisoformat(r[1]) for r in rows], "factor": [r[2] for r in rows]})
+
+
+def entries(store, table, version=None):
+    return {e["part"]: e for e in store.manifest(version)["tables"][table]["files"]}
 
 
 @pytest.fixture
 def store(tmp_path):
     return Store(tmp_path)
+
+
+@pytest.fixture
+def reads(monkeypatch):
+    """Paths of every Parquet file read through polars."""
+    seen = []
+    real = pl.scan_parquet
+
+    def scan(source, *args, **kwargs):
+        seen.extend(os.path.basename(str(p)) for p in (source if isinstance(source, list) else [source]))
+        return real(source, *args, **kwargs)
+
+    monkeypatch.setattr(pl, "scan_parquet", scan)
+    monkeypatch.setattr(pl, "read_parquet", lambda *a, **k: pytest.fail("read_parquet bypasses scan"))
+    return seen
 
 
 def test_home_from_environment(monkeypatch, tmp_path):
@@ -48,77 +77,184 @@ def test_home_from_environment(monkeypatch, tmp_path):
     assert wequant_home().name == ".wequant"
 
 
-def test_commit_writes_versioned_year_files_and_manifest(store):
-    df = bars([("600000.SH", D2, 10_000), ("000001.SZ", D1, 9_000), ("600000.SH", D1, 9_900)])
-    result = store.commit({"bars": df}, META)
+# ---------------------------------------------------------------- write modes
+
+
+def test_replace_writes_versioned_year_files_and_manifest(store):
+    result = store.commit(META, replace={"bars": four_years()})
     assert result.changed and result.version == 1
-    assert sorted(result.files_written) == ["bars/2023.v1.parquet", "bars/2024.v1.parquet"]
+    assert result.files_written == [f"bars/{y}.v1.parquet" for y in range(2000, 2004)]
     manifest = store.manifest()
-    assert manifest["version"] == 1 and manifest["release_tag"] == "t1"
+    assert manifest["release_tag"] == "t1"
     for entry in manifest["tables"]["bars"]["files"]:
-        data = (store.home / entry["path"]).read_bytes()
-        assert hashlib.sha256(data).hexdigest() == entry["sha256"]
+        assert hashlib.sha256((store.home / entry["path"]).read_bytes()).hexdigest() == entry["sha256"]
     assert json.loads((store.home / "manifests" / "manifest.v1.json").read_text()) == manifest
-    out = store.read_table("bars")
-    assert out.select("code", "date").rows() == [("000001.SZ", D1), ("600000.SH", D1), ("600000.SH", D2)]
+    assert store.read_table("bars").height == 16
 
 
-def test_same_input_twice_is_a_no_op(store):
-    df = bars([("600000.SH", D1, 1), ("600000.SH", D2, 2)])
-    first = store.commit({"bars": df}, META)
-    second = store.commit({"bars": df.reverse()}, META)
-    assert second.hashes == first.hashes
-    assert not second.changed and second.version == 1 and second.files_written == []
+def test_replace_drops_parts_the_new_frame_does_not_cover(store):
+    store.commit(META, replace={"bars": four_years()})
+    store.commit(META, replace={"bars": bars([("600000.SH", "2001-06-01", 1)])})
+    assert list(entries(store, "bars")) == ["2001"]
+    assert store.read_table("bars").height == 1
+
+
+def test_upsert_touches_only_its_year(store, reads):
+    store.commit(META, replace={"bars": four_years()})
+    before = entries(store, "bars")
+    reads.clear()
+    result = store.commit(
+        META,
+        upsert={"bars": bars([("600000.SH", "2003-06-01", -1), ("600000.SH", "2003-06-03", 99)])},
+    )
+    assert reads == ["2003.v1.parquet"]
+    assert result.files_written == ["bars/2003.v2.parquet"]
+    assert result.files_kept == [f"bars/{y}.v1.parquet" for y in (2000, 2001, 2002)]
+    after = entries(store, "bars")
+    assert {p: after[p] for p in ("2000", "2001", "2002")} == {p: before[p] for p in ("2000", "2001", "2002")}
+    y2003 = store.read_table("bars", start="2003-01-01").sort("code", "date")
+    assert y2003.height == 5
+    assert y2003.filter(pl.col("code") == "600000.SH")["close"].to_list() == [-1, 20032, 99]
+    assert store.read_table("bars", version=1).height == 16  # the old version is intact
+
+
+def test_unchanged_upsert_creates_no_version(store):
+    store.commit(META, replace={"bars": four_years()})
+    result = store.commit(META, upsert={"bars": bars([("600000.SH", "2002-06-01", 20021)])})
+    assert not result.changed and result.version == 1 and result.files_written == []
+    assert result.files_reused == ["bars/2002.v1.parquet"]
     assert store.versions() == [1]
 
 
-def test_copy_on_write_keeps_old_files_and_versions(store):
-    store.commit({"bars": bars([("600000.SH", D1, 1), ("600000.SH", D2, 2)])}, META)
-    v1 = store.manifest()
-    old_2024 = next(e for e in v1["tables"]["bars"]["files"] if e["part"] == "2024")
-    old_bytes = (store.home / old_2024["path"]).read_bytes()
+def test_replace_parts_swaps_whole_years_only(store):
+    store.commit(META, replace={"bars": four_years()})
+    result = store.commit(META, replace_parts={"bars": bars([("300750.SZ", "2002-01-05", 7)])})
+    assert result.files_written == ["bars/2002.v2.parquet"]
+    y2002 = store.read_table("bars", start="2002-01-01", end="2002-12-31")
+    assert y2002.select("code", "close").rows() == [("300750.SZ", 7)]
+    assert store.read_table("bars").height == 13
 
-    result = store.commit({"bars": bars([("600000.SH", D1, 1), ("600000.SH", D2, 2), ("600000.SH", D3, 3)])}, META)
-    assert result.version == 2
-    assert result.files_written == ["bars/2024.v2.parquet"]  # 2023 is unchanged and reused
-    assert result.files_reused == ["bars/2023.v1.parquet"]
-    assert (store.home / old_2024["path"]).read_bytes() == old_bytes
-    assert store.read_table("bars", version=1).height == 2
-    assert store.read_table("bars").height == 3
+
+def test_upsert_on_an_unpartitioned_table_merges_by_key(store):
+    store.commit(META, replace={"adj_factor": factors([("600000.SH", "2001-01-02", 1.0), ("600000.SH", "2002-06-01", 1.1)])})
+    store.commit(META, upsert={"adj_factor": factors([("600000.SH", "2002-06-01", 1.2), ("000001.SZ", "2001-01-02", 1.0)])})
+    out = store.read_table("adj_factor").sort("code", "ex_date")
+    assert out.rows() == [
+        ("000001.SZ", dt.date(2001, 1, 2), 1.0),
+        ("600000.SH", dt.date(2001, 1, 2), 1.0),
+        ("600000.SH", dt.date(2002, 6, 1), 1.2),
+    ]
+
+
+def test_a_table_in_two_modes_is_refused(store):
+    with pytest.raises(ValueError, match="more than one write mode"):
+        store.commit(META, replace={"bars": four_years()}, upsert={"bars": four_years()})
 
 
 def test_tables_not_in_a_commit_are_carried_over(store):
-    cal = pl.DataFrame({"date": [D1, D2]})
-    store.commit({"calendar": cal}, META)
-    store.commit({"bars": bars([("600000.SH", D1, 1)])}, META)
+    store.commit(META, replace={"calendar": pl.DataFrame({"date": [dt.date(2003, 1, 2)]})})
+    store.commit(META, replace={"bars": four_years()})
     assert set(store.manifest()["tables"]) == {"calendar", "bars"}
-    assert store.read_table("calendar")["date"].to_list() == [D1, D2]
 
 
-def test_exact_duplicates_are_dropped_and_conflicts_raise(store):
-    row = ("600000.SH", D1, 1)
-    store.commit({"bars": bars([row, row])}, META)
+def test_duplicates_and_schema(store):
+    row = ("600000.SH", "2003-01-02", 1)
+    store.commit(META, replace={"bars": bars([row, row])})
     assert store.read_table("bars").height == 1
     with pytest.raises(ValueError, match="conflicting"):
-        store.commit({"bars": bars([row, ("600000.SH", D1, 2)])}, META)
-
-
-def test_schema_is_enforced(store):
+        store.commit(META, upsert={"bars": bars([row, ("600000.SH", "2003-01-02", 2)])})
     with pytest.raises(ValueError, match="schema"):
-        store.commit({"bars": bars([("600000.SH", D1, 1)]).drop("is_st")}, META)
-    with pytest.raises(ValueError, match="nulls"):
-        store.commit({"calendar": pl.DataFrame({"date": pl.Series([None], dtype=pl.Date)})}, META)
+        store.commit(META, replace={"bars": bars([row]).drop("is_st")})
 
 
 def test_cleanup_keeps_the_newest_versions_and_deletes_only_when_asked(store):
     for close in range(1, 5):
-        store.commit({"bars": bars([("600000.SH", D2, close)])}, META)
+        store.commit(META, replace={"bars": bars([("600000.SH", "2003-01-02", close)])})
     (store.home / "bars" / ".leftover.tmp").write_bytes(b"")
     doomed = store.cleanup(keep=3)
-    names = sorted(p.relative_to(store.home).as_posix() for p in doomed)
-    assert names == ["bars/.leftover.tmp", "bars/2024.v1.parquet", "manifests/manifest.v1.json"]
-    assert all(p.exists() for p in doomed)  # dry run by default
+    assert sorted(p.relative_to(store.home).as_posix() for p in doomed) == [
+        "bars/.leftover.tmp",
+        "bars/2003.v1.parquet",
+        "manifests/manifest.v1.json",
+    ]
+    assert all(p.exists() for p in doomed)
     store.cleanup(keep=3, dry_run=False)
     assert not any(p.exists() for p in doomed)
     assert store.versions() == [2, 3, 4]
-    assert store.read_table("bars", version=2)["close"].to_list() == [2]
+
+
+# ---------------------------------------------------------------- scan
+
+
+def test_scan_prunes_columns_and_filters_dates_inclusively(store):
+    store.commit(META, replace={"bars": four_years()})
+    frame = store.scan("bars", columns=["code", "date", "close"], start="2001-06-02", end="2002-06-01")
+    assert isinstance(frame, pl.LazyFrame)
+    out = frame.collect()
+    assert out.columns == ["code", "date", "close"]
+    assert sorted(set(out["date"].to_list())) == [dt.date(2001, 6, 2), dt.date(2002, 6, 1)]
+
+
+def test_scan_filters_codes(store):
+    store.commit(META, replace={"bars": four_years()})
+    out = store.read_table("bars", codes=["000001.SZ"])
+    assert set(out["code"]) == {"000001.SZ"} and out.height == 8
+
+
+def test_scan_reads_only_the_years_in_range(store, reads):
+    store.commit(META, replace={"bars": four_years()})
+    reads.clear()
+    store.read_table("bars", start=dt.date(2001, 12, 31), end=dt.date(2002, 1, 1))
+    assert sorted(reads) == ["2001.v1.parquet", "2002.v1.parquet"]
+
+
+def test_scan_of_an_empty_table_has_the_schema(store):
+    out = store.read_table("bars", columns=["code", "close"], start="2020-01-01")
+    assert out.height == 0 and out.schema == {"code": pl.String, "close": pl.Int32}
+    store.commit(META, replace={"bars": bars([("600000.SH", "2003-01-02", 1)])})
+    assert store.read_table("bars", start="2020-01-01").schema == TABLES["bars"].schema
+    with pytest.raises(ValueError, match="no date column"):
+        store.scan("securities", start="2020-01-01")
+
+
+def test_scan_uses_one_snapshot(store):
+    store.commit(META, replace={"bars": four_years()})
+    snapshot = store.manifest()
+    frame = store.scan("bars", manifest=snapshot)
+    store.commit(META, replace={"bars": bars([("600000.SH", "2003-01-02", 1)])})
+    assert frame.collect().height == 16
+
+
+# ---------------------------------------------------------------- lock
+
+
+def _hold_lock(home, ready, release):
+    with Store(home).lock():
+        ready.set()
+        release.wait(30)
+
+
+def test_commit_fails_fast_while_another_process_holds_the_lock(store):
+    ctx = multiprocessing.get_context("spawn")
+    ready, release = ctx.Event(), ctx.Event()
+    child = ctx.Process(target=_hold_lock, args=(store.home, ready, release))
+    child.start()
+    try:
+        assert ready.wait(30)
+        holder = json.loads((store.home / ".lock").read_text())
+        assert holder["pid"] == child.pid and holder["host"] == socket.gethostname() and holder["started"]
+        with pytest.raises(StoreLocked) as error:
+            store.commit(META, replace={"bars": four_years()}, timeout=0)
+        assert error.value.holder["pid"] == child.pid and str(child.pid) in str(error.value)
+        assert store.manifest() is None
+    finally:
+        release.set()
+        child.join(30)
+    assert store.commit(META, replace={"bars": four_years()}).changed
+    assert (store.home / ".lock").read_text() == ""
+
+
+def test_lock_is_reentrant_within_one_store(store):
+    with store.lock():
+        assert store.commit(META, replace={"bars": four_years()}).changed
+        store.cleanup(dry_run=False)

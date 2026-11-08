@@ -24,7 +24,8 @@ class Table:
     name: str
     columns: tuple[Column, ...]
     key: tuple[str, ...]
-    year_partition: str | None = None  # date column whose year selects the file, or None
+    date_column: str | None = None  # the column date-range reads filter on
+    partitioned: bool = False  # one file per year of date_column
     doc: str = ""
 
     @property
@@ -71,6 +72,7 @@ CALENDAR = Table(
     "calendar",
     (Column("date", pl.Date, doc="trading day, up to the last day that has data"),),
     key=("date",),
+    date_column="date",
 )
 
 BARS = Table(
@@ -96,7 +98,8 @@ BARS = Table(
         Column("source", pl.String),
     ),
     key=("code", "date"),
-    year_partition="date",
+    date_column="date",
+    partitioned=True,
     doc="Unadjusted daily stock bars. Days without trading have no row.",
 )
 
@@ -113,6 +116,7 @@ ADJ_FACTOR = Table(
         ),
     ),
     key=("code", "ex_date"),
+    date_column="ex_date",
     doc="One row on each code's first day with data, then one per adjustment event.",
 )
 
@@ -130,6 +134,7 @@ INDEX_BARS = Table(
         Column("source", pl.String),
     ),
     key=("code", "date"),
+    date_column="date",
 )
 
 INDEX_MEMBERS = Table(
@@ -143,6 +148,26 @@ INDEX_MEMBERS = Table(
     key=("index_code", "code", "start_date"),
 )
 
+DATA_ISSUES = Table(
+    "data_issues",
+    (
+        Column("table", pl.String, doc="affected table: bars / adj_factor / securities / index_members"),
+        Column("code", pl.String, doc="affected code; a malformed code is kept as found, e.g. SHT00018"),
+        Column("date", pl.Date, doc="affected day; for an index member span, its start_date"),
+        Column("kind", pl.String, doc="off_scale / removed_security / adj_blip / invalid_member_code"),
+        Column(
+            "action",
+            pl.String,
+            doc="row_dropped / security_removed / excluded_from_adj_factor_and_preclose / span_dropped",
+        ),
+        Column("detail", pl.String, nullable=True, doc="JSON object with the measured values"),
+        Column("source", pl.String),
+    ),
+    key=("table", "code", "date", "kind"),
+    date_column="date",
+    doc="Data a source delivered that was dropped or bypassed, so a gap is never mistaken for a suspension.",
+)
+
 TABLES: dict[str, Table] = {
-    t.name: t for t in (SECURITIES, CALENDAR, BARS, ADJ_FACTOR, INDEX_BARS, INDEX_MEMBERS)
+    t.name: t for t in (SECURITIES, CALENDAR, BARS, ADJ_FACTOR, INDEX_BARS, INDEX_MEMBERS, DATA_ISSUES)
 }

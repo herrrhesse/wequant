@@ -3,9 +3,9 @@
     manifest.json                   current version; replaced atomically after all data files
     manifests/manifest.v<N>.json    every committed version
     <table>/<part>.v<N>.parquet     part is the year for partitioned tables, else the table name
+    .lock                           held by the single writer; names who holds it
 
-Data files are never modified. A file identical to the one the current version already
-uses for the same part is reused, and a commit that changes nothing creates no version.
+Data files are never modified. Commits and deleting cleanups hold the lock; reads take none.
 """
 
 from __future__ import annotations
@@ -16,6 +16,11 @@ import io
 import json
 import os
 import re
+import secrets
+import socket
+import time
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,27 +31,49 @@ from wequant.data.schema import TABLES, Table
 KEEP_VERSIONS = 3
 _VERSIONED = re.compile(r"\.v([0-9]+)\.parquet\Z")
 
+if os.name == "nt":
+    import msvcrt
+
+    _LOCK_BYTE = 1 << 20  # Windows locks a byte range; lock one past the holder text so it stays readable
+
+    def _try_lock(fd: int) -> None:
+        os.lseek(fd, _LOCK_BYTE, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+
+    def _unlock(fd: int) -> None:
+        os.lseek(fd, _LOCK_BYTE, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _try_lock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+class StoreLocked(RuntimeError):
+    """Another writer holds the store's lock."""
+
+    def __init__(self, path: Path, holder: dict | None):
+        super().__init__(f"{path} is held by {holder or 'an unknown writer'}")
+        self.holder = holder
+
+
+@dataclass
+class CommitResult:
+    version: int
+    changed: bool
+    files_written: list[str] = field(default_factory=list)
+    files_reused: list[str] = field(default_factory=list)  # touched, but identical to the old file
+    files_kept: list[str] = field(default_factory=list)  # not touched by this commit
+    hashes: dict[str, dict[str, str]] = field(default_factory=dict)  # touched parts only
+
 
 def wequant_home() -> Path:
     return Path(os.environ.get("WEQUANT_HOME", "~/.wequant")).expanduser()
-
-
-def _fsync_dir(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-
-
-def _atomic_write(path: Path, data: bytes) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
-    with open(tmp, "wb") as out:
-        out.write(data)
-        out.flush()
-        os.fsync(out.fileno())
-    os.replace(tmp, path)
-    _fsync_dir(path.parent)
 
 
 def parquet_bytes(df: pl.DataFrame) -> bytes:
@@ -67,25 +94,17 @@ def prepare(table: Table, df: pl.DataFrame) -> pl.DataFrame:
 
 
 def split_parts(table: Table, df: pl.DataFrame) -> dict[str, pl.DataFrame]:
-    """{part name: rows}; part is the year for year-partitioned tables, else the table name."""
-    if table.year_partition is None:
+    """{part name: rows}; part is the year for partitioned tables, else the table name."""
+    if not table.partitioned:
         return {table.name: df}
-    years = df[table.year_partition].dt.year()
+    years = df[table.date_column].dt.year()
     return {str(y): df.filter(years == y) for y in sorted(years.unique().to_list())}
-
-
-@dataclass
-class CommitResult:
-    version: int
-    changed: bool
-    files_written: list[str] = field(default_factory=list)
-    files_reused: list[str] = field(default_factory=list)
-    hashes: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 class Store:
     def __init__(self, home: Path | None = None):
         self.home = Path(home) if home is not None else wequant_home()
+        self._lock_depth = 0
 
     # ------------------------------------------------------------ reading
 
@@ -96,17 +115,6 @@ class Store:
             return None
         return json.loads(path.read_text("utf-8"))
 
-    def read_table(self, name: str, version: int | None = None, manifest: dict | None = None) -> pl.DataFrame:
-        """All rows of a table at one version (default: current)."""
-        manifest = manifest if manifest is not None else self.manifest(version)
-        if manifest is None or name not in manifest["tables"]:
-            raise KeyError(f"table {name} is not in the store")
-        files = manifest["tables"][name]["files"]
-        frames = [pl.read_parquet(self.home / entry["path"]) for entry in files]
-        if not frames:
-            return pl.DataFrame(schema=TABLES[name].schema)
-        return pl.concat(frames, how="vertical")
-
     def versions(self) -> list[int]:
         directory = self.home / "manifests"
         if not directory.exists():
@@ -114,58 +122,171 @@ class Store:
         found = (re.fullmatch(r"manifest\.v([0-9]+)\.json", p.name) for p in directory.iterdir())
         return sorted(int(m.group(1)) for m in found if m)
 
+    def scan(
+        self,
+        name: str,
+        columns: list[str] | None = None,
+        start: dt.date | str | None = None,
+        end: dt.date | str | None = None,
+        codes: Iterable[str] | None = None,
+        version: int | None = None,
+        manifest: dict | None = None,
+    ) -> pl.LazyFrame:
+        """Rows of one table at one snapshot, with columns, the date range (inclusive) and codes pushed down."""
+        table = TABLES[name]
+        manifest = manifest if manifest is not None else self.manifest(version)
+        files = manifest["tables"].get(name, {}).get("files", []) if manifest else []
+        start, end = _date(start), _date(end)
+        if (start or end) and table.date_column is None:
+            raise ValueError(f"{name} has no date column to filter on")
+        if codes is not None and "code" not in table.schema:
+            raise ValueError(f"{name} has no code column to filter on")
+        if table.partitioned:
+            files = [e for e in files if _year_in(int(e["part"]), start, end)]
+        if files:
+            frame = pl.scan_parquet([str(self.home / e["path"]) for e in files])
+        else:
+            frame = pl.LazyFrame(schema=table.schema)
+        if start is not None:
+            frame = frame.filter(pl.col(table.date_column) >= start)
+        if end is not None:
+            frame = frame.filter(pl.col(table.date_column) <= end)
+        if codes is not None:
+            frame = frame.filter(pl.col("code").is_in(list(codes)))
+        return frame if columns is None else frame.select(columns)
+
+    def read_table(self, name: str, **query) -> pl.DataFrame:
+        """scan(name, **query), collected."""
+        return self.scan(name, **query).collect()
+
     # ------------------------------------------------------------ writing
 
-    def commit(self, tables: dict[str, pl.DataFrame], meta: dict) -> CommitResult:
-        """Write the given tables as a new version; other tables carry over. meta goes into the manifest."""
-        current = self.manifest()
-        version = (current["version"] if current else 0) + 1
-        current_tables = current["tables"] if current else {}
-        new_tables = {name: entry for name, entry in current_tables.items() if name not in tables}
-        result = CommitResult(version=version, changed=False)
+    @contextmanager
+    def lock(self, timeout: float = 0) -> Iterator[None]:
+        """Hold the single-writer lock; StoreLocked names the holder if it is not free within timeout seconds.
 
-        for name, df in tables.items():
-            table = TABLES[name]
-            old_files = {e["part"]: e for e in current_tables.get(name, {}).get("files", [])}
-            entries = []
-            result.hashes[name] = {}
-            for part, rows in split_parts(table, prepare(table, df)).items():
-                data = parquet_bytes(rows)
-                digest = hashlib.sha256(data).hexdigest()
-                result.hashes[name][part] = digest
-                old = old_files.get(part)
-                if old is not None and old["sha256"] == digest and (self.home / old["path"]).exists():
-                    entries.append(old)
-                    result.files_reused.append(old["path"])
-                    continue
-                rel = f"{name}/{part}.v{version}.parquet"
-                path = self.home / rel
-                path.parent.mkdir(parents=True, exist_ok=True)
-                _atomic_write(path, data)
-                entries.append({"part": part, "path": rel, "rows": rows.height, "sha256": digest})
-                result.files_written.append(rel)
-            new_tables[name] = {"files": entries}
+        Re-entrant within one Store object.
+        """
+        if self._lock_depth:
+            self._lock_depth += 1
+            try:
+                yield
+            finally:
+                self._lock_depth -= 1
+            return
+        self.home.mkdir(parents=True, exist_ok=True)
+        path = self.home / ".lock"
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            _acquire(fd, path, timeout)
+        except BaseException:
+            os.close(fd)
+            raise
+        try:
+            holder = {"pid": os.getpid(), "host": socket.gethostname(), "started": _now()}
+            _write_fd(fd, json.dumps(holder))
+            self._lock_depth = 1
+            yield
+        finally:
+            self._lock_depth = 0
+            _write_fd(fd, "")
+            _unlock(fd)
+            os.close(fd)
 
-        same_meta = current is not None and all(current.get(k) == v for k, v in meta.items())
-        if current is not None and new_tables == current_tables and same_meta:
-            result.version = current["version"]
+    def commit(
+        self,
+        meta: dict,
+        *,
+        replace: dict[str, pl.DataFrame] | None = None,
+        replace_parts: dict[str, pl.DataFrame] | None = None,
+        upsert: dict[str, pl.DataFrame] | None = None,
+        timeout: float = 0,
+    ) -> CommitResult:
+        """Write a new version; every table changes through the same manifest swap.
+
+        replace:        the table becomes exactly df.
+        replace_parts:  each part df covers becomes df's rows for it; other parts are kept.
+        upsert:         df's rows replace rows with the same key or are added; all other rows
+                        are kept. upsert never deletes rows.
+
+        Tables and parts not touched keep their manifest entries unread. A touched part whose
+        content is unchanged keeps its file, and a commit that changes nothing creates no
+        version. meta goes into the manifest.
+        """
+        writes: dict[str, tuple[str, pl.DataFrame]] = {}
+        for mode, tables in (("replace", replace), ("replace_parts", replace_parts), ("upsert", upsert)):
+            for name, df in (tables or {}).items():
+                if name in writes:
+                    raise ValueError(f"{name} appears in more than one write mode")
+                writes[name] = (mode, df)
+
+        with self.lock(timeout):
+            current = self.manifest()
+            old_tables = current["tables"] if current else {}
+            result = CommitResult(version=(current["version"] if current else 0) + 1, changed=False)
+            new_tables = dict(old_tables)
+            for name, (mode, df) in writes.items():
+                old_files = old_tables.get(name, {}).get("files", [])
+                new_tables[name] = {"files": self._write_table(name, mode, df, old_files, result)}
+            touched = {*result.files_written, *result.files_reused}
+            result.files_kept = [e["path"] for t in new_tables.values() for e in t["files"] if e["path"] not in touched]
+
+            if current is not None and new_tables == old_tables and all(current.get(k) == v for k, v in meta.items()):
+                result.version = current["version"]
+                return result
+            manifest = {"version": result.version, "created_at": _now(), **meta, "tables": new_tables}
+            data = json.dumps(manifest, indent=1, ensure_ascii=False).encode("utf-8") + b"\n"
+            self._manifest_path(result.version).parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(self._manifest_path(result.version), data)
+            _atomic_write(self.home / "manifest.json", data)
+            result.changed = True
             return result
 
-        manifest = {
-            "version": version,
-            "created_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            **meta,
-            "tables": new_tables,
-        }
-        data = json.dumps(manifest, indent=1, ensure_ascii=False).encode("utf-8") + b"\n"
-        self._manifest_path(version).parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(self._manifest_path(version), data)
-        _atomic_write(self.home / "manifest.json", data)
-        result.changed = True
-        return result
+    def cleanup(self, keep: int = KEEP_VERSIONS, dry_run: bool = True, timeout: float = 0) -> list[Path]:
+        """Files only older versions need, plus leftover temp files; deleted (under the lock) only when dry_run is False."""
+        if dry_run:
+            return self._unneeded(keep)
+        with self.lock(timeout):
+            doomed = self._unneeded(keep)
+            for path in doomed:
+                path.unlink()
+            return doomed
 
-    def cleanup(self, keep: int = KEEP_VERSIONS, dry_run: bool = True) -> list[Path]:
-        """Files only older versions need, plus leftover temp files; deleted only when dry_run is False."""
+    # ------------------------------------------------------------ internals
+
+    def _write_table(self, name: str, mode: str, df: pl.DataFrame, old_files: list[dict], result: CommitResult) -> list[dict]:
+        table = TABLES[name]
+        old = {e["part"]: e for e in old_files}
+        parts = split_parts(table, prepare(table, df))
+        if mode == "upsert":
+            parts = {part: self._merge(table, old.get(part), rows) for part, rows in parts.items()}
+        entries = {} if mode == "replace" else dict(old)
+        result.hashes[name] = {}
+        for part, rows in parts.items():
+            entries[part] = self._write_part(name, part, rows, old.get(part), result)
+        return [entries[part] for part in sorted(entries)]
+
+    def _merge(self, table: Table, old: dict | None, rows: pl.DataFrame) -> pl.DataFrame:
+        if old is None:
+            return rows
+        stored = pl.scan_parquet(str(self.home / old["path"])).collect()
+        kept = stored.join(rows.select(table.key), on=list(table.key), how="anti")
+        return prepare(table, pl.concat([kept, rows]))
+
+    def _write_part(self, name: str, part: str, rows: pl.DataFrame, old: dict | None, result: CommitResult) -> dict:
+        data = parquet_bytes(rows)
+        digest = hashlib.sha256(data).hexdigest()
+        result.hashes[name][part] = digest
+        if old is not None and old["sha256"] == digest and (self.home / old["path"]).exists():
+            result.files_reused.append(old["path"])
+            return old
+        rel = f"{name}/{part}.v{result.version}.parquet"
+        (self.home / name).mkdir(parents=True, exist_ok=True)
+        _atomic_write(self.home / rel, data)
+        result.files_written.append(rel)
+        return {"part": part, "path": rel, "rows": rows.height, "sha256": digest}
+
+    def _unneeded(self, keep: int) -> list[Path]:
         versions = self.versions()
         kept = versions[-keep:] if keep > 0 else []
         referenced = set()
@@ -173,8 +294,7 @@ class Store:
             for entry in self.manifest(v)["tables"].values():
                 referenced.update(e["path"] for e in entry["files"])
         doomed = [self._manifest_path(v) for v in versions if v not in kept]
-        directories = [self.home, self.home / "manifests", *(self.home / name for name in TABLES)]
-        for directory in directories:
+        for directory in [self.home, self.home / "manifests", *(self.home / name for name in TABLES)]:
             if not directory.is_dir():
                 continue
             for path in sorted(directory.iterdir()):
@@ -183,10 +303,60 @@ class Store:
                 unreferenced = directory != self.home and _VERSIONED.search(path.name) and rel not in referenced
                 if stale_tmp or unreferenced:
                     doomed.append(path)
-        if not dry_run:
-            for path in doomed:
-                path.unlink()
         return doomed
 
     def _manifest_path(self, version: int) -> Path:
         return self.home / "manifests" / f"manifest.v{version}.json"
+
+
+def _acquire(fd: int, path: Path, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            _try_lock(fd)
+            return
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise StoreLocked(path, _holder(path)) from None
+            time.sleep(0.05)
+
+
+def _holder(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write_fd(fd: int, text: str) -> None:
+    os.ftruncate(fd, 0)
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, text.encode("utf-8"))
+    os.fsync(fd)
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    with open(tmp, "wb") as out:
+        out.write(data)
+        out.flush()
+        os.fsync(out.fileno())
+    os.replace(tmp, path)
+    if os.name != "nt":  # directories cannot be opened for fsync on Windows
+        fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def _now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def _date(value: dt.date | str | None) -> dt.date | None:
+    return dt.date.fromisoformat(value) if isinstance(value, str) else value
+
+
+def _year_in(year: int, start: dt.date | None, end: dt.date | None) -> bool:
+    return (start is None or year >= start.year) and (end is None or year <= end.year)

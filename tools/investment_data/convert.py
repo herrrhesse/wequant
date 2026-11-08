@@ -16,7 +16,7 @@ import polars as pl
 from wequant.data import codes as codemod
 from tools.investment_data import qlib
 from wequant.data.schema import TABLES
-from tools.investment_data import adjustment, checks
+from tools.investment_data import adjustment, checks, issues
 
 FIELDS = ("open", "high", "low", "close", "volume", "amount", "adjclose", "vwap", "factor", "change")
 PRICES = ("open", "high", "low", "close")
@@ -223,7 +223,10 @@ def convert(root: Path, tag: str) -> tuple[dict[str, pl.DataFrame], dict]:
     ratio = adjustment.ratio(stocks.code_idx, stocks.close, stocks.adjclose)
     preclose = adjustment.preclose(stocks.code_idx, stocks.close, ratio.row_ratio)
     members, invalid_members, unmapped = read_index_members(root)
-    tables = build_tables(rec, stocks, ratio, preclose, members, checks.off_scale(rec), source=f"investment_data@{tag}")
+    dropped = checks.off_scale(rec)
+    source = f"investment_data@{tag}"
+    tables = build_tables(rec, stocks, ratio, preclose, members, dropped, source)
+    tables["data_issues"] = issues.build(rec, stocks, ratio, dropped, invalid_members, source)
     stats, problems = checks.run_all(panel, rec, stocks, ratio, preclose, tables, invalid_members, unmapped)
     if problems:
         raise ConventionError(problems, stats)

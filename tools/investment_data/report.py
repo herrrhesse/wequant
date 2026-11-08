@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tools.investment_data.adjustment import BLIP_RETURN, MIN_STEP
-from tools.investment_data.checks import RESIDUAL_FEN, UNIT_YEAR_MIN
+from tools.investment_data.checks import RESIDUAL_FEN, UNIT_YEAR_MIN, YOUNG_DAYS
 
 
 def render(run: dict, stats: dict) -> str:
@@ -14,7 +14,7 @@ def render(run: dict, stats: dict) -> str:
     if "verification" in run:
         out += _verification(run)
     if "fields" in stats:
-        out += _fields(stats) + _rounding(stats) + _units(stats) + _ohlc(stats) + _coverage(stats) + _adjustment(stats)
+        out += _fields(stats) + _rounding(stats) + _units(stats) + _ohlc(stats) + _coverage(stats) + _adjustment(stats) + _issues(stats)
     out += _idempotency(run) + _resources(run)
     return "\n".join(out) + "\n"
 
@@ -171,11 +171,23 @@ def _adjustment(s: dict) -> list[str]:
     return out
 
 
+def _issues(s: dict) -> list[str]:
+    i = s["issues"]
+    out = ["## 8. Data issues", "", "Everything dropped or bypassed is recorded in the data_issues table:", ""]
+    out += _table(["kind", "action", "rows"], [(k, a, f"{n:,}") for k, a, n in i["by_kind"]])
+    out.append(f"**off_scale rows within {YOUNG_DAYS} trading days of the stock's first day: {len(i['young_off_scale'])}.** These may be real first-days trading, when no price limit applies, dropped by mistake.")
+    out.append("")
+    if i["young_off_scale"]:
+        out += _table(["code", "date", "scale", "days since first"], i["young_off_scale"])
+    return out
+
+
 def _idempotency(run: dict) -> list[str]:
-    out = ["## 8. Idempotency", ""]
+    out = ["## 9. Idempotency", ""]
     if "commit" in run:
         c = run["commit"]
         out.append(f"- **Commit:** version {c.version}, {'new version' if c.changed else 'unchanged'}; {len(c.files_written)} files written, {len(c.files_reused)} reused.")
+        out.append(f"- **Files written:** {', '.join(c.files_written) or 'none'}.")
     if "repeat" in run:
         r = run["repeat"]
         verdict = "PASS" if r["same_hashes"] and not r["changed"] else "FAIL"
@@ -184,7 +196,7 @@ def _idempotency(run: dict) -> list[str]:
 
 
 def _resources(run: dict) -> list[str]:
-    out = ["## 9. Time and disk", "", *_table(["step", "seconds"], [(k, f"{v:.1f}") for k, v in run["timings"].items()])]
+    out = ["## 10. Time and disk", "", *_table(["step", "seconds"], [(k, f"{v:.1f}") for k, v in run["timings"].items()])]
     if "disk" in run:
         d = run["disk"]
         out += [

@@ -69,6 +69,10 @@ def test_adj_factor_records_real_events_only(converted):
     a = stats["adjustment"]
     assert [b[:2] for b in a["blips"]] == [("000001.SZ", str(syn.DAYS[25]))]
     assert a["merged"] >= 1
+    blip = tables["data_issues"].filter(pl.col("kind") == "adj_blip")
+    assert blip.select("table", "code", "date", "action").rows() == [("adj_factor", "000001.SZ", day(25), "excluded_from_adj_factor_and_preclose")]
+    assert json.loads(blip["detail"].item())["ratio_blip"] == pytest.approx(1.0, abs=1e-3)
+    assert day(25) in bars_of(tables, "SZ000001")["date"].to_list()  # the bar itself is kept
 
 
 def test_preclose_follows_previous_close_and_ratio(converted):
@@ -133,10 +137,20 @@ def test_rows_with_a_unit_error_are_dropped(tmp_path, monkeypatch):
     root = tmp_path / "qlib_bin"
     syn.write_qlib(root)
     scale_feature(root, "SZ300750", "volume", 10, days=[7])
+    scale_feature(root, "SZ000001", "volume", 10, days=[1])  # its second day: SZ000001 starts on day 5
     tables, stats = convert(root, syn.TAG)
     assert day(7) not in bars_of(tables, "SZ300750")["date"].to_list()
     assert bars_of(tables, "SZ300750").height == syn.N_DAYS - 1
-    assert [d[:2] for d in stats["units"]["dropped"]] == [("300750.SZ", 1)]
+    assert sorted(d[:2] for d in stats["units"]["dropped"]) == [("000001.SZ", 1), ("300750.SZ", 1)]
+    off = tables["data_issues"].filter(pl.col("kind") == "off_scale").sort("code")
+    assert off.select("table", "code", "date", "action").rows() == [
+        ("bars", "000001.SZ", day(6), "row_dropped"),
+        ("bars", "300750.SZ", day(7), "row_dropped"),
+    ]
+    details = [json.loads(d) for d in off["detail"]]
+    assert [d["days_since_first"] for d in details] == [1, 7]
+    assert all(d["scale"] == pytest.approx(0.1, rel=0.2) for d in details)
+    assert [row[:2] for row in stats["issues"]["young_off_scale"]] == [("000001.SZ", str(syn.DAYS[6]))]
 
 
 def test_a_stock_with_every_row_dropped_is_removed(tmp_path, monkeypatch):
@@ -148,6 +162,9 @@ def test_a_stock_with_every_row_dropped_is_removed(tmp_path, monkeypatch):
     for name in ("bars", "securities", "adj_factor"):
         assert "920047.BJ" not in tables[name]["code"].to_list()
     assert stats["coverage"]["removed_stocks"] == ["920047.BJ"]
+    removed = tables["data_issues"].filter(pl.col("code") == "920047.BJ")
+    assert removed["date"].to_list() == [day(d) for d in range(31, syn.N_DAYS)]
+    assert set(removed.select("table", "kind", "action").rows()) == {("bars", "removed_security", "security_removed")}
 
 
 def test_index_member_spans_with_malformed_codes_are_dropped(tmp_path):
@@ -158,6 +175,9 @@ def test_index_member_spans_with_malformed_codes_are_dropped(tmp_path):
     tables, stats = convert(root, syn.TAG)
     assert tables["index_members"].height == sum(len(v) for v in syn.CSI.values())
     assert stats["coverage"]["dropped_members"] == [("csi300.txt", "SHT00018", str(syn.DAYS[0]), str(syn.DAYS[3]))]
+    issue = tables["data_issues"].filter(pl.col("kind") == "invalid_member_code")
+    assert issue.select("table", "code", "date", "action").rows() == [("index_members", "SHT00018", day(0), "span_dropped")]
+    assert json.loads(issue["detail"].item()) == {"list": "csi300.txt", "end_date": str(syn.DAYS[3])}
 
 
 def test_verify_and_extract(tmp_path):

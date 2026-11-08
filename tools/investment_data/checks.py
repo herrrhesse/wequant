@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 UNIT_YEAR_MIN = 0.995  # share of a year's stock rows that must pass the unit check
 RESIDUAL_FEN = 0.2  # price residuals above this are listed
+YOUNG_DAYS = 5  # dropped rows this close to a stock's first day are listed for review
 
 Result = tuple[dict, list[str]]
 
@@ -44,6 +45,7 @@ def run_all(
         "adjustment": adjustment(stocks, ratio, preclose, rec.codes),
         "ohlc": ohlc(tables),
         "coverage": coverage(rec, tables, invalid_members, unmapped_lists),
+        "issues": data_issues(tables["data_issues"]),
     }
     stats = {name: s for name, (s, _) in results.items()}
     stats["last_trade_date"] = str(rec.dates.max())
@@ -269,3 +271,17 @@ def coverage(rec: Recovered, tables: dict[str, pl.DataFrame], invalid_members: l
         "removed_stocks": sorted({c for c, _ in stocks} - set(tables["securities"]["code"])),
     }
     return stats, [f"instrument lists with no known index code: {unmapped_lists}"] if unmapped_lists else []
+
+
+def data_issues(issues: pl.DataFrame) -> Result:
+    """Counts by kind, and the dropped rows from a stock's first days, when no price limit applies yet."""
+    measured = issues.filter(pl.col("kind") == "off_scale").with_columns(
+        days=pl.col("detail").str.json_path_match("$.days_since_first").cast(pl.Int64),
+        scale=pl.col("detail").str.json_path_match("$.scale").cast(pl.Float64),
+    )
+    young = measured.filter(pl.col("days") < YOUNG_DAYS).sort("code", "date")
+    stats = {
+        "by_kind": issues.group_by("kind", "action").len().sort("kind").rows(),
+        "young_off_scale": young.select("code", pl.col("date").cast(pl.String), "scale", "days").rows(),
+    }
+    return stats, []
