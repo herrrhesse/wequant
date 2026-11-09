@@ -1,0 +1,618 @@
+# Historical examples of every rule in wequant/rules/rules.toml, with golden values.
+#
+# Prices are 厘 (0.001 元). A missing key is null. [[limit]] rows give the price_limits inputs (code, date, board,
+# preclose, is_st, list_date, listing_day), the expected limit_up, limit_down, limit_rule and limit_state, and the
+# day's observed high and low. Observed values come from store v3 (the investment_data seed, 2026-11-08 release).
+
+[[limit]]
+code = "600053.SH"
+date = 2024-02-20
+board = "main"
+preclose = 13550
+limit_up = 14910
+limit_down = 12200
+limit_rule = "band-main-1996"
+limit_state = "LIMITED"
+high = 14910
+low = 13310
+source = "store v3 bars; tie: 13.55 × 1.1 = 14.905 rounds up to 14.91, × 0.9 = 12.195 to 12.20"
+
+[[limit]]
+code = "603555.SH"
+date = 2024-02-23
+board = "main"
+preclose = 900
+is_st = true
+limit_up = 950
+limit_down = 860
+limit_rule = "band-main-1996"
+limit_state = "LIMITED"
+high = 950
+low = 860
+source = "store v3 bars; ST 5%: high and low sit on both limits; ST status assumed, the seed has none"
+
+[[limit]]
+code = "603555.SH"
+date = 2024-02-23
+board = "main"
+preclose = 900
+limit_up = 990
+limit_down = 810
+limit_rule = "band-main-1996"
+limit_state = "LIMITED"
+high = 950
+low = 860
+source = "store v3 bars; the same day with ST unknown takes the normal 10% band"
+
+[[limit]]
+code = "600519.SH"
+date = 2024-02-20
+board = "main"
+preclose = 1695430
+list_date = 2001-08-27
+listing_day = 5453
+limit_up = 1864970
+limit_down = 1525890
+limit_rule = "band-main-1996"
+limit_state = "LIMITED"
+high = 1697360
+low = 1656560
+source = "store v3 bars; preclose × 11000 overflows Int32"
+
+[[limit]]
+code = "600180.SH"
+date = 2026-07-06
+board = "main"
+preclose = 1400
+is_st = true
+limit_up = 1540
+limit_down = 1260
+limit_rule = "band-main-2026"
+limit_state = "LIMITED"
+high = 1540
+low = 1380
+source = "store v3 bars; an ST stock closing 10% up on the first day of the 10% ST band; ST status assumed"
+
+[[limit]]
+code = "000078.SZ"
+date = 2026-07-06
+board = "main"
+preclose = 1490
+is_st = true
+limit_up = 1640
+limit_down = 1340
+limit_rule = "band-main-2026"
+limit_state = "LIMITED"
+high = 1640
+low = 1460
+source = "store v3 bars; the same on SZ; ST status assumed"
+
+[[limit]]
+code = "300116.SZ"
+date = 2020-08-21
+board = "chinext"
+preclose = 1900
+list_date = 2010-09-02
+listing_day = 2423
+limit_up = 2090
+limit_down = 1710
+limit_rule = "band-chinext-2009"
+limit_state = "LIMITED"
+high = 2090
+low = 1850
+source = "store v3 bars; the last ChiNext day of the 10% band"
+
+[[limit]]
+code = "300116.SZ"
+date = 2020-08-24
+board = "chinext"
+preclose = 2090
+list_date = 2010-09-02
+listing_day = 2424
+limit_up = 2510
+limit_down = 1670
+limit_rule = "band-chinext-2020"
+limit_state = "LIMITED"
+high = 2510
+low = 2260
+source = "store v3 bars; the first ChiNext day of the 20% band, closing at the new limit"
+
+[[limit]]
+code = "300313.SZ"
+date = 2024-02-20
+board = "chinext"
+preclose = 7470
+is_st = true
+list_date = 2012-04-25
+listing_day = 2873
+limit_up = 8960
+limit_down = 5980
+limit_rule = "band-chinext-2020"
+limit_state = "LIMITED"
+high = 8960
+low = 7460
+source = "store v3 bars; ChiNext ST stocks share the 20% band; ST status assumed"
+
+[[limit]]
+code = "688039.SH"
+date = 2024-02-20
+board = "star"
+preclose = 23630
+list_date = 2019-12-11
+listing_day = 1015
+limit_up = 28360
+limit_down = 18900
+limit_rule = "band-star-2019"
+limit_state = "LIMITED"
+high = 28360
+low = 28360
+source = "store v3 bars; a one-price day locked at the STAR 20% limit"
+
+[[limit]]
+code = "688001.SH"
+date = 2019-07-29
+board = "star"
+preclose = 50660
+list_date = 2019-07-22
+listing_day = 6
+limit_up = 60790
+limit_down = 40530
+limit_rule = "band-star-2019"
+limit_state = "LIMITED"
+high = 55850
+low = 51400
+source = "store v3 bars; day 6 of a STAR listing is the first limited day"
+
+[[limit]]
+code = "832278.BJ"
+date = 2021-12-30
+board = "bse"
+preclose = 9570
+list_date = 2021-11-15
+listing_day = 34
+limit_up = 12440
+limit_down = 6700
+limit_rule = "band-bse-2020"
+limit_state = "LIMITED"
+high = 12440
+low = 9680
+source = "store v3 bars; closing at the BSE 30% limit"
+
+[[limit]]
+code = "601857.SH"
+date = 2007-11-05
+board = "main"
+list_date = 2007-11-05
+listing_day = 1
+limit_rule = "ipo-main-1996"
+limit_state = "FREE"
+high = 48620
+low = 41700
+source = "store v3 bars; listing day without a limit before 2014"
+
+[[limit]]
+code = "603288.SH"
+date = 2014-02-11
+board = "main"
+preclose = 51250
+list_date = 2014-02-11
+listing_day = 1
+limit_up = 73800
+limit_down = 32800
+limit_rule = "ipo-main-2014"
+limit_state = "LIMITED"
+high = 73800
+low = 61500
+source = "store v3 bars (high, low); preclose = issue price 51.25 元; the high sits on the 44% first-day cap"
+
+[[limit]]
+code = "603288.SH"
+date = 2014-02-12
+board = "main"
+preclose = 66410
+list_date = 2014-02-11
+listing_day = 2
+limit_up = 73050
+limit_down = 59770
+limit_rule = "band-main-1996"
+limit_state = "LIMITED"
+high = 73050
+low = 68760
+source = "store v3 bars; day 2 takes the normal band"
+
+[[limit]]
+code = "603288.SH"
+date = 2014-02-11
+board = "main"
+list_date = 2014-02-11
+listing_day = 1
+limit_rule = "ipo-main-2014"
+limit_state = "UNKNOWN"
+high = 73800
+low = 61500
+source = "store v3 bars; the seed has no preclose on a code's first row, so the first-day cap has no base"
+
+[[limit]]
+code = "300431.SZ"
+date = 2015-03-24
+board = "chinext"
+preclose = 7140
+list_date = 2015-03-24
+listing_day = 1
+limit_up = 10280
+limit_down = 4570
+limit_rule = "ipo-chinext-2014"
+limit_state = "LIMITED"
+high = 10280
+low = 9430
+source = "store v3 bars (high, low); preclose = issue price 7.14 元; closing at the 44% first-day cap"
+
+[[limit]]
+code = "001286.SZ"
+date = 2023-04-11
+board = "main"
+preclose = 14200
+list_date = 2023-04-10
+listing_day = 2
+limit_rule = "ipo-main-2023"
+limit_state = "FREE"
+high = 13780
+low = 11770
+source = "store v3 bars; registration-era main-board listing, day 2"
+
+[[limit]]
+code = "001286.SZ"
+date = 2023-04-14
+board = "main"
+preclose = 11530
+list_date = 2023-04-10
+listing_day = 5
+limit_rule = "ipo-main-2023"
+limit_state = "FREE"
+high = 11440
+low = 10860
+source = "store v3 bars; day 5, the last free day"
+
+[[limit]]
+code = "001286.SZ"
+date = 2023-04-17
+board = "main"
+preclose = 10900
+list_date = 2023-04-10
+listing_day = 6
+limit_up = 11990
+limit_down = 9810
+limit_rule = "band-main-1996"
+limit_state = "LIMITED"
+high = 10850
+low = 10420
+source = "store v3 bars; day 6 takes the normal band"
+
+[[limit]]
+code = "300001.SZ"
+date = 2009-10-30
+board = "chinext"
+list_date = 2009-10-30
+listing_day = 1
+limit_rule = "ipo-chinext-2009"
+limit_state = "FREE"
+high = 64000
+low = 35010
+source = "store v3 bars; the first ChiNext listing day"
+
+[[limit]]
+code = "300862.SZ"
+date = 2020-08-25
+board = "chinext"
+preclose = 64680
+list_date = 2020-08-24
+listing_day = 2
+limit_rule = "ipo-chinext-2020"
+limit_state = "FREE"
+high = 88180
+low = 60000
+source = "store v3 bars; registration-era ChiNext listing, day 2 rises 36%"
+
+[[limit]]
+code = "688002.SH"
+date = 2019-07-23
+board = "star"
+preclose = 50200
+list_date = 2019-07-22
+listing_day = 2
+limit_rule = "ipo-star-2019"
+limit_state = "FREE"
+high = 47500
+low = 40010
+source = "store v3 bars; STAR listing, day 2 falls 20%"
+
+[[limit]]
+code = "688001.SH"
+date = 2019-07-26
+board = "star"
+preclose = 54710
+list_date = 2019-07-22
+listing_day = 5
+limit_rule = "ipo-star-2019"
+limit_state = "FREE"
+high = 54000
+low = 50010
+source = "store v3 bars; STAR listing, day 5"
+
+[[limit]]
+code = "873693.BJ"
+date = 2023-10-27
+board = "bse"
+list_date = 2023-10-27
+listing_day = 1
+limit_rule = "ipo-bse-2020"
+limit_state = "FREE"
+high = 86000
+low = 15000
+source = "store v3 bars; BSE listing day without a limit"
+
+# [[lot]]: the largest valid order under the board's lot rule on date (position for sells).
+
+[[lot]]
+rule = "lot-main"
+board = "main"
+date = 2024-02-20
+side = "buy"
+qty = 250
+expected = 200
+source = "main board: buys in lots of 100 shares"
+
+[[lot]]
+rule = "lot-chinext"
+board = "chinext"
+date = 2024-02-20
+side = "buy"
+qty = 150
+expected = 100
+source = "ChiNext: buys in lots of 100 shares"
+
+[[lot]]
+rule = "lot-star"
+board = "star"
+date = 2024-02-20
+side = "buy"
+qty = 201
+expected = 201
+source = "STAR: at least 200 shares, then steps of 1"
+
+[[lot]]
+rule = "lot-star"
+board = "star"
+date = 2024-02-20
+side = "sell"
+qty = 150
+position = 180
+expected = 0
+source = "STAR: a holding below 200 shares is sold whole"
+
+[[lot]]
+rule = "lot-bse"
+board = "bse"
+date = 2024-02-20
+side = "buy"
+qty = 101
+expected = 101
+source = "BSE: at least 100 shares, then steps of 1"
+
+# [[fee]]: statutory fees of one fill in 厘, with the stamp-tax and transfer-fee rules in force.
+
+[[fee]]
+exchange = "SH"
+date = 2001-11-15
+side = "sell"
+shares = 1000
+price = 10000
+stamp_tax = 40000
+transfer_fee = 500
+stamp_rule = "stamp-1998"
+transfer_rule = "transfer-sh-par-1990"
+source = "the last day of the 0.4% stamp tax; transfer fee 0.5‰ of par"
+
+[[fee]]
+exchange = "SH"
+date = 2001-11-15
+side = "buy"
+shares = 1000
+price = 10000
+stamp_tax = 40000
+transfer_fee = 500
+stamp_rule = "stamp-1998"
+transfer_rule = "transfer-sh-par-1990"
+source = "stamp tax on both sides"
+
+[[fee]]
+exchange = "SH"
+date = 2001-11-16
+side = "buy"
+shares = 1000
+price = 10000
+stamp_tax = 20000
+transfer_fee = 500
+stamp_rule = "stamp-2001"
+transfer_rule = "transfer-sh-par-1990"
+source = "stamp tax cut to 0.2%"
+
+[[fee]]
+exchange = "SH"
+date = 2005-01-24
+side = "sell"
+shares = 1000
+price = 10000
+stamp_tax = 10000
+transfer_fee = 500
+stamp_rule = "stamp-2005"
+transfer_rule = "transfer-sh-par-1990"
+source = "stamp tax cut to 0.1%"
+
+[[fee]]
+exchange = "SH"
+date = 2007-05-30
+side = "buy"
+shares = 1000
+price = 10000
+stamp_tax = 30000
+transfer_fee = 500
+stamp_rule = "stamp-2007"
+transfer_rule = "transfer-sh-par-1990"
+source = "stamp tax raised to 0.3%"
+
+[[fee]]
+exchange = "SH"
+date = 2008-04-24
+side = "sell"
+shares = 1000
+price = 10000
+stamp_tax = 10000
+transfer_fee = 500
+stamp_rule = "stamp-2008-04"
+transfer_rule = "transfer-sh-par-1990"
+source = "stamp tax cut back to 0.1%"
+
+[[fee]]
+exchange = "SH"
+date = 2008-09-19
+side = "buy"
+shares = 1000
+price = 10000
+stamp_tax = 0
+transfer_fee = 500
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-sh-par-1990"
+source = "stamp tax on sells only"
+
+[[fee]]
+exchange = "SH"
+date = 2008-09-19
+side = "sell"
+shares = 1000
+price = 10000
+stamp_tax = 10000
+transfer_fee = 500
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-sh-par-1990"
+source = "stamp tax on sells only"
+
+[[fee]]
+exchange = "SZ"
+date = 2023-08-25
+side = "sell"
+shares = 1000
+price = 10000
+stamp_tax = 10000
+transfer_fee = 100
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-2022"
+source = "the last day of the 0.1% sell stamp tax"
+
+[[fee]]
+exchange = "SZ"
+date = 2023-08-28
+side = "sell"
+shares = 1000
+price = 10000
+stamp_tax = 5000
+transfer_fee = 100
+stamp_rule = "stamp-2023"
+transfer_rule = "transfer-2022"
+source = "sell stamp tax halved to 0.05%"
+
+[[fee]]
+exchange = "SZ"
+date = 2023-08-28
+side = "sell"
+shares = 101
+price = 10000
+stamp_tax = 510
+transfer_fee = 10
+stamp_rule = "stamp-2023"
+transfer_rule = "transfer-2022"
+source = "tie: 0.505 元 of stamp tax rounds up to 0.51 元"
+
+[[fee]]
+exchange = "SH"
+date = 2012-05-31
+side = "sell"
+shares = 10000
+price = 10000
+stamp_tax = 100000
+transfer_fee = 5000
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-sh-par-1990"
+source = "SH transfer fee 0.5‰ of par before 2012-06-01"
+
+[[fee]]
+exchange = "SH"
+date = 2012-06-01
+side = "sell"
+shares = 10000
+price = 10000
+stamp_tax = 100000
+transfer_fee = 3750
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-sh-par-2012-06"
+source = "SH transfer fee cut to 0.375‰ of par"
+
+[[fee]]
+exchange = "SH"
+date = 2015-07-31
+side = "buy"
+shares = 10000
+price = 10000
+stamp_tax = 0
+transfer_fee = 3000
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-sh-par-2012-09"
+source = "SH transfer fee 0.3‰ of par before 2015-08-01"
+
+[[fee]]
+exchange = "SZ"
+date = 2015-07-31
+side = "buy"
+shares = 10000
+price = 10000
+stamp_tax = 0
+transfer_fee = 2550
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-sz-amount"
+source = "SZ transfer fee 0.0255‰ of 100,000 元 before 2015-08-01"
+
+[[fee]]
+exchange = "SZ"
+date = 2015-08-03
+side = "buy"
+shares = 10000
+price = 10000
+stamp_tax = 0
+transfer_fee = 2000
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-2015"
+source = "one transfer fee for SH and SZ: 0.02‰ of turnover"
+
+[[fee]]
+exchange = "SZ"
+date = 2022-04-28
+side = "buy"
+shares = 10000
+price = 10000
+stamp_tax = 0
+transfer_fee = 2000
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-2015"
+source = "the last day of the 0.02‰ transfer fee"
+
+[[fee]]
+exchange = "SZ"
+date = 2022-04-29
+side = "buy"
+shares = 10000
+price = 10000
+stamp_tax = 0
+transfer_fee = 1000
+stamp_rule = "stamp-2008-09"
+transfer_rule = "transfer-2022"
+source = "transfer fee halved to 0.01‰ of turnover"

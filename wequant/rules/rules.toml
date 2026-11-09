@@ -1,0 +1,236 @@
+# Exchange trading rules of the A-share market by board (or exchange) and effective date.
+#
+# A row applies from `since` until the next row of the same table and board (or exchange).
+# Fractions are exact decimals, prices are 厘 (0.001 元) and quantities are shares.
+# `confirm` says what still needs a primary source.
+
+# Daily price bands around the preclose: normal, and st for ST and *ST stocks (st defaults to normal).
+
+[[band]]
+id = "band-main-1996"
+board = "main"
+since = 1996-12-16
+normal = 0.10
+st = 0.05
+
+[[band]]
+id = "band-main-2026"
+board = "main"
+since = 2026-07-06
+normal = 0.10
+st = 0.10
+confirm = "date measured in BaoStock data (first ST bars outside 5% on SH and SZ, none before); an SSE consultation of 2026-04 proposed the change; the effective notice was not read"
+
+[[band]]
+id = "band-chinext-2009"
+board = "chinext"
+since = 2009-10-30
+normal = 0.10
+
+[[band]]
+id = "band-chinext-2020"
+board = "chinext"
+since = 2020-08-24
+normal = 0.20
+st = 0.20
+
+[[band]]
+id = "band-star-2019"
+board = "star"
+since = 2019-07-22
+normal = 0.20
+st = 0.20
+
+[[band]]
+id = "band-bse-2020"
+board = "bse"
+since = 2020-07-27
+normal = 0.30
+st = 0.30
+confirm = "NEEQ select-tier start; the BSE opened 2021-11-15 with the same band"
+
+# New listings, chosen by listing date. Day 1 is the listing day; free_days counts the first days without a limit.
+# first_day_up and first_day_down set the day-1 band around the issue price, only with free_days 0.
+
+[[new_listing]]
+id = "ipo-main-1996"
+board = "main"
+since = 1996-12-16
+free_days = 1
+
+[[new_listing]]
+id = "ipo-main-2014"
+board = "main"
+since = 2014-01-01
+free_days = 0
+first_day_up = 0.44
+first_day_down = 0.36
+confirm = "effective date (no IPO listed 2012-11..2014-01) and the 64% floor"
+
+[[new_listing]]
+id = "ipo-main-2023"
+board = "main"
+since = 2023-04-10
+free_days = 5
+
+[[new_listing]]
+id = "ipo-chinext-2009"
+board = "chinext"
+since = 2009-10-30
+free_days = 1
+
+[[new_listing]]
+id = "ipo-chinext-2014"
+board = "chinext"
+since = 2014-01-01
+free_days = 0
+first_day_up = 0.44
+first_day_down = 0.36
+confirm = "effective date and the 64% floor"
+
+[[new_listing]]
+id = "ipo-chinext-2020"
+board = "chinext"
+since = 2020-08-24
+free_days = 5
+
+[[new_listing]]
+id = "ipo-star-2019"
+board = "star"
+since = 2019-07-22
+free_days = 5
+
+[[new_listing]]
+id = "ipo-bse-2020"
+board = "bse"
+since = 2020-07-27
+free_days = 1
+confirm = "select-tier start; BSE listings from 2021-11-15 follow the same rule"
+
+# Order sizes and price tick: min_qty and step in shares, tick in 厘.
+
+[[lot]]
+id = "lot-main"
+board = "main"
+since = 1990-12-19
+min_qty = 100
+step = 100
+tick = 10
+
+[[lot]]
+id = "lot-chinext"
+board = "chinext"
+since = 2009-10-30
+min_qty = 100
+step = 100
+tick = 10
+
+[[lot]]
+id = "lot-star"
+board = "star"
+since = 2019-07-22
+min_qty = 200
+step = 1
+tick = 10
+
+[[lot]]
+id = "lot-bse"
+board = "bse"
+since = 2020-07-27
+min_qty = 100
+step = 1
+tick = 10
+confirm = "select-tier lot rule assumed equal to the BSE's"
+
+# Stamp tax on turnover, on every exchange: buy and sell rates.
+
+[[stamp_tax]]
+id = "stamp-1998"
+since = 1998-06-12
+buy = 0.004
+sell = 0.004
+
+[[stamp_tax]]
+id = "stamp-2001"
+since = 2001-11-16
+buy = 0.002
+sell = 0.002
+
+[[stamp_tax]]
+id = "stamp-2005"
+since = 2005-01-24
+buy = 0.001
+sell = 0.001
+
+[[stamp_tax]]
+id = "stamp-2007"
+since = 2007-05-30
+buy = 0.003
+sell = 0.003
+
+[[stamp_tax]]
+id = "stamp-2008-04"
+since = 2008-04-24
+buy = 0.001
+sell = 0.001
+
+[[stamp_tax]]
+id = "stamp-2008-09"
+since = 2008-09-19
+buy = 0
+sell = 0.001
+
+[[stamp_tax]]
+id = "stamp-2023"
+since = 2023-08-28
+buy = 0
+sell = 0.0005
+
+# Transfer fee on both sides. basis: amount (turnover) or par (shares × 1 元, the par value assumed for every stock).
+
+[[transfer_fee]]
+id = "transfer-sh-par-1990"
+exchanges = ["SH"]
+since = 1990-12-19
+rate = 0.0005
+basis = "par"
+confirm = "0.5‰ of par is the rate a secondary source (36kr) gives for before 2012-06-01; earlier history, the widely quoted 1‰, the 1 元 minimum and par values other than 1 元 (e.g. 601899.SH 0.1, 603993.SH 0.2) are not modelled"
+
+[[transfer_fee]]
+id = "transfer-sh-par-2012-06"
+exchanges = ["SH"]
+since = 2012-06-01
+rate = 0.000375
+basis = "par"
+confirm = "secondary source only"
+
+[[transfer_fee]]
+id = "transfer-sh-par-2012-09"
+exchanges = ["SH"]
+since = 2012-09-01
+rate = 0.0003
+basis = "par"
+confirm = "20% cut announced 2012-08 (China Daily, 36kr); 0.3‰ of par is the rate the 2015 中国结算 notice names as in force before 2015-08-01"
+
+[[transfer_fee]]
+id = "transfer-sz-amount"
+exchanges = ["SZ"]
+since = 1990-12-19
+rate = 0.0000255
+basis = "amount"
+confirm = "known only as in force before 2015-08-01 (unchanged in 2012); applied back to 1990 without a source"
+
+[[transfer_fee]]
+id = "transfer-2015"
+exchanges = ["SH", "SZ"]
+since = 2015-08-01
+rate = 0.00002
+basis = "amount"
+confirm = "effective date (OSkhQuant uses 2015-07-09)"
+
+[[transfer_fee]]
+id = "transfer-2022"
+exchanges = ["SH", "SZ"]
+since = 2022-04-29
+rate = 0.00001
+basis = "amount"
