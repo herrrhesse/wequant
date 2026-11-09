@@ -45,12 +45,13 @@ class Panel:
     """Date × stock matrices of one store version; arrays load on first use and are read-only.
 
     status, listed, suspended and missing are descriptive where daily_status has no row; traded is point-in-time.
+    manifest is the store manifest the panel reads; never change it.
     """
 
     def __init__(self, src: PanelCache, rows: slice, columns: np.ndarray | None) -> None:
         self._src, self._rows, self._columns = src, rows, columns
         self._memo: dict[str, np.ndarray] = {}
-        self.version, self.key = src.version, src.key
+        self.version, self.key, self.manifest = src.version, src.key, src.manifest
         self.dates = np.asarray(src.array("dates")[rows])
         self.codes = self._vector("codes")
 
@@ -128,7 +129,7 @@ class Panel:
         mask = np.asarray(mask)
         if mask.shape != self.traded.shape:
             raise ValueError(f"mask shape {mask.shape} != panel shape {self.traded.shape}")
-        return _frozen(np.where(self.traded, mask, np.nan).astype(np.float64))
+        return _frozen(np.where(self.traded, mask, np.nan).astype(np.float64, copy=False))
 
     # ------------------------------------------------------------ limits
 

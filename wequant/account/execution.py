@@ -70,7 +70,7 @@ def finite_number(name: str, value) -> float:
         raise ValueError(f"{name} {value!r} is not a number")
     if not math.isfinite(value):
         raise ValueError(f"{name} {value!r} is not finite")
-    return float(value)
+    return float(value) + 0.0  # -0.0 becomes 0.0: an archived form must not tell them apart
 
 
 def exact(value: float) -> Fraction:

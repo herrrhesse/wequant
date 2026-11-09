@@ -65,3 +65,7 @@ def test_numpy_scalars_are_kept_as_floats():
     assert execution == Execution()
     assert all(type(value) is float for value in execution.to_dict().values() if not isinstance(value, str))
     assert execution.commission(100_000_000) == 30_000
+
+
+def test_negative_zero_is_kept_as_zero():
+    assert math.copysign(1.0, Execution(slippage_bps=-0.0).to_dict()["slippage_bps"]) == 1.0

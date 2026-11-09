@@ -424,3 +424,8 @@ def test_index_close_leaves_missing_days_empty(store, cache):
     np.testing.assert_array_equal(close, [3500, 3501, 3502, NAN, 3504, 3505, 3506, 3507])
     part = load_panel("2024-01-05", "2024-01-08", store=store, cache_dir=cache)
     np.testing.assert_array_equal(part.index_close("000300.SH"), [NAN, 3504])
+
+
+def test_manifest_is_the_store_manifest_the_panel_reads(store, cache):
+    panel = load_panel(store=store, cache_dir=cache)
+    assert panel.manifest == store.manifest(1) and panel.manifest["version"] == panel.version

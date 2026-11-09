@@ -53,6 +53,16 @@ class Account:
         self._batches: list[tuple] = []
 
     @property
+    def panel(self) -> Panel:
+        """The panel the account trades on."""
+        return self._panel
+
+    @property
+    def fresh(self) -> bool:
+        """A day is open and nothing has traded on it yet."""
+        return self._open and not (self._batches and self._batches[-1][0] == self.t)
+
+    @property
     def cash(self) -> float:
         """Cash in yuan, now."""
         return self._cash / LI

@@ -663,3 +663,8 @@ def test_metrics_json_is_the_same_after_a_parquet_round_trip(tmp_path):
     assert metrics_json(run_metrics(run, spec), spec) == expected
     assert metrics_json(run_metrics(loaded, spec), spec) == expected
     assert expected.endswith(b"}\n")
+
+
+def test_spec_writes_negative_zero_as_zero():
+    spec = MetricSpec(risk_free_rate=-0.0, tail_fraction=-0.0)
+    assert [math.copysign(1.0, spec.to_dict()[k]) for k in ("risk_free_rate", "tail_fraction")] == [1.0, 1.0]

@@ -56,8 +56,8 @@ class MetricSpec:
     def to_dict(self) -> dict[str, int | float]:
         return {
             "periods_per_year": self.periods_per_year,
-            "risk_free_rate": float(self.risk_free_rate),
-            "tail_fraction": float(self.tail_fraction),
+            "risk_free_rate": float(self.risk_free_rate) + 0.0,  # -0.0 becomes 0.0, as in every archived form
+            "tail_fraction": float(self.tail_fraction) + 0.0,
         }
 
 
