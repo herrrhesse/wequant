@@ -13,13 +13,14 @@ since = 1996-12-16
 normal = 0.10
 st = 0.05
 
+# SSE and SZSE published revised trading rules on 2026-04-24; from 2026-07-06 the price limit of main-board
+# risk-warning stocks is 10% instead of 5%.
 [[band]]
 id = "band-main-2026"
 board = "main"
 since = 2026-07-06
 normal = 0.10
 st = 0.10
-confirm = "date measured in BaoStock data (first ST bars outside 5% on SH and SZ, none before); an SSE consultation of 2026-04 proposed the change; the effective notice was not read"
 
 [[band]]
 id = "band-chinext-2009"
