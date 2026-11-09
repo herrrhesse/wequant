@@ -253,7 +253,10 @@ def test_a_long_outage_stops_the_run(home):
     assert job.run([0, 1]) == bf.SERVER_DOWN_EXIT
     assert job.progress.runs[-1]["outcome"].startswith("BaoStock unreachable")
     assert bf.DOWN_GIVE_UP <= sum(job.sleeps) - 3 * (2.0 + 4.0) < bf.DOWN_GIVE_UP + bf.DOWN_WAITS[-1]
-    assert DAYS[4] not in BaoStockRaw.at(home).daily_days()
+    raw = BaoStockRaw.at(home)
+    assert DAYS[4] not in raw.daily_days()
+    failures = json.loads((raw.root / "progress.json").read_text())["failures"]
+    assert list(failures) == [f"1:{day}" for day in DAYS[1:4]]  # the third failure is listed before the wait
 
 
 def test_a_signal_ends_an_outage_wait(home):
@@ -311,6 +314,28 @@ def test_refetch_reports_a_day_without_rows_and_does_not_write_it(home):
     text = log_text(home)
     assert f"no rows, not written: {DAYS[1]}; written: {DAYS[0]}; failed: {DAYS[3]}" in text
     assert not (raw.root / "progress.json").exists() and raw.daily_days() == set()
+
+
+def test_refetch_retries_an_answer_failing_the_snapshot_checks_and_does_not_write_it(home):
+    bad = DAYS[1]
+    server = Server(bad_days={bad})
+    job = backfill(home, server)
+    assert job.refetch(DAYS[:3]) == 0
+    raw = BaoStockRaw.at(home)
+    assert not bf.refetch_path(raw, bad).exists() and bf.refetch_path(raw, DAYS[2]).exists()
+    assert server.snapshots().count(bad) == 2 * bf.ATTEMPTS  # three attempts, then three more at the end
+    assert job.sleeps == [2.0, 4.0, 2.0, 4.0]
+    text = log_text(home)
+    assert f"refetch {bad} attempt 1 failed: rows dated other than {bad}" in text
+    assert f"refetch finished (written: {DAYS[0]}, {DAYS[2]}; failed: {bad})" in text
+
+
+def test_a_refetch_stopped_by_the_daily_limit_names_every_day(home):
+    job = backfill(home, Server(limit_day=DAYS[2]))
+    assert job.refetch(DAYS[:5]) == bf.DAILY_LIMIT_EXIT
+    raw = BaoStockRaw.at(home)
+    assert [bf.refetch_path(raw, day).exists() for day in DAYS[:5]] == [True, True, False, False, False]
+    assert f"(written: {DAYS[0]}, {DAYS[1]}; not fetched: {', '.join(map(str, DAYS[2:5]))})" in log_text(home)
 
 
 def test_refetch_logs_in_again_and_waits_out_an_outage(home):
@@ -390,14 +415,14 @@ class SlowSocket:
 
 
 def test_the_log_splits_each_file_into_server_wait_and_local_time(home, monkeypatch):
-    monkeypatch.setattr(bf, "LOG_EVERY", {1: 5, 2: 100})
+    monkeypatch.setattr(bf, "LOG_EVERY", {1: 4, 2: 5})
 
     def slow_reply_then_decoding(server, day):
         if day == DAYS[0]:
             GuardedSocket(SlowSocket(0.3)).recv(8192)
             time.sleep(0.05)
 
-    backfill(home, Server(on_snapshot=slow_reply_then_decoding)).run([0, 1])
+    backfill(home, Server(on_snapshot=slow_reply_then_decoding)).run([0, 1, 2])
     splits = file_splits(home)
     assert [label for label, _, _ in splits][:4] == [
         "phase 0 stock_basic",
@@ -410,8 +435,9 @@ def test_the_log_splits_each_file_into_server_wait_and_local_time(home, monkeypa
     progress = re.findall(
         r"(\d+) files since the last line: server ([\d.]+) s, local ([\d.]+) s on average", log_text(home)
     )
-    assert [int(n) for n, _, _ in progress] == [8, 5]  # three reference files and five days, then five days
-    for (_, server_mean, local_mean), lines in zip(progress, (splits[:8], splits[8:13]), strict=True):
+    assert [int(n) for n, _, _ in progress] == [4, 4, 5, 5]  # the reference files and the last two days left out
+    windows = (splits[3:7], splits[7:11], splits[13:18], splits[18:23])
+    for (_, server_mean, local_mean), lines in zip(progress, windows, strict=True):
         assert float(server_mean) == pytest.approx(statistics.fmean(s for _, s, _ in lines), abs=0.011)
         assert float(local_mean) == pytest.approx(statistics.fmean(lo for _, _, lo in lines), abs=0.011)
 
@@ -422,6 +448,21 @@ def test_backoffs_count_as_neither_server_nor_local_time(home):
     job.run([0, 1])
     label, server, local = file_splits(home)[3]
     assert label == f"phase 1 {DAYS[0]}" and server == 0 and local < 0.3
+
+
+def test_a_new_login_adds_its_reply_wait_to_server_time_and_its_connecting_to_neither(home):
+    server = Server(kick_day=DAYS[0])
+    login = server.login
+
+    def connect_then_login():
+        time.sleep(0.3)  # connecting, before baostock's socket is guarded
+        GuardedSocket(SlowSocket(0.2)).recv(8192)
+        return login()
+
+    server.login = connect_then_login
+    backfill(home, server).refetch([DAYS[0]])
+    label, server_wait, local = file_splits(home)[0]
+    assert label == f"refetch {DAYS[0]}" and 0.2 <= server_wait < 0.3 and 0 <= local < 0.2
 
 
 def test_an_adjust_factor_answer_without_rows_is_still_written(home):

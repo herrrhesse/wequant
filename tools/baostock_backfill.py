@@ -21,8 +21,9 @@ and reports a day BaoStock answers without rows. compare checks those files agai
 run and refetch both hold raw/baostock/.lock, so neither starts while the other is running.
 
 The log has one line per file: its rows, the seconds spent waiting for BaoStock's replies (server) and the rest
-of its time (local: decoding, checks, writing); backoffs and outage waits count as neither. Progress lines show
-the mean of each since the previous progress line.
+of its time (local: decoding, checks, writing); backoffs and connecting for a new login count as neither, and
+outage waits fall between files. Progress lines show the mean of each over the phase's files since the previous
+progress line.
 
 While it runs, nothing else may use BaoStock, tests marked network included: BaoStock keeps one session per
 user, so any other login ends this one.
@@ -66,7 +67,6 @@ from zoneinfo import ZoneInfo
 
 import polars as pl
 
-from tools.baostock_compare import compare, refetch_path
 from wequant.data.files import atomic_write
 from wequant.data.raw import BaoStockRaw, raw_frame
 from wequant.data.sources.baostock import (
@@ -140,6 +140,14 @@ def nonempty(frame: pl.DataFrame) -> str | None:
     return "no rows" if frame.height == 0 else None
 
 
+def refetch_path(raw: BaoStockRaw, day: dt.date) -> Path:
+    return raw.root / "refetch" / f"{day.isoformat()}.parquet"
+
+
+def refetched_days(raw: BaoStockRaw) -> list[dt.date]:
+    return sorted(dt.date.fromisoformat(p.stem) for p in (raw.root / "refetch").glob("*.parquet"))
+
+
 def trading_days(raw: BaoStockRaw, today: dt.date) -> list[dt.date]:
     """Trading days from OLDEST_DAY up to the day before `today`, newest first."""
     dates = pl.read_parquet(raw.trade_dates).filter(pl.col("is_trading_day") == "1")["calendar_date"]
@@ -194,7 +202,7 @@ class Backfill:
         self.today = shanghai_today()
         self.counted = 0  # requests already added to progress
         self.failed_in_row = 0
-        self.paused = 0.0  # seconds of backoffs and outage waits, kept out of the timing split
+        self.excluded = 0.0  # seconds of backoffs, outage waits and connecting, kept out of the timing split
         self.split: list[tuple[float, float]] = []  # (server, local) seconds of each file since the last progress line
 
     # ------------------------------------------------------------ running
@@ -215,21 +223,24 @@ class Backfill:
 
     def refetch(self, days: list[dt.date]) -> int:
         """Fetch these days' snapshots again into raw/baostock/refetch/; daily/ and progress.json stay untouched."""
-        outcomes: dict[dt.date, str] = {}
+        outcomes = dict.fromkeys(days, "not fetched")
+
+        def fetch(day: dt.date) -> None:
+            outcomes[day] = self._refetch(day)
+            if outcomes[day] == FAILED:
+                self._failed()
 
         def fetch_all() -> None:
-            for day in dict.fromkeys(days):
-                outcomes[day] = self._refetch(day)
+            for day in list(outcomes):
+                fetch(day)
             for day in [d for d, outcome in outcomes.items() if outcome == FAILED]:  # once more, as run retries
                 if self.stopping:
                     return
-                outcomes[day] = self._refetch(day)
+                fetch(day)
 
         with held(self.lock, "refetch"):
             code, outcome = self._session(fetch_all)
-        self.log.info(
-            "refetch %s (%s); %d requests", outcome, _grouped(outcomes) or "nothing done", self.source.requests
-        )
+        self.log.info("refetch %s (%s); %d requests", outcome, _grouped(outcomes), self.source.requests)
         return code
 
     def phase0(self) -> None:
@@ -330,18 +341,20 @@ class Backfill:
             self.progress.failures.pop(key, None)
         self.progress.timed(phase, time.monotonic() - started)
         self._count()
+        if frame is None:  # after the save, so a run that gives up waiting for the server keeps it listed
+            self._failed()
 
     def _file(
         self, label: str, path: Path, method: str, params: dict, check: Check, write_empty: bool = True
     ) -> tuple[pl.DataFrame | None, str]:
         """Fetch one query, write the response that passes check to path (one without rows only if write_empty)
         and log the time split."""
-        started, waited, paused = time.monotonic(), GuardedSocket.waited, self.paused
+        started, waited, excluded = time.monotonic(), GuardedSocket.waited, self.excluded
         frame, error = self.fetch(label, lambda: self.source.raw(method, **params), check)
         if frame is not None and (frame.height or write_empty):
             self.raw.write(path, raw_frame(frame, _request(method, params), _baostock_version()))
         server = GuardedSocket.waited - waited
-        local = time.monotonic() - started - server - (self.paused - paused)
+        local = time.monotonic() - started - server - (self.excluded - excluded)
         self.split.append((server, local))
         rows = "failed" if frame is None else f"{frame.height} rows"
         self.log.info("%s: %s, server %.2f s, local %.2f s", label, rows, server, local)
@@ -368,9 +381,6 @@ class Backfill:
             self.log.warning("%s attempt %d failed: %s", label, attempt + 1, error)
             if attempt < ATTEMPTS - 1:
                 self._rest(BACKOFF * 2**attempt)
-        self.failed_in_row += 1
-        if self.failed_in_row >= DOWN_AFTER:
-            self._wait_for_server()
         return None, error
 
     # ------------------------------------------------------------ bookkeeping
@@ -379,6 +389,7 @@ class Backfill:
         for phase in phases:
             if self.stopping:
                 return
+            self.split.clear()  # each progress line averages its own phase's files
             {0: self.phase0, 1: self.phase1, 2: self.phase2}[phase]()
         if not self.stopping:
             self.retry_failures()
@@ -406,16 +417,30 @@ class Backfill:
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
 
-    def _login_again(self) -> None:
+    def _failed(self) -> None:
+        """Count a file that failed every attempt; after DOWN_AFTER in a row, wait for the server."""
+        self.failed_in_row += 1
+        if self.failed_in_row >= DOWN_AFTER:
+            self._wait_for_server()
+
+    def _login(self) -> None:
+        """Log in; the time not spent waiting for the reply (connecting) counts as neither server nor local."""
+        started, waited = time.monotonic(), GuardedSocket.waited
         try:
             self.source.login()
+        finally:
+            self.excluded += time.monotonic() - started - (GuardedSocket.waited - waited)
+
+    def _login_again(self) -> None:
+        try:
+            self._login()
         except BaoStockError as error:  # counts as part of the failed attempt; the next one tries again
             self.log.warning("login failed: %s", error)
 
     def _first_login(self) -> None:
         """Log in, waiting for the server when it does not answer."""
         try:
-            self.source.login()
+            self._login()
         except BaoStockError as error:
             if looks_like_limit(error):
                 raise DailyLimit(str(error)) from error
@@ -433,7 +458,7 @@ class Backfill:
                 return
             waited += wait
             try:
-                self.source.login()
+                self._login()
             except BaoStockError as error:
                 if looks_like_limit(error):
                     raise DailyLimit(str(error)) from error
@@ -454,7 +479,7 @@ class Backfill:
     def _rest(self, seconds: float) -> None:
         started = time.monotonic()
         self.sleep(seconds)
-        self.paused += time.monotonic() - started
+        self.excluded += time.monotonic() - started
 
     def _stop(self, signum, frame) -> None:
         self.stopping = True
@@ -617,6 +642,8 @@ def main(argv: list[str] | None = None) -> int:
         print(write_report())
         return 0
     if args.command == "compare":
+        from tools.baostock_compare import compare
+
         text = compare(rows=args.rows)
         if args.out:
             args.out.write_text(text, encoding="utf-8")

@@ -1,10 +1,12 @@
 import datetime as dt
 
 import polars as pl
+import pytest
 
 from tools import baostock_backfill as bf
 from tools import baostock_compare as cmp
-from tools.baostock_compare import compare, refetch_path
+from tools.baostock_backfill import refetch_path
+from tools.baostock_compare import compare
 from wequant.data.raw import BaoStockRaw, raw_frame
 
 FIELDS = ["date", "code", "open", "close", "volume", "amount"]
@@ -55,6 +57,18 @@ fields = ["close"]
 [[resolution]]
 code = "600004.SH"
 date = "2020-07-21"
+kind = "price_mismatch"
+fields = ["close"]
+
+[[resolution]]
+code = "600006.SH"
+date = 2020-07-21
+kind = "price_mismatch"
+fields = ["close"]
+
+[[resolution]]
+code = "600009.SH"
+date = 2020-07-21
 kind = "price_mismatch"
 fields = ["close"]
 
@@ -112,9 +126,9 @@ def test_compare_lists_the_resolution_rows_and_whether_they_reproduce(tmp_path):
     rows = tmp_path / "resolutions.toml"
     rows.write_text(RESOLUTIONS, encoding="utf-8")
     text = compare(make_home(tmp_path), rows)
-    assert "4 of 5 listed (code, date, kind) fall on a refetched day" in text
+    assert "6 of 7 listed (code, date, kind) fall on a refetched day" in text
     lines = text[text.index("## Listed rows (resolutions.toml)") :].splitlines()
-    assert lines[-4:] == [
+    assert lines[-6:] == [
         "| 300846.SZ | 2020-07-21 | average_price | amount 2052714.18, volume 152966 "
         "| amount 2052714.18, volume 152966 | yes |",
         "| 300847.SZ | 2020-07-21 | average_price | volume 2275128, amount 1713846.75 "
@@ -122,7 +136,19 @@ def test_compare_lists_the_resolution_rows_and_whether_they_reproduce(tmp_path):
         "| 600000.SH | 2020-07-21 | price_mismatch | open 11.5900, close 11.6000, volume 100, amount 1160.00 "
         "| open 11.5900, **close 11.6100**, volume 100, **amount 1161.00** | no |",
         "| 600004.SH | 2020-07-21 | price_mismatch | close 15.1000, volume 200, amount 3020.00 | no row | no refetch row |",
+        "| 600006.SH | 2020-07-21 | price_mismatch | no row | close 4.3500, volume 300, amount 1300.00 | no daily row |",
+        "| 600009.SH | 2020-07-21 | price_mismatch | no row | no row | in neither file |",
     ]
+
+
+@pytest.mark.parametrize("fields", ["", "fields = []\n"])
+def test_a_resolution_without_fields_is_refused(tmp_path, fields):
+    rows = tmp_path / "resolutions.toml"
+    rows.write_text(
+        f'[[resolution]]\ncode = "600000.SH"\ndate = 2020-07-21\nkind = "price_mismatch"\n{fields}', "utf-8"
+    )
+    with pytest.raises(ValueError, match="600000.SH 2020-07-21 price_mismatch lists no fields"):
+        compare(make_home(tmp_path), rows)
 
 
 def test_the_compare_command_writes_its_report(tmp_path, monkeypatch):

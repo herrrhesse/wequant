@@ -3,7 +3,8 @@
     raw/baostock/refetch/<YYYY-MM-DD>.parquet   against   raw/baostock/daily/<YYYY>/<YYYY-MM-DD>.parquet
 
 Rows match on (date, code); every column but _request and _fetched_at is compared as text. A resolutions file
-([[resolution]] tables with code, date, kind and fields) adds one line per listed row on a refetched day.
+([[resolution]] tables with code, date, kind and a non-empty fields list) adds one line per listed row on a
+refetched day.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import polars as pl
 
+from tools.baostock_backfill import refetch_path, refetched_days
 from wequant.data.raw import BaoStockRaw
 from wequant.data.sources.baostock import to_baostock
 
@@ -22,14 +24,6 @@ KEY = ["date", "code"]
 UNCOMPARED = {"_request", "_fetched_at"}
 ALWAYS_SHOWN = ["volume", "amount"]  # shown for every listed row besides its own fields
 SAMPLES = 10
-
-
-def refetch_path(raw: BaoStockRaw, day: dt.date) -> Path:
-    return raw.root / "refetch" / f"{day.isoformat()}.parquet"
-
-
-def refetched_days(raw: BaoStockRaw) -> list[dt.date]:
-    return sorted(dt.date.fromisoformat(p.stem) for p in (raw.root / "refetch").glob("*.parquet"))
 
 
 @dataclass(frozen=True)
@@ -151,24 +145,33 @@ def _listed(path: Path, pairs: dict[dt.date, Pair | None]) -> list[str]:
 def _listed_values(pair: Pair, code: str, fields: list[str]) -> str:
     """The daily, refetch and reproduces cells of one listed row."""
     found = pair.joined.filter(pl.col("code") == to_baostock(code))
-    if found.height == 0 or not found["_old"][0]:
-        return "no row | | no daily row"
+    if found.height == 0:
+        return "no row | no row | in neither file"
     row = found.row(0, named=True)
     names = [c for c in dict.fromkeys([*fields, *ALWAYS_SHOWN]) if c in pair.columns]
-    old = ", ".join(f"{c} {row[c]}" for c in names)
+    if not row["_old"]:
+        return f"no row | {_shown(row, names, '_new')} | no daily row"
     if not row["_new"]:
-        return f"{old} | no row | no refetch row"
-    same = {c: row[c] == row[f"{c}_new"] for c in names}
-    new = ", ".join(f"{c} {row[f'{c}_new']}" if same[c] else f"**{c} {row[f'{c}_new']}**" for c in names)
-    return f"{old} | {new} | {'yes' if all(same.values()) else 'no'}"
+        return f"{_shown(row, names, '')} | no row | no refetch row"
+    changed = {c for c in names if row[c] != row[f"{c}_new"]}
+    return f"{_shown(row, names, '')} | {_shown(row, names, '_new', changed)} | {'no' if changed else 'yes'}"
+
+
+def _shown(row: dict, names: list[str], suffix: str, bold: set[str] = frozenset()) -> str:
+    """'close 11.6000, volume 100': each name with its value in column name + suffix; names in `bold` get **...**."""
+    cells = {c: f"{c} {row[c + suffix]}" for c in names}
+    return ", ".join(f"**{cell}**" if c in bold else cell for c, cell in cells.items())
 
 
 def resolutions(path: Path) -> dict[tuple[str, dt.date, str], list[str]]:
-    """(code, date, kind) -> fields of each [[resolution]] table in a resolutions file."""
+    """(code, date, kind) -> fields of each [[resolution]] table in a resolutions file; ValueError for a table
+    without fields, since nothing would say what to compare."""
     entries: dict[tuple[str, dt.date, str], list[str]] = {}
     for table in tomllib.loads(path.read_text("utf-8")).get("resolution", []):
-        key = (table["code"], dt.date.fromisoformat(str(table["date"])), table["kind"])
-        entries.setdefault(key, []).extend(table.get("fields", []))
+        code, day, kind = table["code"], dt.date.fromisoformat(str(table["date"])), table["kind"]
+        if not table.get("fields"):
+            raise ValueError(f"{path}: the resolution for {code} {day} {kind} lists no fields")
+        entries.setdefault((code, day, kind), []).extend(table["fields"])
     return entries
 
 
