@@ -99,6 +99,7 @@ FIELD_KINDS = {  # every field's kind
 COUNTS = [
     (name, i, int(role[1])) for name, (roles, _) in SIGNATURES.items() for i, role in enumerate(roles) if role[0] == "n"
 ]
+MAX_BARS = 2**62  # the largest count a node accepts
 
 close, adj, volume, st = Field("close"), Field("adj_close"), Field("volume"), Field("st")
 up, limit_up, bj = close > REF(close, 1), Field("limit_up"), Field("exchange@BJ")
@@ -123,7 +124,14 @@ def test_fields_and_families_are_pinned():
     }
     assert not any("@" in name for name in FIELDS)
     names = set(FIELDS) | set(OPERATORS)
-    assert not FUTURE & names and not set(DESCRIPTIVE) & names and len(FUTURE) == 16
+    assert not FUTURE & names and not set(DESCRIPTIVE) & names
+    assert DESCRIPTIVE == ("status", "listed", "suspended", "missing")
+    assert FUTURE == frozenset(
+        {
+            *("BACKSET", "BARSNEXT", "CONST", "CURRBARSCOUNT", "DRAWLINE", "FILTERX", "ISLASTBAR", "PEAK"),
+            *("PEAKBARS", "REFX", "REFXV", "TOTALBARSCOUNT", "TROUGH", "TROUGHBARS", "XMA", "ZIG"),
+        }
+    )
 
 
 @pytest.mark.parametrize(("name", "i", "minimum"), COUNTS)
@@ -134,6 +142,7 @@ def test_count_minimums_are_those_of_ops(name, i, minimum):
     with pytest.raises(ValueError):
         getattr(ops, name)(*[minimum - 1 if k == i else v for k, v in enumerate(values)])
     assert getattr(ops, name)(*values).shape == grid.shape
+    assert getattr(ops, name)(*[MAX_BARS if k == i else v for k, v in enumerate(values)]).shape == grid.shape
 
 
 def test_builders_carry_the_ops_signature_and_docstring():
@@ -231,24 +240,43 @@ def test_python_operators():
         True & up
     with pytest.raises(AttributeError):
         close.name = "open"
+    with pytest.raises(AttributeError):
+        del close.name
+    assert close.name == "close"
 
 
 # ---------------------------------------------------------------- rejections
 
 
-SCOPE = {**vars(expr), "c": adj, "np": np, "math": math}
+class Lying(int):
+    """An int whose every comparison says False."""
+
+    def __lt__(self, other: object) -> bool:
+        return False
+
+    __le__ = __gt__ = __ge__ = __lt__
+
+
+SCOPE = {**vars(expr), "c": adj, "np": np, "math": math, "json": json, "Lying": Lying}
 REJECTED = [
     ("REF(c, -1)", LookAheadError, 1, "would read bars after day t"),
     ("from_form(['REF', 'close', -2])", LookAheadError, 1, "would read bars after day t"),
     ("SUM(c, -5)", LookAheadError, 1, "SUM with -5 bars"),
+    ("REF(c, Lying(-1))", LookAheadError, 1, "REF with -1 bars"),
     *[(f"Field({name!r})", LookAheadError, None, "descriptive") for name in DESCRIPTIVE],
     ("Op('ZIG', c, 5)", LookAheadError, None, "future function"),
     ("from_form(['ZIG', 'close', 5])", LookAheadError, None, "future function"),
     *[(f"Op({name!r}, c)", LookAheadError, None, "future function") for name in sorted(FUTURE)],
+    *[(f"Field({name!r})", LookAheadError, None, "future function") for name in sorted(FUTURE)],
+    ("MA(from_form('ISLASTBAR'), 5)", LookAheadError, None, "future function"),
     ("MA(c, Field('volume'))", ExprError, 1, "must be an integer constant"),
     ("MA(c, 2.0)", ExprError, 1, "must be an integer constant"),
     ("MA(c, True)", ExprError, 1, "must be an integer constant"),
     ("from_form(['MA', 'close', 20.0])", ExprError, 1, "must be an integer constant"),
+    ("REF(c, np.timedelta64(20, 'ns'))", ExprError, 1, "must be an integer constant"),
+    ("REF(c, np.timedelta64('NaT', 'ns'))", ExprError, 1, "must be an integer constant"),
+    ("REF(c, 2**62 + 1)", ExprError, 1, "at most 4611686018427387904"),
+    ("from_form(['MA', 'close', 2**63])", ExprError, 1, "at most"),
     ("MA(c, 0)", ExprError, 1, "at least 1"),
     ("STD(c, 1)", ExprError, 1, "at least 2"),
     ("SMA(c, 3, 4)", ExprError, 2, "from 1 to 3"),
@@ -262,6 +290,9 @@ REJECTED = [
     ("GT(c, math.nan)", ExprError, 1, "finite number"),
     ("GT(c, math.inf)", ExprError, 1, "finite number"),
     ("GT(c, True)", ExprError, 1, "finite number"),
+    ("GT(c, np.timedelta64(5, 'ns'))", ExprError, 1, "finite number"),
+    ("GT(c, 10**400)", ExprError, 1, "finite number"),
+    ("from_form(json.loads('[\"GT\",\"close\",1' + '0' * 400 + ']'))", ExprError, 1, "finite number"),
     ("c + np.ones(3)", ExprError, 1, "finite number"),
     ("GT(c, '1')", ExprError, 1, "finite number"),
     *[(f"Field({name!r})", ExprError, None, "unknown field") for name in ("traded", "nope", "board@nope")],
@@ -299,6 +330,10 @@ def test_every_negative_count_looks_ahead_and_every_short_one_is_refused(name, i
         with pytest.raises(ExprError) as raised:
             Op(name, *args)
         assert type(raised.value) is ExprError and raised.value.arg == i
+    args[i] = MAX_BARS + 1
+    with pytest.raises(ExprError, match="at most") as raised:
+        Op(name, *args)
+    assert raised.value.arg == i
     args[i] = np.int64(minimum)
     assert Op(name, *args).args[i] == minimum
 
@@ -337,6 +372,17 @@ def test_depth_limit():
     assert repr(x).startswith("ADD(ADD(") and from_form(json.loads(x.key)) == x
     with pytest.raises(ExprError, match="deeper than 256 levels") as raised:
         x + 1.0
+    assert raised.value.arg is None
+    with pytest.raises(ExprError, match="deeper than 256 levels"):
+        from_form(["ADD", x.form, 1.0])
+
+
+def test_a_form_far_too_deep_is_refused_before_python_runs_out_of_stack():
+    form = "close"
+    for _ in range(2000):
+        form = ["ABS", form]
+    with pytest.raises(ExprError, match="deeper than 256 levels") as raised:
+        from_form(form)
     assert raised.value.arg is None
 
 

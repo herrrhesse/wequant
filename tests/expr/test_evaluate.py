@@ -34,7 +34,7 @@ from wequant.expr import (
     from_form,
     panel_key,
 )
-from wequant.panel import RAW_FIELDS
+from wequant.panel import PRICE_FIELDS, RAW_FIELDS
 
 NAN = np.nan
 close, adj, st, limit_up, limit_up_price = (
@@ -297,11 +297,31 @@ def test_a_field_equals_its_accessor(panel, name):
     assert_grid(result, panel)
 
 
+@pytest.mark.parametrize(
+    "name", [*RAW_FIELDS, *[f"adj_{f}" for f in PRICE_FIELDS], "limit_up_price", "limit_down_price"]
+)
+def test_a_field_is_the_panel_grid_itself(panel, name):
+    assert evaluate(Field(name), panel) is accessor(panel, name)
+
+
+def test_an_operator_gets_and_gives_its_grids_uncopied(panel, monkeypatch):
+    seen = []
+
+    def ma(x, n):
+        seen.extend([x, ops.MA(x, n)])
+        return seen[-1]
+
+    monkeypatch.setitem(OPERATORS, "MA", OPERATORS["MA"]._replace(function=ma))
+    result = evaluate(MA(close, 2), panel)
+    assert seen[0] is panel.raw("close") and result is seen[1]
+
+
 def test_the_deepest_tree_evaluates_under_the_default_recursion_limit(panel):
     assert sys.getrecursionlimit() <= 1000
     x, expected = close, panel.raw("close")
     for _ in range(MAX_DEPTH - 1):
         x, expected = x + 1.0, ops.ADD(expected, 1.0)
     result = evaluate(x, panel)
-    assert identical(result, expected) and repr(x) and x.key == x.key
+    assert identical(result, expected) and repr(x).startswith("ADD(ADD(")
+    assert x.key == json.dumps(x.form, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     np.testing.assert_allclose(result, panel.raw("close") + 255.0, rtol=1e-12)

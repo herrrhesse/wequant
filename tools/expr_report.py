@@ -1,5 +1,4 @@
-"""Expression report on real data: the panel, nine signal expressions against direct operator calls, the cache, look-ahead
-checks and refused expressions.
+"""Expression report on real data: panel, nine expressions against direct ops calls, cache, look-ahead, rejections.
 
 Reads the store without the lock; writes only the panel cache (--cache, a fresh temporary directory by default) and the
 report.
@@ -173,15 +172,15 @@ DIRECT: dict[str, Callable[[Panel], np.ndarray]] = {
 class Run:
     """One report run: a store version, its panel cache and the panel of every code over the last years."""
 
-    def __init__(self, store: Store, cache: Path, years: int) -> None:
-        self.store, self.cache = store, cache
+    def __init__(self, store: Store, version: int, cache: Path, years: int) -> None:
+        self.store, self.version, self.cache = store, version, cache
         last = self.load().dates[-1].item()
         self.panel = self.load(start=years_before(last, years), end=last)
         self.panel.limit_up_price  # build a missing limit array before any field is held
         self.kept: dict[str, np.ndarray] = {}  # full results of the look-ahead expressions
 
     def load(self, **query) -> Panel:
-        return load_panel(store=self.store, cache_dir=self.cache, **query)
+        return load_panel(version=self.version, store=self.store, cache_dir=self.cache, **query)
 
 
 def years_before(day: dt.date, years: int) -> dt.date:
@@ -196,10 +195,11 @@ def years_before(day: dt.date, years: int) -> dt.date:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     store = Store(args.home)
-    if store.manifest() is None:
+    manifest = store.manifest()
+    if manifest is None:
         raise SystemExit(f"{store.home}: nothing committed")
     cache = args.cache or Path(tempfile.mkdtemp(prefix="wequant-expr-"))
-    text = report(Run(store, cache, args.years))
+    text = report(Run(store, manifest["version"], cache, args.years))
     if args.out:
         args.out.write_text(text, "utf-8")
         print(f"{args.out}: {peak_rss_mb()} MB peak RSS")
@@ -257,17 +257,16 @@ def same_bits(a: np.ndarray, b: np.ndarray) -> bool:
     return a.shape == b.shape and np.array_equal(a.view(np.uint64), b.view(np.uint64))
 
 
-def distinct(e: Expr) -> int:
-    """Distinct nodes of a tree: what one evaluation computes."""
-    seen, stack = set(), [e]
+def nodes(e: Expr) -> list[Expr]:
+    """The distinct nodes of a tree: what one evaluation computes."""
+    seen, stack = {}, [e]
     while stack:
         node = stack.pop()
-        if node.key in seen:
-            continue
-        seen.add(node.key)
-        if isinstance(node, Op):
-            stack.extend(a for a in node.args if isinstance(a, Expr))
-    return len(seen)
+        if node.key not in seen:
+            seen[node.key] = node
+            if isinstance(node, Op):
+                stack.extend(a for a in node.args if isinstance(a, Expr))
+    return list(seen.values())
 
 
 # ---------------------------------------------------------------- 1. panel
@@ -290,29 +289,34 @@ def panel_section(run: Run) -> list[str]:
 
 
 def expressions_section(run: Run) -> list[str]:
-    rows = [expression_row(run, name, e) for name, e in EXPRESSIONS.items()]
-    cold = sum(float(row[3]) for row in rows)
+    rows, colds = zip(*(expression_row(run, name, e) for name, e in EXPRESSIONS.items()))
     return [
         "## 2. Expressions",
         "",
         "Each expression is evaluated with a fresh Cache (cold), again with the same Cache (warm), and as the same "
-        "nested wequant.ops calls written by hand (direct); equal compares the cold and direct results bit for bit.",
+        "nested wequant.ops calls written by hand (direct); equal compares the cold and direct results bit for bit. "
+        "Its fields are evaluated once before the timings, so the grids the panel memoizes (adjusted prices, masks) "
+        "count in neither cold nor direct.",
         "",
         *table(["expression", "nodes", "distinct", "cold (ms)", "warm (ms)", "direct (ms)", "equal"], rows),
-        f"Cold total: {cold / 1e3:.2f} s.",
+        f"Cold total: {sum(colds) / 1e3:.2f} s.",
         "",
     ]
 
 
-def expression_row(run: Run, name: str, e: Expr) -> list:
+def expression_row(run: Run, name: str, e: Expr) -> tuple[list, float]:
+    """One expression's table row and its cold milliseconds."""
+    tree = nodes(e)
+    for field in [node for node in tree if isinstance(node, Field)]:
+        evaluate(field, run.panel)  # whichever timing ran first would pay for the grids the panel memoizes
     cache = Cache()
     result, cold = timed(lambda: evaluate(e, run.panel, cache))
     _, warm = timed(lambda: evaluate(e, run.panel, cache))
     expected, direct = timed(lambda: DIRECT[name](run.panel))
-    equal = same_bits(result, expected)
     if name in LOOK_AHEAD:
         run.kept[name] = result
-    return [f"`{name}`", e.size, distinct(e), f"{cold:.1f}", f"{warm:.3f}", f"{direct:.1f}", verdict(equal)]
+    equal = verdict(same_bits(result, expected))
+    return [f"`{name}`", e.size, len(tree), f"{cold:.1f}", f"{warm:.3f}", f"{direct:.1f}", equal], cold
 
 
 # ---------------------------------------------------------------- 3. cache

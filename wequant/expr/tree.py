@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import operator
 from functools import cached_property
 
 import numpy as np
@@ -12,6 +13,7 @@ from wequant.expr.vocab import BOOL, DESCRIPTIVE, FAMILIES, FIELDS, FUTURE, NUM,
 
 MAX_NODES = 10_000  # nodes of the expanded tree: keeps keys and archived forms small
 MAX_DEPTH = 256  # levels of the tree: keeps form, key and evaluation inside Python's default recursion limit
+_MAX_BARS = 2**62  # far beyond any panel, and ops' int64 arithmetic on a count (EMA takes n + 1) cannot overflow
 
 
 class ExprError(ValueError):
@@ -36,6 +38,9 @@ class Expr:
 
     def __setattr__(self, name: str, value: object) -> None:
         """AttributeError: a node is hashed and cached by its key, so it never changes after __init__."""
+        raise AttributeError(f"{type(self).__name__} is immutable")
+
+    def __delattr__(self, name: str) -> None:
         raise AttributeError(f"{type(self).__name__} is immutable")
 
     @property
@@ -152,10 +157,17 @@ class Op(Expr):
 
 def from_form(form: str | list) -> Expr:
     """The expression of a canonical form, built and checked exactly as in Python."""
+    return _from_form(form, 1)
+
+
+def _from_form(form: object, level: int) -> Expr:
+    """form at its level of nesting; deeper than MAX_DEPTH stops here, before Python's recursion limit does."""
+    if level > MAX_DEPTH:
+        raise ExprError(f"the form is deeper than {MAX_DEPTH} levels")
     if isinstance(form, str):
         return Field(form)
     if isinstance(form, list) and form and isinstance(form[0], str):
-        return Op(form[0], *[from_form(a) if isinstance(a, str | list) else a for a in form[1:]])
+        return Op(form[0], *[_from_form(a, level + 1) if isinstance(a, str | list) else a for a in form[1:]])
     raise ExprError(f"not an expression form: {form!r}")
 
 
@@ -164,6 +176,8 @@ def _field_kind(name: str) -> str:
         raise ExprError(f"a field name is a string, not {name!r}")
     if name in DESCRIPTIVE:
         raise LookAheadError(f"{name} is a descriptive day status that a later bar can change")
+    if name in FUTURE:
+        raise _future(name)
     if name in FIELDS:
         return FIELDS[name].kind
     family, _, param = name.partition("@")
@@ -173,9 +187,13 @@ def _field_kind(name: str) -> str:
     raise ExprError(f"unknown field {name!r}; fields: {', '.join(FIELDS)}; families: {families}")
 
 
+def _future(name: str) -> LookAheadError:
+    return LookAheadError(f"{name} is a future function: it reads bars after day t")
+
+
 def _signature(name: str, arity: int) -> Signature:
     if name in FUTURE:
-        raise LookAheadError(f"{name} is a future function: it reads bars after day t")
+        raise _future(name)
     if name not in OPERATORS:
         raise ExprError(f"unknown operator {name!r}")
     signature = OPERATORS[name]
@@ -198,10 +216,10 @@ def _argument(op: str, i: int, role: str, value: object, before: list) -> Expr |
 
 
 def _constant(op: str, i: int, value: object) -> float:
-    number = isinstance(value, int | float | np.integer | np.floating) and not isinstance(value, bool)
-    if not number or not math.isfinite(value):
+    number = _float(value)
+    if number is None or not math.isfinite(number):
         raise ExprError(f"argument {i} of {op} must be a series, a finite number or None, not {value!r}", i)
-    return float(value) + 0.0  # -0.0 and 0.0 must share one canonical form
+    return number + 0.0  # -0.0 and 0.0 must share one canonical form
 
 
 def _series(op: str, i: int, value: object) -> Expr:
@@ -217,23 +235,40 @@ def _condition(op: str, i: int, value: object) -> Expr:
 
 
 def _count(op: str, i: int, value: object, minimum: int) -> int:
-    if not _is_integer(value):
+    n = _integer(value)
+    if n is None:
         raise ExprError(f"argument {i} of {op} must be an integer constant, not {value!r}", i)
-    if value < 0:
-        raise LookAheadError(f"{op} with {value} bars would read bars after day t", i)
-    if value < minimum:
-        raise ExprError(f"argument {i} of {op} must be at least {minimum}, not {value}", i)
-    return int(value)
+    if n < 0:
+        raise LookAheadError(f"{op} with {n} bars would read bars after day t", i)
+    if n < minimum:
+        raise ExprError(f"argument {i} of {op} must be at least {minimum}, not {n}", i)
+    if n > _MAX_BARS:
+        raise ExprError(f"argument {i} of {op} must be at most {_MAX_BARS}, not {n}", i)
+    return n
 
 
 def _weight(op: str, i: int, value: object, n: int) -> int:
-    if not _is_integer(value) or not 1 <= value <= n:
+    w = _integer(value)
+    if w is None or not 1 <= w <= n:
         raise ExprError(f"argument {i} of {op} must be an integer constant from 1 to {n}, not {value!r}", i)
-    return int(value)
+    return w
 
 
-def _is_integer(value: object) -> bool:
-    return isinstance(value, int | np.integer) and not isinstance(value, bool)
+def _integer(value: object) -> int | None:
+    """value as an exact int when it is an integer (bool and timedelta64 are not), else None."""
+    if isinstance(value, int | np.integer) and not isinstance(value, bool | np.timedelta64):
+        return operator.index(value)  # the true value, whatever an int subclass says of itself
+    return None
+
+
+def _float(value: object) -> float | None:
+    """value as a float when it is a number (bool and timedelta64 are not), inf for an int beyond floats, else None."""
+    if not isinstance(value, int | float | np.integer | np.floating) or isinstance(value, bool | np.timedelta64):
+        return None
+    try:
+        return float(value)
+    except OverflowError:
+        return math.inf
 
 
 def _measure(op: str, children: list[Expr]) -> tuple[int, int]:
