@@ -9,6 +9,17 @@ uv run pytest                # offline tests; network tests are skipped
 uv sync --extra baostock     # BaoStock data source
 ```
 
+## Layout
+
+- `wequant/data/`: table definitions (`schema.py`), the versioned store, data sources, the raw layer and the merge of
+  raw BaoStock data into the store.
+- `wequant/rules/`: dated A-share trading rules: price limits, lots, ticks, stamp tax and transfer fees.
+- `wequant/panel/`: date × stock matrices of one store version, with day status and limit masks.
+- `wequant/ops/`: TDX-style operators on those matrices.
+- `wequant/analytics/`: the metrics of a run.
+- `tools/`: command-line jobs: fetch, merge, data checks and reports. `tools/investment_data/` is a temporary seed
+  import and not part of the package.
+
 ## Fetching BaoStock raw data
 
 `tools/baostock_backfill.py` fetches BaoStock's raw data into `$WEQUANT_HOME/raw/baostock/`. It can be stopped and
