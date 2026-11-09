@@ -9,8 +9,9 @@ Phases:
     1  one-day snapshots of every SH/SZ stock, from the latest trading day back to 2000-01-04
     2  adjustment factors of every SH/SZ stock in stock_basic, delisted ones included
 A file that exists is complete and is skipped. Items that fail three times go on a failure list, which is
-retried once at the end of the run. The program writes raw/baostock/, logs/baostock_backfill.log and
-reports/ only; it never writes the store.
+retried once at the end of the run. When several items fail in a row BaoStock is probably down: the run then
+waits, logging in now and then, until it answers again, and stops after 12 hours of waiting.
+The program writes raw/baostock/, logs/baostock_backfill.log and reports/ only; it never writes the store.
 
 While it runs, nothing else may use BaoStock, tests marked network included: BaoStock keeps one session per
 user, so any other login ends this one.
@@ -37,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import itertools
 import json
 import logging
 import signal
@@ -59,7 +61,12 @@ BACKOFF = 2.0  # seconds before the second attempt; doubled for the third
 OLDEST_DAY = dt.date(2000, 1, 4)
 LIMIT_CODES = {"10001005", "10001011", "10004016"}  # login count limit, blacklisted, too many records
 LOG_EVERY = {1: 20, 2: 100}
+DOWN_AFTER = 3  # items failing in a row: the server is probably down, so wait rather than fail every item
+DOWN_WAITS = (300, 600, 1200, 2400, 3600)  # seconds between logins while it is down; the last one repeats
+DOWN_GIVE_UP = 12 * 3600  # seconds of waiting before the run stops
+PAUSE_STEP = 5  # seconds; waits are cut into steps so a signal ends them
 DAILY_LIMIT_EXIT = 3
+SERVER_DOWN_EXIT = 4
 
 
 class DailyLimit(RuntimeError):
@@ -68,6 +75,10 @@ class DailyLimit(RuntimeError):
 
 class RequestCap(RuntimeError):
     """--max-requests was reached."""
+
+
+class ServerDown(RuntimeError):
+    """BaoStock did not answer for DOWN_GIVE_UP seconds."""
 
 
 def shanghai_today() -> dt.date:
@@ -149,6 +160,7 @@ class Backfill:
         self.max_requests: int | None = None
         self.today = shanghai_today()
         self.counted = 0  # requests already added to progress
+        self.failed_in_row = 0
 
     # ------------------------------------------------------------ running
 
@@ -174,6 +186,10 @@ class Backfill:
             run["outcome"] = f"suspected daily limit: {error}"
             self.log.error("suspected daily request limit (%s); stopped. Resume tomorrow with the same command.", error)
             code = DAILY_LIMIT_EXIT
+        except ServerDown as error:
+            run["outcome"] = f"BaoStock unreachable: {error}"
+            self.log.error("BaoStock stayed unreachable (%s); stopped. Resume later with the same command.", error)
+            code = SERVER_DOWN_EXIT
         finally:
             try:
                 self.source.logout()
@@ -287,9 +303,10 @@ class Backfill:
                 error = check(frame) or ""
                 if not error:
                     self.progress.failures.pop(f"{phase}:{item}", None)
+                    self.failed_in_row = 0
                     return frame
             except BaoStockError as exc:
-                if exc.code in LIMIT_CODES or any(word in str(exc) for word in ("上限", "频繁", "limit")):
+                if looks_like_limit(exc):
                     raise DailyLimit(str(exc)) from exc
                 error = str(exc)
                 if exc.code == NOT_LOGGED_IN or exc.code.startswith("10002"):  # session ended or connection broke
@@ -298,6 +315,9 @@ class Backfill:
             if attempt < ATTEMPTS - 1:
                 self.sleep(BACKOFF * 2**attempt)
         self.progress.failures[f"{phase}:{item}"] = {"phase": phase, "item": item, "error": error, "at": _now()}
+        self.failed_in_row += 1
+        if self.failed_in_row >= DOWN_AFTER:
+            self._wait_for_server()
         return None
 
     # ------------------------------------------------------------ bookkeeping
@@ -307,6 +327,37 @@ class Backfill:
             self.source.login()
         except BaoStockError as error:  # counts as part of the failed attempt; the next one tries again
             self.log.warning("login failed: %s", error)
+
+    def _wait_for_server(self) -> None:
+        """Wait, logging in now and then, until BaoStock answers; ServerDown after DOWN_GIVE_UP seconds."""
+        waited = 0
+        for wait in itertools.chain(DOWN_WAITS, itertools.repeat(DOWN_WAITS[-1])):
+            if waited >= DOWN_GIVE_UP:
+                raise ServerDown(f"no answer for {waited / 3600:.1f} h")
+            self.log.warning(
+                "%d items failed in a row; trying BaoStock again in %d min", self.failed_in_row, wait // 60
+            )
+            if not self._pause(wait):
+                return
+            waited += wait
+            try:
+                self.source.login()
+            except BaoStockError as error:
+                if looks_like_limit(error):
+                    raise DailyLimit(str(error)) from error
+                self.log.warning("login failed: %s", error)
+                continue
+            self.failed_in_row = 0
+            self.log.info("BaoStock answers again after %d min", waited // 60)
+            return
+
+    def _pause(self, seconds: float) -> bool:
+        """Sleep in PAUSE_STEP steps; False when a signal stopped the run."""
+        for _ in range(int(seconds // PAUSE_STEP)):
+            if self.stopping:
+                return False
+            self.sleep(PAUSE_STEP)
+        return not self.stopping
 
     def _stop(self, signum, frame) -> None:
         self.stopping = True
@@ -375,6 +426,11 @@ def status(home: Path | None = None) -> str:
         last = progress.runs[-1]
         lines.append(f"last run: started {last['started']}, {last.get('outcome', 'running or killed')}")
     return "\n".join(lines)
+
+
+def looks_like_limit(error: BaoStockError) -> bool:
+    """BaoStock's answer when a login or request limit is hit."""
+    return error.code in LIMIT_CODES or any(word in str(error) for word in ("上限", "频繁", "limit"))
 
 
 def _request(method: str, params: dict) -> str:

@@ -21,13 +21,21 @@ DAYS = [d for d in (TODAY - dt.timedelta(days=n) for n in range(1, 15)) if d.wee
 class Server:
     """A fake BaoStock server answering from recorded rows, with dates and codes taken from each request."""
 
-    def __init__(self, fail_days=None, bad_days=(), limit_day=None, kick_day=None, on_snapshot=None):
+    def __init__(self, fail_days=None, bad_days=(), limit_day=None, kick_day=None, on_snapshot=None, outage=None):
         self.fail_days = dict(fail_days or {})  # day -> failures before it succeeds (999: always)
         self.bad_days, self.limit_day, self.kick_day, self.on_snapshot = set(bad_days), limit_day, kick_day, on_snapshot
+        self.outage = outage  # (day, failed logins): the server goes down at that day's snapshot until then
+        self.down = False
         self.calls = []
 
     def login(self):
         self.calls.append(("login", None))
+        if self.down:
+            day, logins = self.outage
+            self.outage = (day, logins - 1)
+            if logins > 0:
+                return SimpleNamespace(error_code="10002007", error_msg="网络接收错误")
+            self.down = False
         return SimpleNamespace(error_code="0", error_msg="success")
 
     def logout(self):
@@ -56,6 +64,10 @@ class Server:
         self.calls.append(("snapshot", day))
         if self.on_snapshot:
             self.on_snapshot(self, day)
+        if self.outage is not None and day == self.outage[0]:
+            self.down, self.outage = True, (None, self.outage[1])  # one outage
+        if self.down:
+            return FakeResult([], [], "10002007", "网络接收错误")
         if day == self.limit_day:
             return FakeResult([], [], "10001005", "账号登陆数达到上限")
         if day == self.kick_day:
@@ -206,6 +218,36 @@ def test_a_kicked_session_logs_in_again(home):
     job.run([0, 1])
     assert kicked in BaoStockRaw.at(home).daily_days()
     assert [name for name, _ in server.calls].count("login") == 2
+
+
+def test_an_outage_pauses_the_run_until_a_login_works(home):
+    server = Server(outage=(DAYS[1], 3 * bf.ATTEMPTS + 1))  # three items fail, then the first login after a pause
+    job = backfill(home, server)
+    assert job.run([0, 1]) == 0
+    assert BaoStockRaw.at(home).daily_days() == set(DAYS)  # the three failed days came back in the retry pass
+    assert job.progress.failures == {}
+    assert sum(job.sleeps) == 3 * (2.0 + 4.0) + bf.DOWN_WAITS[0] + bf.DOWN_WAITS[1]
+    assert server.snapshots().count(DAYS[4]) == 1  # nothing was requested in vain after the third failure
+
+
+def test_a_long_outage_stops_the_run(home):
+    job = backfill(home, Server(outage=(DAYS[1], 10**6)))
+    assert job.run([0, 1]) == bf.SERVER_DOWN_EXIT
+    assert job.progress.runs[-1]["outcome"].startswith("BaoStock unreachable")
+    assert bf.DOWN_GIVE_UP <= sum(job.sleeps) - 3 * (2.0 + 4.0) < bf.DOWN_GIVE_UP + bf.DOWN_WAITS[-1]
+    assert DAYS[4] not in BaoStockRaw.at(home).daily_days()
+
+
+def test_a_signal_ends_an_outage_wait(home):
+    job = backfill(home, Server(outage=(DAYS[1], 10**6)))
+
+    def sleep(seconds):
+        if seconds == bf.PAUSE_STEP:
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    job.sleep = sleep
+    assert job.run([0, 1]) == 0
+    assert job.progress.runs[-1]["outcome"] == "stopped by signal"
 
 
 def test_status_reads_local_files_only(home):
