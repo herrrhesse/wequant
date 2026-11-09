@@ -167,6 +167,22 @@ def test_an_all_null_benchmark():
     assert metrics["excess_win_rate_daily"].reason == "no_periods"
 
 
+@pytest.mark.parametrize("scale", [7.3, 1000.0])
+def test_holding_the_benchmark_at_any_scale_has_no_active_return(scale):
+    days, benchmark = weekdays(8), [100, 103.7, 99.1, 101.3, 104.9, 102.2, 106.8, 105.5]
+    equity = [scale * b for b in benchmark]  # each return then differs from the benchmark's only by rounding
+    metrics = compute_metrics(daily(days, equity, benchmark=benchmark), calendar(days), SPEC)
+    m = values(metrics)
+    assert m["tracking_error"] == 0.0 and metrics["information_ratio"].reason == "zero_volatility"
+    assert m["excess_win_rate_daily"] == m["excess_win_rate_weekly"] == m["excess_win_rate_monthly"] == 0.0
+
+
+def test_constant_growth_has_no_volatility():
+    metrics = weekday_run(list(100 * 1.01 ** np.arange(8)))
+    assert metrics["annual_volatility"].value == 0.0 and metrics["sharpe"].reason == "zero_volatility"
+    assert metrics["win_rate_daily"].value == 1.0
+
+
 # ------------------------------------------------------------ trades, positions and orders
 
 
@@ -196,6 +212,13 @@ def test_avg_holding_days_with_fractional_shares():
     assert golden(positions=held)["avg_holding_days"].value == 2.0
 
 
+def test_holding_episodes_are_split_by_code():
+    held = positions(
+        [("2024-02-01", "X", 1.0), ("2024-02-02", "X", 1.0), ("2024-02-05", "Y", 1.0), ("2024-03-01", "Y", 1.0)]
+    )
+    assert golden(positions=held)["avg_holding_days"].value == 2.0  # Y starting the day after X ends is a new episode
+
+
 def test_avg_holding_days_without_holdings():
     assert golden()["avg_holding_days"].reason == "no_positions"
     assert golden(positions=positions([]))["avg_holding_days"].reason == "never_held"
@@ -203,19 +226,23 @@ def test_avg_holding_days_without_holdings():
 
 
 @pytest.mark.parametrize(
-    "held",
+    ("held", "message"),
     [
-        positions([("2024-01-31", "X", 1.0)]),  # the base day
-        positions([("2024-02-03", "X", 1.0)]),  # not a trading day
-        positions([("2024-02-01", "X", 1.0), ("2024-02-01", "X", 2.0)]),
-        positions([("2024-02-01", "X", math.nan)]),
-        positions([("2024-02-01", "X", None)]),
-        positions([("2024-02-01", "X", 1.0)]).with_columns(pl.col("shares").cast(pl.Int64)),
+        pytest.param(positions([("2024-01-31", "X", 1.0)]), "not a run day", id="base_day"),
+        pytest.param(positions([("2024-02-03", "X", 1.0)]), "not a run day", id="not_a_trading_day"),
+        pytest.param(positions([("2024-02-01", "X", 1.0), ("2024-02-01", "X", 2.0)]), "repeat", id="repeated"),
+        pytest.param(positions([("2024-02-01", "X", math.nan)]), "finite shares", id="nan_shares"),
+        pytest.param(positions([("2024-02-01", "X", None)]), "finite shares", id="null_shares"),
+        pytest.param(positions([("2024-02-01", None, 1.0)]), "a code", id="null_code"),
+        pytest.param(
+            positions([("2024-02-01", "X", 1.0)]).with_columns(pl.col("shares").cast(pl.Int64)),
+            "not Float64",
+            id="int_shares",
+        ),
     ],
-    ids=["base_day", "not_a_run_day", "repeated", "nan_shares", "null_shares", "int_shares"],
 )
-def test_bad_positions_raise(held):
-    with pytest.raises(ValueError):
+def test_bad_positions_raise(held, message):
+    with pytest.raises(ValueError, match=message):
         golden(positions=held)
 
 
@@ -226,6 +253,8 @@ def test_executable_order_share():
     assert golden(orders=orders([]))["executable_order_share"].reason == "no_rebalance_orders"
     with pytest.raises(ValueError, match="cancelled"):
         golden(orders=orders(["filled", "cancelled"]))
+    with pytest.raises(ValueError, match="unknown"):
+        golden(orders=orders([None]))
 
 
 # ------------------------------------------------------------ degenerate runs
@@ -272,58 +301,68 @@ def test_ex_best_drops_a_day_from_twenty_run_days():
     assert weekday_run([*equity, equity[-1] * 1.05], spec)["annual_return_ex_best"].value == pytest.approx(expected)
 
 
+def test_ex_best_rounds_before_counting_the_dropped_days():
+    spec = MetricSpec(periods_per_year=4, risk_free_rate=0.0, tail_fraction=0.58)  # 0.58 * 50 = 28.999999999999996
+    equity = list(100 * np.cumprod(np.r_[1.0, 1 + np.arange(50, 0, -1) / 1000]))  # gains of 5.0%, 4.9%, ..., 0.1%
+    expected = math.prod(1 + j / 1000 for j in range(1, 22)) ** (4 / 50) - 1  # the 29 best days dropped
+    assert weekday_run(equity, spec)["annual_return_ex_best"].value == pytest.approx(expected, rel=1e-12)
+
+
 # ------------------------------------------------------------ contract violations
 
 
 def bad_daily() -> list:
-    days = weekdays(4)
-    good = daily(days, [100, 101, 102, 103])
+    days, equity = weekdays(4), [100, 101, 102, 103]
+    good = daily(days, equity)
     return [
-        good.drop("equity"),
-        good.with_columns(pl.col("equity").cast(pl.Int64)),
-        good.reverse(),
-        daily([days[0], days[1], days[1], days[3]], [100, 101, 102, 103]),
-        good.filter(pl.col("date") != day(days[2])),
-        good.with_columns(pl.col("date").replace({day(days[3]): day("2024-01-06")})),
-        good.head(1),
-        daily(days, [100, 0, 102, 103]),
-        daily(days, [100, -1, 102, 103]),
-        daily(days, [100, math.nan, 102, 103]),
-        daily(days, [100, None, 102, 103]),
-        daily(days, [100, 101, 102, 103], bought=[0, -1, 0, 0], sold=[0, 0, 0, 0]),
+        pytest.param(good.drop("equity"), "no column", id="no_equity"),
+        pytest.param(good.with_columns(pl.col("equity").cast(pl.Int64)), "not Float64", id="int_equity"),
+        pytest.param(good.reverse(), "strictly increasing", id="unsorted"),
+        pytest.param(daily([days[0], days[1], days[1], days[3]], equity), "strictly increasing", id="duplicate"),
+        pytest.param(good.filter(pl.col("date") != day(days[2])), "exactly the calendar", id="missing_day"),
+        pytest.param(
+            good.with_columns(pl.col("date").replace({day(days[3]): day("2024-01-06")})),
+            "exactly the calendar",
+            id="extra_day",
+        ),
+        pytest.param(good.head(1), "base day", id="one_row"),
+        pytest.param(daily(days, [100, 0, 102, 103]), "equity must be finite", id="zero"),
+        pytest.param(daily(days, [100, -1, 102, 103]), "equity must be finite", id="negative"),
+        pytest.param(daily(days, [100, math.nan, 102, 103]), "equity must be finite", id="nan"),
+        pytest.param(daily(days, [100, None, 102, 103]), "equity must be finite", id="null"),
+        pytest.param(daily(days, equity, bought=[0, -1, 0, 0], sold=[0] * 4), "non-negative", id="negative_trade"),
+        pytest.param(daily(days, equity, benchmark=[100, 0, 101, 102]), "benchmark must be", id="zero_benchmark"),
+        pytest.param(daily(days, equity, benchmark=[100, math.inf, 101, 102]), "benchmark must be", id="inf_benchmark"),
     ]
 
 
-@pytest.mark.parametrize(
-    "frame",
-    bad_daily(),
-    ids=[
-        "no_equity",
-        "int_equity",
-        "unsorted",
-        "duplicate",
-        "missing_day",
-        "extra_day",
-        "one_row",
-        "zero",
-        "negative",
-        "nan",
-        "null",
-        "negative_trade",
-    ],
-)
-def test_bad_daily_raises(frame):
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize(("frame", "message"), bad_daily())
+def test_bad_daily_raises(frame, message):
+    with pytest.raises(ValueError, match=message):
         compute_metrics(frame, calendar(weekdays(4)), SPEC)
 
 
+def test_a_calendar_of_datetimes_raises():
+    days = weekdays(4)
+    with pytest.raises(ValueError, match="not Date"):
+        compute_metrics(daily(days, [100, 101, 102, 103]), calendar(days).cast(pl.Datetime), SPEC)
+
+
 @pytest.mark.parametrize(
-    "fields",
-    [{"periods_per_year": 0}, {"tail_fraction": 1.0}, {"tail_fraction": -0.1}, {"risk_free_rate": math.nan}],
+    ("field", "value"),
+    [
+        ("periods_per_year", 0),
+        ("periods_per_year", True),
+        ("periods_per_year", 242.0),
+        ("tail_fraction", 1.0),
+        ("tail_fraction", -0.1),
+        ("risk_free_rate", math.nan),
+        ("risk_free_rate", -1.0),
+    ],
 )
-def test_bad_spec_raises(fields):
-    with pytest.raises(ValueError):
-        MetricSpec(**fields)
+def test_bad_spec_raises(field, value):
+    with pytest.raises(ValueError, match=field):
+        MetricSpec(**{field: value})
 
 
 def test_a_metric_has_a_reason_exactly_when_it_has_no_value():

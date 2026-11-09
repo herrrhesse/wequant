@@ -29,7 +29,8 @@ REASONS = (
     "no_orders",
     "no_rebalance_orders",
 )
-PERIODS = {"daily": None, "weekly": "week", "monthly": "month"}
+_PERIODS = {"daily": None, "weekly": "week", "monthly": "month"}  # win-rate name -> period_keys period
+_ROUNDING = 1e-12  # return gaps and stds up to this are float rounding: V_t / V_{t-1} - 1 is off by ~1e-16
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ class MetricSpec:
     tail_fraction: float = 0.05  # share of best days annual_return_ex_best drops
 
     def __post_init__(self) -> None:
-        if not (isinstance(self.periods_per_year, int) and self.periods_per_year > 0):
+        if type(self.periods_per_year) is not int or self.periods_per_year <= 0:  # bool is an int subclass
             raise ValueError(f"periods_per_year must be a positive int, not {self.periods_per_year!r}")
         if not 0 <= self.tail_fraction < 1:
             raise ValueError(f"tail_fraction must be in [0, 1), not {self.tail_fraction!r}")
@@ -139,12 +140,13 @@ def drawdown_metrics(s: RunSeries) -> Metrics:
 def win_rates(s: RunSeries) -> Metrics:
     """Share of days, weeks and months with a gain, then with a gain over the benchmark."""
     days = s.dates[1:]
-    own = {f"win_rate_{p}": _win_rate(_per_period(s.returns, days, p), 0.0) for p in PERIODS}
+    own = {name: _per_period(s.returns, days, period) for name, period in _PERIODS.items()}
+    rates = {f"win_rate_{name}": _win_rate(r, 0.0) for name, r in own.items()}
     if s.benchmark_returns is None:
-        return own | {f"excess_win_rate_{p}": Metric(None, "fraction", "no_benchmark") for p in PERIODS}
-    return own | {
-        f"excess_win_rate_{p}": _win_rate(_per_period(s.returns, days, p), _per_period(s.benchmark_returns, days, p))
-        for p in PERIODS
+        return rates | {f"excess_win_rate_{name}": Metric(None, "fraction", "no_benchmark") for name in own}
+    return rates | {
+        f"excess_win_rate_{name}": _win_rate(own[name], _per_period(s.benchmark_returns, days, period))
+        for name, period in _PERIODS.items()
     }
 
 
@@ -207,16 +209,22 @@ def metrics_json(metrics: Metrics, spec: MetricSpec) -> bytes:
 def _annual_std(x: np.ndarray, k: int, short: str) -> Metric:
     if x.size < 2:
         return Metric(None, "fraction", short)
-    return Metric(float(np.std(x, ddof=1) * math.sqrt(k)), "fraction")
+    return Metric(_std(x) * math.sqrt(k), "fraction")
 
 
 def _sharpe_like(x: np.ndarray, hurdle: float, k: int, short: str) -> Metric:
     if x.size < 2:
         return Metric(None, "ratio", short)
-    std = np.std(x, ddof=1)
-    if std == 0:
+    std = _std(x)
+    if not std:
         return Metric(None, "ratio", "zero_volatility")
     return Metric(float(np.mean(x - hurdle) / std * math.sqrt(k)), "ratio")
+
+
+def _std(x: np.ndarray) -> float:
+    """Sample standard deviation, 0.0 when it is only float rounding."""
+    std = float(np.std(x, ddof=1))
+    return std if std > _ROUNDING else 0.0
 
 
 def _annual_return_ex_best(s: RunSeries, spec: MetricSpec) -> Metric:
@@ -233,14 +241,12 @@ def _day(s: RunSeries, i: int) -> Metric:
     return Metric(s.dates[i].item(), "date")
 
 
-def _per_period(returns: np.ndarray, days: np.ndarray, period: str) -> np.ndarray:
-    if PERIODS[period] is None:
-        return returns
-    return compound(returns, period_keys(days, PERIODS[period]))
+def _per_period(returns: np.ndarray, days: np.ndarray, period: str | None) -> np.ndarray:
+    return returns if period is None else compound(returns, period_keys(days, period))
 
 
 def _win_rate(returns: np.ndarray, hurdle: np.ndarray | float) -> Metric:
     valid = np.isfinite(returns) & np.isfinite(hurdle)
     if not valid.any():
         return Metric(None, "fraction", "no_periods")
-    return Metric(float(np.mean((returns > hurdle)[valid])), "fraction")
+    return Metric(float(np.mean((returns - hurdle > _ROUNDING)[valid])), "fraction")
