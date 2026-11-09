@@ -1,0 +1,72 @@
+"""TDX-style operators on date × stock grids; time-series operators count each stock's bars and skip NaN days.
+
+Importing it sets OMP_WAIT_POLICY=PASSIVE for the process unless already set, so idle OpenMP threads sleep, not spin.
+"""
+
+from wequant.ops.arith import ABS, DIV, LN, MAX, MIN
+from wequant.ops.logic import AND, BETWEEN, EQ, GE, GT, IF, LE, LT, NOT, OR
+from wequant.ops.rolling import (
+    AVEDEV,
+    CORR,
+    COUNT,
+    EVERY,
+    EXIST,
+    HHV,
+    HHVBARS,
+    LLV,
+    LLVBARS,
+    MA,
+    SLOPE,
+    STD,
+    STDP,
+    SUM,
+    TS_RANK,
+    WMA,
+)
+from wequant.ops.scan import BARSCOUNT, BARSLAST, CROSS, EMA, REF, SMA, VALUEWHEN
+from wequant.ops.section import CS_DEMEAN, CS_PCT, CS_RANK, CS_ZSCORE
+
+__all__ = [
+    "REF",
+    "MA",
+    "EMA",
+    "SMA",
+    "WMA",
+    "SUM",
+    "HHV",
+    "LLV",
+    "HHVBARS",
+    "LLVBARS",
+    "STD",
+    "STDP",
+    "AVEDEV",
+    "SLOPE",
+    "COUNT",
+    "EVERY",
+    "EXIST",
+    "TS_RANK",
+    "CORR",
+    "CROSS",
+    "BARSLAST",
+    "BARSCOUNT",
+    "VALUEWHEN",
+    "CS_RANK",
+    "CS_PCT",
+    "CS_ZSCORE",
+    "CS_DEMEAN",
+    "GT",
+    "GE",
+    "LT",
+    "LE",
+    "EQ",
+    "AND",
+    "OR",
+    "NOT",
+    "IF",
+    "BETWEEN",
+    "MAX",
+    "MIN",
+    "ABS",
+    "DIV",
+    "LN",
+]
