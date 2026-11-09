@@ -40,6 +40,7 @@ def test_audit_bars():
             *(("000002.SZ", day, 5000, {}) for day in (D1, D2)),
             *(("600849.SH", day, 10000, {}) for day in (D1, D2, D3)),
             ("600004.SH", D1, 10010, {}),
+            ("600004.SH", D2, 10000, {}),
             ("600005.SH", D2, 10000, {}),
             ("600006.SH", D2, 10000, {}),
         ],
@@ -55,7 +56,7 @@ def test_audit_bars():
                     ("600000.SH", D3, 10000, {"volume": 900_000}),
                     *(("000001.SZ", day, 10000, {}) for day in (D1, D3)),
                     *(("000002.SZ", day, 5000, {}) for day in (D1, D2, D3)),
-                    ("600004.SH", D1, 10000, {}),
+                    *(("600004.SH", day, 10000, {}) for day in (D1, D2)),
                     ("600006.SH", D2, 10000, {"preclose": 10010}),
                 ],
                 True,
@@ -97,6 +98,12 @@ def test_audit_bars():
     assert (unconfirmed["store_close"], unconfirmed["store_volume"], unconfirmed["tradestatus"]) == (5000, 1000, 0)
     assert unconfirmed["store_source"] == SEED
     assert detail(issues, "600005.SH", D2, "preclose_mismatch") == {"preclose": 10000, "store_preclose": 10010}
+    assert detail(issues, "600004.SH", D1, "price_mismatch") == {
+        **{p: 10010 for p in ("open", "high", "low", "close")},
+        **{f"store_{p}": 10000 for p in ("open", "high", "low", "close")},
+        "next_date": "2024-01-03",
+        "next_preclose": 10000,  # the exchange's close for D1 is the store's
+    }
     assert set(issues["action"]) == {"row_added", "row_dropped", "value_replaced"}
     replaced = compared.filter(pl.col("store_preclose_derived") & (pl.col("preclose") != pl.col("store_preclose")))
     assert replaced.select("code", "date").rows() == [("600006.SH", D2)]
@@ -157,15 +164,21 @@ def test_check_adjustment_tolerances():
             ("600002.SH", D2, 2000, 2000),
             ("600003.SH", D1, 300000, None),
             ("600003.SH", D2, 297000, 297000),
+            ("600004.SH", D1, 300000, None),
+            ("600004.SH", D2, 297000, 297000),
         ]
     )
-    factors = pl.concat(
-        [adj(code, [(D1, 1.0), (D2, step)]) for code, step in (("600001.SH", 1.006), ("600002.SH", 1.0024))]
-        + [adj("600003.SH", [(D1, 1.0), (D2, 1.0115)])]
-    )
+    steps = {"600001.SH": 1.006, "600002.SH": 1.0024, "600003.SH": 1.0115, "600004.SH": 1.0105}
+    factors = pl.concat([adj(code, [(D1, 1.0), (D2, step)]) for code, step in steps.items()])
     issues, checked = check_adjustment(rows, factors, SOURCE)
     assert keys(issues) == {("600003.SH", D2, "event_step_off")}
-    assert checked.select("code", "agrees").rows() == [("600001.SH", True), ("600002.SH", True), ("600003.SH", False)]
+    # 600004.SH agrees by ratio only: 3.95e-4 apart, while round(300000 / 1.0105) = 296883 is 117 厘 off
+    assert checked.select("code", "agrees").rows() == [
+        ("600001.SH", True),
+        ("600002.SH", True),
+        ("600003.SH", False),
+        ("600004.SH", True),
+    ]
 
 
 def test_check_adjustment_skips_derived_rows_and_first_bars():
@@ -251,6 +264,25 @@ def test_drop_status_before_first_bar():
     assert keys(issues) == {("600000.SH", D1, "before_first_bar"), ("600001.SH", D1, "before_first_bar")}
     assert set(issues["action"]) == {"status_dropped"} and set(issues["table"]) == {"daily_status"}
     assert detail(issues, "600001.SH", D1, "before_first_bar") == {"first_date": None, "tradestatus": 0}
+
+
+def test_a_duplicate_with_an_amount_within_amount_rtol_is_dropped():
+    new = bars(
+        [
+            ("300114.SZ", D1, 2000, {"amount": 63016557.48}),
+            ("302132.SZ", D1, 2000, {"amount": 63016557.00}),
+            ("300115.SZ", D1, 2000, {"amount": 63000000.00}),
+        ],
+        False,
+        SOURCE,
+    )
+    status = table_frame(
+        "daily_status", new.select("code", "date").to_dicts(), tradestatus=1, is_st=False, source=SOURCE
+    )
+    kept, kept_status, issues = drop_duplicate_codes(new, status, new.head(1), SOURCE)
+    assert kept["code"].to_list() == kept_status["code"].to_list() == ["300114.SZ", "300115.SZ"]
+    assert keys(issues) == {("302132.SZ", D1, "duplicate_code")}
+    assert detail(issues, "302132.SZ", D1, "duplicate_code") == {"same_as": "300114.SZ"}
 
 
 def test_identical_bars_of_two_new_codes_are_both_kept():

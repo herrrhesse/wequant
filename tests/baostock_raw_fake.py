@@ -155,10 +155,12 @@ def standard_world() -> World:
 
 
 def duplicates(w: World) -> None:
-    """300114.SZ and 302132.SZ: BaoStock repeats 300114's bars under 302132 before 302132 trades."""
+    """300114.SZ and 302132.SZ: BaoStock repeats 300114's bars under 302132 before 302132 trades, on D2 with the
+    amount a fen off."""
     w.stock("300114.SZ", {C1: 2000, C2: 2010, D1: 2020, D2: 2030}, raw=(D1, D2))
-    for day in (D1, D2):
-        w.day(day, next(r for r in w.days[day] if r["code"] == "sz.300114") | {"code": "sz.302132"})
+    for day, amount in ((D1, "2020.0000"), (D2, "2029.9900")):
+        original = next(r for r in w.days[day] if r["code"] == "sz.300114")
+        w.day(day, original | {"code": "sz.302132", "amount": amount})
     w.day(D3, suspended_row("300114.SZ", D3))
     w.stock("302132.SZ", {D3: 3000}, raw=())
     w.day(D3, day_row("302132.SZ", D3, 3000))

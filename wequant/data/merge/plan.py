@@ -16,9 +16,12 @@ from wequant.data.merge.assemble import (
     adj_factor_table,
     bars_after,
     data_issues_table,
+    orphan_status_years,
+    part_rows,
     read_years,
     securities_table,
     stale_years,
+    status_to_restore,
 )
 from wequant.data.merge.audit import (
     FLAGGED,
@@ -71,50 +74,41 @@ def plan_merge(
     source = _newest(status_new["source"])
 
     stale = stale_years(store, manifest, "bars")
-    years = {d.year for d in days} | stale
-    old, kept, bj_rows = _stored_bars(store, manifest, years, days)
-    bars_new, status_new, duplicates = drop_duplicate_codes(bars_new, status_new, old, source)
+    years = {"bars": {d.year for d in days} | stale}
     audited = calendar.filter(calendar.is_in(days))
-    new_audited = bars_new.filter(pl.col("date").is_in(audited.implode()))
-    bar_issues, compared = audit_bars(new_audited, old, status_new, securities, source)
-    bar_stats = _bar_stats(compared, bars_new, status_new, old, securities, audited)
-    parts = pl.concat([kept, bars_new])
-    del old, kept, new_audited, compared  # the largest frames; the whole-store steps below need the memory
-
-    after = bars_after(store, manifest, parts, years)
+    parts, bars_new, status_new, bar_issues, bar_stats = _merge_bars(
+        store, manifest, years["bars"], days, audited, securities, bars_new, status_new, source
+    )
+    after = bars_after(store, manifest, parts, years["bars"])
     spans = after.group_by("code").agg(first_date=pl.col("date").min(), last_date=pl.col("date").max())
-    status_new, early = drop_status_before_first_bar(status_new, spans, source)
-    status_parts = pl.concat([_stored_status(store, manifest, years, days), status_new])
+    years["daily_status"] = {d.year for d in days} | orphan_status_years(store, manifest, spans)
+    status_new, status_parts, early = _merge_status(store, manifest, status_new, spans, years, days, source)
 
     stored_adj = store.read_table("adj_factor", manifest=manifest)
-    in_files = pl.col("code").is_in(factor_codes)
-    new_adj = normalize(read_factors(raw, factor_codes), spans.filter(in_files))
-    new_events, old_events = (events(a, after.select(KEY)) for a in (new_adj, stored_adj.filter(in_files)))
-    event_issues = audit_events(new_events, old_events, source)
-
+    new_adj = normalize(read_factors(raw, factor_codes), spans.filter(pl.col("code").is_in(factor_codes)))
+    event_issues, event_stats = _event_issues(new_adj, stored_adj, factor_codes, after, source)
     securities_new, no_bars = securities_table(securities, spans, source)
     adj = adj_factor_table(stored_adj, new_adj, factor_codes, spans)
     flagged, checked = check_adjustment(after, adj.filter(~BJ), source)
     conflicts = _conflict_issues(status_disagreements(bars_new, status_new), source)
 
-    record = pl.concat([duplicates, early, bar_issues, event_issues, no_bars, conflicts])
+    old_issues = store.read_table("data_issues", manifest=manifest)
+    record = pl.concat([bar_issues, early, event_issues, no_bars, conflicts])
     issues = pl.concat([record, flagged])
-    data_issues = data_issues_table(store.read_table("data_issues", manifest=manifest), record, flagged)
-    replace = {"securities": securities_new, "data_issues": data_issues}
-    if not _same_rows(adj, stored_adj, ["code", "ex_date"]):
-        replace["adj_factor"] = adj
-    replace_parts = {"bars": parts, "daily_status": status_parts}
+    replace_parts = _checked_parts(manifest, {"bars": parts, "daily_status": status_parts}, years)
+    replace = _whole_tables(securities_new, data_issues_table(old_issues, record, flagged), adj, stored_adj)
     full_calendar = pl.concat([calendar, pl.Series("date", days)]).unique().sort()
+    restore = status_to_restore(store, manifest, old_issues, spans).filter(~pl.col("date").is_in(days))
     stats = {
-        "rows": {k: v.height for k, v in (replace_parts | replace).items()},
+        "rows": _rows(manifest, replace_parts, years, replace | {"adj_factor": adj, "calendar": full_calendar}),
         "merged": _merged_counts(bars_new, status_new),
-        "years": {"touched": sorted(years), "stale": sorted(stale)},
-        "bj_rows": bj_rows,
+        "years": {table: sorted(y) for table, y in years.items()} | {"stale": sorted(stale)},
         **bar_stats,
-        "events": _event_counts(new_events, old_events),
+        "events": event_stats,
         "adj_factor": _adj_changes(stored_adj.filter(~BJ), adj.filter(~BJ), "adj_factor" in replace),
         "adjustment": _adjustment_stats(after, checked, flagged, full_calendar),
         "issues": _counts(issues, "kind"),
+        "status_to_restore": {"rows": restore.height, "days": sorted(set(restore["date"]))},
     }
     return MergePlan(
         base_version=manifest["version"],
@@ -125,7 +119,7 @@ def plan_merge(
         upsert={"calendar": pl.DataFrame({"date": days}, schema={"date": pl.Date})},
         issues=issues,
         stats=stats,
-        meta=_meta(store, manifest, status_parts, years, full_calendar),
+        meta=_meta(store, manifest, status_parts, years["daily_status"], full_calendar),
     )
 
 
@@ -174,6 +168,17 @@ def _newest(sources: pl.Series) -> str:
     return max(sources.unique().to_list(), key=lambda s: [int(n) for n in re.findall(r"[0-9]+", s)])
 
 
+def _merge_bars(store, manifest, years, days, audited, securities, bars_new, status_new, source) -> tuple:
+    """(bars parts of the touched years, new bars, new status rows, issues, stats): duplicate codes dropped and the
+    store's bars on audited days compared."""
+    old, kept, bj_rows = _stored_bars(store, manifest, years, days)
+    bars_new, status_new, duplicates = drop_duplicate_codes(bars_new, status_new, old, source)
+    new_audited = bars_new.filter(pl.col("date").is_in(audited.implode()))
+    bar_issues, compared = audit_bars(new_audited, old, status_new, securities, source)
+    stats = {"bj_rows": bj_rows, **_bar_stats(compared, bars_new, status_new, old, securities, audited)}
+    return pl.concat([kept, bars_new]), bars_new, status_new, pl.concat([duplicates, bar_issues]), stats
+
+
 def _stored_bars(store: Store, manifest: dict, years: set[int], days: list[dt.date]) -> tuple:
     """(SH/SZ rows on merged days, every other row, BJ rows per year before and after) of the touched years."""
     stored = read_years(store, manifest, "bars", years)
@@ -184,8 +189,42 @@ def _stored_bars(store: Store, manifest: dict, years: set[int], days: list[dt.da
     return old, kept, {y: [before.get(y, 0), after.get(y, 0)] for y in sorted(before.keys() | after.keys())}
 
 
-def _stored_status(store: Store, manifest: dict, years: set[int], days: list[dt.date]) -> pl.DataFrame:
-    return read_years(store, manifest, "daily_status", years).filter(~pl.col("date").is_in(days))
+def _merge_status(store, manifest, status_new, spans, years, days, source) -> tuple:
+    """(new status rows, daily_status parts, before_first_bar issues): no row, stored or new, before its code's first
+    bar."""
+    status_new, early_new = drop_status_before_first_bar(status_new, spans, source)
+    stored = read_years(store, manifest, "daily_status", years["daily_status"]).filter(~pl.col("date").is_in(days))
+    stored, early_stored = drop_status_before_first_bar(stored, spans, source)
+    return status_new, pl.concat([stored, status_new]), pl.concat([early_new, early_stored])
+
+
+def _event_issues(new_adj, stored_adj, factor_codes, after, source) -> tuple[pl.DataFrame, dict]:
+    """(issues, counts) of the factor files' events against the store's, for the codes with a factor file."""
+    bar_dates = after.select(KEY)
+    new = events(new_adj, bar_dates)
+    old = events(stored_adj.filter(pl.col("code").is_in(factor_codes)), bar_dates)
+    return audit_events(new, old, source), _event_counts(new, old)
+
+
+def _checked_parts(manifest: dict, parts: dict, years: dict) -> dict:
+    """parts, once every touched year with a stored file keeps a row: Store.commit keeps a part its frame leaves out."""
+    for table, frame in parts.items():
+        emptied = (set(part_rows(manifest, table)) & years[table]) - set(frame["date"].dt.year())
+        if emptied:
+            raise ValueError(f"the merge leaves no {table} rows in {sorted(emptied)}; a stored year cannot be dropped")
+    return parts
+
+
+def _whole_tables(securities, data_issues, adj, stored_adj) -> dict[str, pl.DataFrame]:
+    """securities and data_issues, plus adj_factor when its rows change."""
+    tables = {"securities": securities, "data_issues": data_issues}
+    return tables if _same_rows(adj, stored_adj, ["code", "ex_date"]) else tables | {"adj_factor": adj}
+
+
+def _rows(manifest: dict, parts: dict, years: dict, tables: dict) -> dict[str, int]:
+    """Rows of each table after the merge; a partitioned table adds its untouched stored parts."""
+    untouched = {t: sum(n for y, n in part_rows(manifest, t).items() if y not in years[t]) for t in parts}
+    return {t: len(frame) + untouched.get(t, 0) for t, frame in (parts | tables).items()}
 
 
 def _conflict_issues(conflicts: pl.DataFrame, source: str) -> pl.DataFrame:

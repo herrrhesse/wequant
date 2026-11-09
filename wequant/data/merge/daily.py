@@ -15,6 +15,8 @@ from wequant.data.sources.baostock import parse_daily
 PRICES = ("open", "high", "low", "close", "preclose")
 COLUMNS = ("date", "code", *PRICES, "volume", "amount", "tradestatus", "isST", "_baostock_version")
 SAMPLES = 20
+AVERAGE_RTOL = 1e-3  # a clean row's amount / volume strays less than 1e-4 beyond [low, high]
+AMOUNT_ATOL = 1.0  # yuan: some amounts are cut to the whole yuan
 
 TEXT_CHECKS = {
     "code": pl.col("code").str.contains(r"^s[hz][.][0-9]{6}$"),
@@ -23,6 +25,7 @@ TEXT_CHECKS = {
     "isST": pl.col("isST").is_in(["0", "1"]),
     "price": pl.all_horizontal(pl.col(p).str.contains(r"^([0-9]+[.][0-9]{2}(00)?)?$") for p in PRICES),
     "volume": pl.col("volume").str.contains(r"^[0-9]*$"),
+    "amount": pl.col("amount").str.contains(r"^([0-9]+([.][0-9]+)?)?$"),
 }
 
 _TRADED = (pl.col("volume") > 0).fill_null(False)
@@ -32,6 +35,18 @@ _SANE = (
     & (pl.col("low") > 0)
     & (pl.col("low") <= pl.min_horizontal("open", "close"))
     & (pl.max_horizontal("open", "close") <= pl.col("high"))
+)
+
+
+def _value(price: str) -> pl.Expr:
+    """The day's volume at a price column, in yuan."""
+    return pl.col(price) * pl.col("volume") / 1000
+
+
+_PAID = (
+    (pl.col("amount") > 0)
+    & (pl.col("amount") >= _value("low") * (1 - AVERAGE_RTOL) - AMOUNT_ATOL)
+    & (pl.col("amount") <= _value("high") * (1 + AVERAGE_RTOL) + AMOUNT_ATOL)
 )
 
 
@@ -67,6 +82,7 @@ def _row_checks(daily: pl.DataFrame) -> dict[str, pl.Expr]:
         "code": ~pl.col("code").is_in(not_stock),
         "unique": ~pl.col("code").is_duplicated().over("date"),
         "traded": ~_TRADED | _SANE,
+        "average_price": ~_TRADED | _PAID,
     }
 
 

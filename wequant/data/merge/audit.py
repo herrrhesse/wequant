@@ -17,6 +17,7 @@ OHLC = ("open", "high", "low", "close")
 COMPARED = (*OHLC, "volume", "amount", "preclose")
 STORED = (*COMPARED, "preclose_derived", "source")
 EVENT = ("ex_date", "factor", "step")
+NEXT = ("next_date", "next_preclose")
 ROUNDING = {"implied_step": 6, "factor_step": 6, "step": 6, "store_step": 6, "volume_rel": 9, "amount_rel": 9}
 
 
@@ -31,7 +32,7 @@ def audit_bars(
     issues = [
         _added(new.join(old, on=KEY, how="anti"), securities, source),
         _unconfirmed(store.join(new, on=KEY, how="anti"), status, source),
-        *_mismatches(compared, source),
+        *_mismatches(compared, new, source),
     ]
     return pl.concat(issues), compared
 
@@ -120,26 +121,39 @@ def _unconfirmed(rows: pl.DataFrame, status: pl.DataFrame, source: str) -> pl.Da
     return issue_rows(rows, "bars", "bar_unconfirmed", "row_dropped", detail, source)
 
 
-def _mismatches(compared: pl.DataFrame, source: str) -> list[pl.DataFrame]:
+def _mismatches(compared: pl.DataFrame, new: pl.DataFrame, source: str) -> list[pl.DataFrame]:
     price = pl.any_horizontal(pl.col(c) != pl.col(f"store_{c}") for c in OHLC)
-    tests = [
-        ("price_mismatch", price, [*OHLC, *(f"store_{c}" for c in OHLC)]),
-        ("volume_mismatch", _beyond("volume", VOLUME_RTOL), ["volume", "store_volume", "volume_rel"]),
-        ("amount_mismatch", _beyond("amount", AMOUNT_RTOL), ["amount", "store_amount", "amount_rel"]),
+    preclose = ~pl.col("store_preclose_derived") & pl.col("preclose").ne_missing(pl.col("store_preclose"))
+    found = [
+        ("price_mismatch", _next_bar(compared.filter(price), new), [*OHLC, *(f"store_{c}" for c in OHLC), *NEXT]),
         (
-            "preclose_mismatch",
-            ~pl.col("store_preclose_derived") & pl.col("preclose").ne_missing(pl.col("store_preclose")),
-            ["preclose", "store_preclose"],
+            "volume_mismatch",
+            compared.filter(pl.col("volume_rel") > VOLUME_RTOL),
+            ["volume", "store_volume", "volume_rel"],
         ),
+        (
+            "amount_mismatch",
+            compared.filter(pl.col("amount_rel") > AMOUNT_RTOL),
+            ["amount", "store_amount", "amount_rel"],
+        ),
+        ("preclose_mismatch", compared.filter(preclose), ["preclose", "store_preclose"]),
     ]
-    return [
-        issue_rows(_rounded(compared.filter(test)), "bars", kind, "value_replaced", detail, source)
-        for kind, test, detail in tests
-    ]
+    return [issue_rows(_rounded(rows), "bars", kind, "value_replaced", detail, source) for kind, rows, detail in found]
 
 
-def _beyond(column: str, rtol: float) -> pl.Expr:
-    return (pl.col(f"{column}_rel") > rtol).fill_null(pl.col(column) != pl.col(f"store_{column}"))
+def _next_bar(rows: pl.DataFrame, new: pl.DataFrame) -> pl.DataFrame:
+    """rows plus the date and exchange preclose of the code's next new bar: the exchange's view of rows' close."""
+    following = new.filter(pl.col("code").is_in(rows["code"].implode()))
+    following = following.select("code", pl.col("date", "preclose").name.prefix("next_")).sort("next_date")
+    return rows.sort("date").join_asof(
+        following,
+        left_on="date",
+        right_on="next_date",
+        by="code",
+        strategy="forward",
+        allow_exact_matches=False,
+        check_sortedness=False,
+    )
 
 
 def _factor_on(rows: pl.DataFrame, adj: pl.DataFrame, on: str, name: str) -> pl.DataFrame:

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 import polars as pl
 
-from wequant.data.merge.daily import RawDataError
+from wequant.data.merge.daily import SAMPLES, RawDataError
 from wequant.data.raw import BaoStockRaw
 from wequant.data.schema import ADJ_FACTOR
 from wequant.data.sources.baostock import parse_adjust_factor
@@ -23,7 +23,7 @@ def read_factors(raw: BaoStockRaw, codes: Iterable[str]) -> pl.DataFrame:
     file_code = pl.col("path").str.extract(r"([^/\\]+)\.parquet$")
     factors = pl.concat([parse_adjust_factor(scan), scan.select(file=file_code)], how="horizontal").collect()
     problems = [
-        f"{name}: {rows.height} rows, e.g. {rows.head(20).rows()}"
+        f"{name}: {rows.height} rows, e.g. {rows.head(SAMPLES).rows()}"
         for name, rows in _bad_factor_rows(factors).items()
         if rows.height
     ]

@@ -16,8 +16,9 @@ from pathlib import Path
 import polars as pl
 
 from wequant.data.merge import MergePlan, apply_merge, plan_merge
-from wequant.data.merge.assemble import BJ, read_years
+from wequant.data.merge.assemble import BJ, read_years, status_to_restore
 from wequant.data.merge.audit import FLAGGED, status_disagreements
+from wequant.data.merge.plan import LATE_EVENT_DAYS
 from wequant.data.raw import BaoStockRaw
 from wequant.data.store import CommitResult, Store, wequant_home
 from wequant.version import code_version
@@ -28,6 +29,8 @@ FROZEN_TABLES = ("index_bars", "index_members")
 FLAGGED_ROWS = 1000  # flagged rows listed in the report at most
 LISTED_KINDS = ("price_mismatch", "preclose_mismatch", "bar_unconfirmed", "tradestatus_conflict", "amount_mismatch")
 LISTED_ROWS = 100  # rows listed per kind at most
+LISTED_FILES = 200  # factor files named in the report at most
+LISTED_DAYS = 20  # days to re-merge named at most
 KEY = ["code", "date"]
 
 
@@ -96,15 +99,26 @@ def acceptance(store: Store, plan: MergePlan, commit: CommitResult) -> dict[str,
         "status_agrees": status_agrees(store, manifest, plan),
         "adjustment_checked": adjustment_checked(store, manifest, plan),
         "factor_files_consistent": factor_files_consistent(plan),
-        "touched_only": touched_only(plan, commit),
+        "touched_only": touched_only(plan, commit, manifest),
         "registered": registered(store, manifest),
+        "status_complete": status_complete(store, manifest),
         "bj_frozen": bj_frozen(store, store.manifest(plan.base_version), manifest),
     }
 
 
 def prices_equal(plan: MergePlan) -> tuple[bool, str]:
-    n = plan.stats["issues"].get("price_mismatch", 0)
-    return n == 0, f"{n} price mismatches on {plan.stats['compared']:,} compared rows"
+    """No price mismatch; for those found, whose close the next day's exchange preclose repeats."""
+    details = [json.loads(d) for d in plan.issues.filter(pl.col("kind") == "price_mismatch")["detail"]]
+    message = f"{len(details)} price mismatches on {plan.stats['compared']:,} compared rows"
+    closes = [(d["next_preclose"], d["store_close"], d["close"]) for d in details if d["store_close"] != d["close"]]
+    if closes:
+        store = sum(following == old for following, old, _ in closes)
+        new = sum(following == close for following, _, close in closes)
+        message += (
+            f"; of the {len(closes)} with another close, the next exchange preclose repeats the store's in {store} "
+            f"and BaoStock's in {new}"
+        )
+    return not details, message
 
 
 def status_agrees(store: Store, manifest: dict, plan: MergePlan) -> tuple[bool, str]:
@@ -152,16 +166,23 @@ def factor_files_consistent(plan: MergePlan) -> tuple[bool, str]:
     return flagged.is_empty(), f"{flagged.height} flagged rows for the {len(plan.factor_codes)} codes with factor files"
 
 
-def touched_only(plan: MergePlan, commit: CommitResult) -> tuple[bool, str]:
-    years = set(plan.stats["years"]["touched"])
-    allowed = {f"{t}/{y}" for t in YEAR_TABLES for y in years} | {f"{t}/{t}" for t in WHOLE_TABLES}
-    stray = [p for p in commit.files_written if p.rsplit(".v", 1)[0] not in allowed]
-    kept = {p.split("/")[0] for p in commit.files_kept}
-    frozen = [t for t in FROZEN_TABLES if t not in kept]
-    ok = not stray and not frozen
-    return ok, f"{len(commit.files_written)} files written, outside the touched parts: {stray or 'none'}; " + (
-        f"not kept: {frozen}" if frozen else "index tables kept"
+def touched_only(plan: MergePlan, commit: CommitResult, manifest: dict) -> tuple[bool, str]:
+    """Only the touched years and the merge's whole tables are written; every other part keeps its file."""
+    years = plan.stats["years"]
+    touched = {f"{t}/{y}" for t in YEAR_TABLES for y in years[t]} | {f"{t}/{t}" for t in WHOLE_TABLES}
+    stray = [p for p in commit.files_written if _part(p) not in touched]
+    tables = (*YEAR_TABLES, *FROZEN_TABLES)
+    others = {f"{t}/{e['part']}" for t in tables for e in manifest["tables"].get(t, {}).get("files", [])} - touched
+    unkept = sorted(others - {_part(p) for p in commit.files_kept})
+    return not stray and not unkept, (
+        f"{len(commit.files_written)} files written; outside the touched parts: {stray or 'none'}; "
+        f"other parts not kept: {unkept or 'none'}"
     )
+
+
+def _part(path: str) -> str:
+    """bars/2024.v5.parquet -> bars/2024."""
+    return path.rsplit(".v", 1)[0]
 
 
 def registered(store: Store, manifest: dict) -> tuple[bool, str]:
@@ -200,6 +221,21 @@ def _status_problem(store: Store, manifest: dict, spans: pl.DataFrame) -> str:
     bad = status.filter(BJ | pl.col("first").is_null() | (pl.col("date") < pl.col("first")))
     rows = bad.select(pl.len()).collect().item()
     return f"{rows} daily_status rows are BJ or before the code's first bar" if rows else ""
+
+
+def status_complete(store: Store, manifest: dict) -> tuple[bool, str]:
+    """No status row an earlier merge dropped before a first bar lies on or after the code's first bar now."""
+    spans = store.read_table("securities", manifest=manifest).filter(~BJ)
+    restore = status_to_restore(store, manifest, store.read_table("data_issues", manifest=manifest), spans)
+    if restore.is_empty():
+        return True, "every status row dropped before a first bar is still before it"
+    days = sorted(set(restore["date"]))
+    return False, f"{restore.height} dropped status rows are now on or after the first bar; {_remerge(days)}"
+
+
+def _remerge(days: list[dt.date]) -> str:
+    shown = ", ".join(str(d) for d in days[:LISTED_DAYS]) + (", ..." if len(days) > LISTED_DAYS else "")
+    return f"re-merge {len(days)} days: {shown}"
 
 
 def bj_frozen(store: Store, base: dict, manifest: dict) -> tuple[bool, str]:
@@ -287,15 +323,26 @@ def _rows_section(plan: MergePlan) -> list[str]:
         *table(["table", "rows after the merge"], s["rows"].items()),
         f"- **Merged:** {merged['bars']:,} bars and {merged['daily_status']:,} status rows "
         f"({merged['suspended']:,} suspended, {merged['st']:,} ST).",
-        f"- **Touched years:** {s['years']['touched']}; stale layouts rewritten: {s['years']['stale'] or 'none'}.",
+        f"- **Touched years:** bars {s['years']['bars']}, daily_status {s['years']['daily_status']}; stale layouts "
+        f"rewritten: {s['years']['stale'] or 'none'}.",
         f"- **Compared with the store:** {s['compared']:,} bars; derived precloses replaced by the exchange's: "
         f"{pre['replaced']:,}, of which {pre['differing']:,} differ.",
         f"- **Seed gaps** (listed days inside the store span without a store bar): {gaps['tradestatus_0']:,} with "
         f"tradestatus 0, {gaps['traded']:,} traded.",
+        _restore_line(s["status_to_restore"]),
         _adj_line(s["adj_factor"]),
         "",
         *table(["relative error", "p50", "p99", "max"], quantiles),
     ]
+
+
+def _restore_line(restore: dict) -> str:
+    if not restore["rows"]:
+        return "- **Status rows to restore:** none."
+    return (
+        f"- **Status rows to restore:** {restore['rows']:,} rows an earlier merge dropped before a first bar that has "
+        f"since moved earlier; {_remerge(restore['days'])}."
+    )
 
 
 def _adj_line(changes: dict) -> str:
@@ -388,8 +435,8 @@ def _late_events_section(plan: MergePlan) -> list[str]:
     return [
         "## 5. Late seed events",
         "",
-        "An event_missing followed within 250 trading days by an event_unimplied of the same step: the seed placed "
-        "the event late.",
+        f"An event_missing followed within {LATE_EVENT_DAYS} trading days by an event_unimplied of the same step: "
+        "the seed placed the event late.",
         "",
         *(
             table(["code", "exchange ex-day", "seed ex-day", "trading days late", "step"], rows)
@@ -421,8 +468,8 @@ def _acceptance_section(checks: dict[str, tuple[bool, str]]) -> list[str]:
 
 
 def _inputs_section(plan: MergePlan) -> list[str]:
-    files = ", ".join(plan.factor_codes[:200]) or "none"
-    more = f" and {len(plan.factor_codes) - 200:,} more" if len(plan.factor_codes) > 200 else ""
+    files = ", ".join(plan.factor_codes[:LISTED_FILES]) or "none"
+    more = f" and {len(plan.factor_codes) - LISTED_FILES:,} more" if len(plan.factor_codes) > LISTED_FILES else ""
     return [
         "## 9. Inputs of this run",
         "",

@@ -13,16 +13,18 @@ from tests.baostock_raw_fake import (
     D3,
     D4,
     LIMIT_BREACH,
+    MERGED,
     SOURCE,
     World,
     day_row,
     stale_bars,
     standard_world,
+    suspended_row,
     write_day,
     write_factors,
 )
 from tests.frames import table_frame
-from tools.baostock_merge import invariant_problems
+from tools.baostock_merge import invariant_problems, status_complete
 from wequant.data.merge import RawDataError, StalePlan, apply_merge, plan_merge
 from wequant.data.merge.assemble import stale_years
 from wequant.data.schema import BARS
@@ -113,6 +115,7 @@ def test_end_to_end(world):
     issues = store.read_table("data_issues")
     assert {"limit_breach", "off_scale"} <= set(issues["kind"])
     assert plan.stats["adjustment"]["first_bar"] == 3 and plan.stats["adjustment"]["checked"] == 23
+    assert plan.stats["rows"] == {table: store.read_table(table).height for table in plan.stats["rows"]}
 
 
 def test_unchanged_factor_rows_are_not_rewritten(tmp_path):
@@ -138,6 +141,7 @@ def test_duplicate_codes(world):
     duplicates = plan.issues.filter(pl.col("kind") == "duplicate_code")
     assert issue_keys(duplicates, "duplicate_code") == {("302132.SZ", d, "duplicate_dropped") for d in (D1, D2)}
     assert {json.loads(x)["same_as"] for x in duplicates["detail"]} == {"300114.SZ"}
+    assert plan.issues.filter(codes & (pl.col("kind") != "duplicate_code")).is_empty()
     status = store.read_table("daily_status").filter(codes)
     assert status.select("code", "date", "tradestatus").rows() == [
         ("300114.SZ", D1, 1),
@@ -174,6 +178,46 @@ def test_status_before_the_first_bar_is_dropped_not_a_conflict(tmp_path):
     assert rows_of(store, "daily_status", "688001.SH", ["date"]) == [(D2,), (D3,)]
 
 
+def test_merging_older_days_later_keeps_status_after_each_first_bar(tmp_path):
+    w = World()
+    steady = {C1: 10000, C2: 10100, D1: 10200, D2: 10300, D3: 10400}
+    w.stock("600000.SH", steady, raw=CALENDAR)
+    w.stock("600100.SH", steady, raw=(D2, D3))  # BaoStock omits C1 and C2: its first bar moves to D2
+    w.stock("600200.SH", {C1: 5000, C2: 5000}, raw=())  # BaoStock omits C1 and C2: no bar is left
+    w.stock("600300.SH", {C2: 7000, D1: 7000, D2: 7100, D3: 7200}, seed=(D2, D3), raw=(C2, D2, D3))
+    w.day(D1, suspended_row("600100.SH", D1), suspended_row("600200.SH", D1), suspended_row("600300.SH", D1))
+    for day in (D2, D3):
+        w.day(day, suspended_row("600200.SH", day))
+    store, raw = w.write(tmp_path)
+    first, _ = merge(store, raw, days=MERGED)
+    assert issue_keys(first.issues, "before_first_bar") == {("600300.SH", D1, "status_dropped")}
+
+    older, result = merge(store, raw, days=[C1, C2])
+    assert older.stats["years"]["daily_status"] == [2023, 2024] and "daily_status/2024" in parts(result.files_written)
+    dropped = {("600100.SH", D1, "status_dropped")} | {("600200.SH", day, "status_dropped") for day in MERGED}
+    assert issue_keys(older.issues, "before_first_bar") == dropped
+    assert invariant_problems(store, store.manifest()) == []
+    assert older.stats["status_to_restore"] == {"rows": 1, "days": [D1]}
+    ok, message = status_complete(store, store.manifest())
+    assert not ok and message.endswith("re-merge 1 days: 2024-01-02")
+
+    merge(store, raw, days=[D1])
+    assert rows_of(store, "daily_status", "600300.SH", ["date", "tradestatus"]) == [(C2, 1), (D1, 0), (D2, 1), (D3, 1)]
+    assert status_complete(store, store.manifest())[0]
+
+
+def test_a_merge_that_would_empty_a_stored_year_is_refused(tmp_path):
+    w = World()
+    w.stock("600000.SH", {C1: 10000, C2: 10100}, raw=(C1, C2))
+    w.stock("600200.SH", {C1: 5000, C2: 5000}, raw=())
+    for day in MERGED:
+        w.day(day, suspended_row("600200.SH", day))
+    store, raw = w.write(tmp_path)
+    merge(store, raw, days=MERGED)
+    with pytest.raises(ValueError, match=r"no daily_status rows in \[2024\]"):
+        plan_merge(store, raw, days=[C1, C2])
+
+
 def test_flagged_rows_are_state_replaced_on_every_merge(world):
     store, raw = world
     plan, _ = merge(store, raw)
@@ -208,7 +252,7 @@ def test_partitions_and_migration(tmp_path):
     store, raw = w.write(tmp_path)
     stale_bars(store)
     plan, first = merge(store, raw)
-    assert plan.stats["years"] == {"touched": [2023, 2024], "stale": [2023, 2024]}
+    assert plan.stats["years"] == {"bars": [2023, 2024], "daily_status": [2024], "stale": [2023, 2024]}
     expected = {"bars/2023", "bars/2024", "daily_status/2024", "adj_factor/adj_factor"}
     assert parts(first.files_written) == expected | {"securities/securities", "data_issues/data_issues"}
     assert parts(first.files_reused) == {"calendar/calendar"}
@@ -248,14 +292,17 @@ def test_a_stale_plan_is_refused(world):
     assert store.manifest()["version"] == 2
 
 
-def test_meta_describes_the_status_coverage_and_never_moves_back(world):
-    store, raw = world
+def test_meta_describes_the_status_coverage_and_never_moves_back(tmp_path):
+    w = World()
+    w.stock("600000.SH", {C1: 10000, C2: 10100, D1: 10200, D2: 10300, D3: 10400}, raw=(C2, *MERGED))
+    store, raw = w.write(tmp_path)
     merge(store, raw)
     manifest = store.manifest()
-    coverage = {"first_day": "2024-01-02", "last_day": "2024-01-04", "days": 3}
+    coverage = {"first_day": "2023-12-29", "last_day": "2024-01-04", "days": 4}
     assert manifest["baostock_merge"] == coverage | {"code_version": code_version()}
     assert manifest["last_trade_date"] == "2024-01-04"
     assert (manifest["source"], manifest["release_tag"]) == ("seed", "t")
     plan, result = merge(store, raw, days=[D1])
+    assert plan.stats["years"]["daily_status"] == [2024]  # 2023 comes from the stored part
     assert plan.meta == {"last_trade_date": "2024-01-04", "baostock_merge": coverage}
     assert not result.changed

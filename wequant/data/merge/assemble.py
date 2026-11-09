@@ -10,9 +10,11 @@ import polars as pl
 from wequant.data import codes as codemod
 from wequant.data.issues import issue_rows
 from wequant.data.merge.audit import FLAGGED
+from wequant.data.merge.reconcile import BEFORE_FIRST_BAR
 from wequant.data.schema import TABLES, Table
 from wequant.data.store import Store
 
+KEY = ["code", "date"]
 AFTER = ["code", "date", "close", "preclose", "preclose_derived"]
 BJ = pl.col("code").str.ends_with(".BJ")
 
@@ -28,6 +30,27 @@ def stale_years(store: Store, manifest: dict, table: str) -> set[int]:
     """Years whose stored file has other columns than the table's schema."""
     schema = TABLES[table].schema
     return {int(e["part"]) for e in _files(manifest, table) if pl.read_parquet_schema(store.home / e["path"]) != schema}
+
+
+def part_rows(manifest: dict, table: str) -> dict[int, int]:
+    """{year: rows} of the table's stored parts."""
+    return {int(e["part"]): e["rows"] for e in _files(manifest, table)}
+
+
+def orphan_status_years(store: Store, manifest: dict, spans: pl.DataFrame) -> set[int]:
+    """Years of stored daily_status rows dated before their code's first bar in spans, or of a code not in spans."""
+    rows = store.scan("daily_status", columns=KEY, manifest=manifest)
+    early = rows.join(spans.lazy().select("code", "first_date"), on="code", how="left").filter(BEFORE_FIRST_BAR)
+    return set(early.select(pl.col("date").dt.year().unique()).collect()["date"].to_list())
+
+
+def status_to_restore(store: Store, manifest: dict, issues: pl.DataFrame, spans: pl.DataFrame) -> pl.DataFrame:
+    """(code, date) of before_first_bar issues now on or after the code's first bar in spans, without a status row."""
+    dropped = issues.filter(pl.col("kind") == "before_first_bar").join(spans.select("code", "first_date"), on="code")
+    due = dropped.filter(pl.col("date") >= pl.col("first_date")).select(KEY)
+    codes = due["code"].implode()
+    stored = store.scan("daily_status", columns=KEY, manifest=manifest).filter(pl.col("code").is_in(codes))
+    return due.lazy().join(stored, on=KEY, how="anti").sort(KEY).collect()
 
 
 def bars_after(store: Store, manifest: dict, parts: pl.DataFrame, years: set[int]) -> pl.DataFrame:

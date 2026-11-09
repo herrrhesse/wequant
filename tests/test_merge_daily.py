@@ -11,6 +11,7 @@ from wequant.data.sources.baostock import parse_daily
 from wequant.data.sources.base import DAILY
 
 STEADY = {D1: 10000, D2: 10100, dt.date(2024, 1, 4): 10200}
+CHEAP = dict.fromkeys(("open", "high", "low", "close"), "0.5000")
 
 
 def parsed(*rows: dict[str, str]) -> pl.DataFrame:
@@ -76,11 +77,26 @@ BROKEN = [
     ("unique", lambda rows: rows.append(dict(rows[0]))),
     ("date", lambda rows: rows[0].update(date=D2.isoformat())),
     ("traded", lambda rows: rows[0].update(high="10.0000", close="10.1000")),
+    ("traded", lambda rows: rows[0].update(open="9.9000", low="9.9500")),
     ("traded", lambda rows: rows[0].update(preclose="")),
     ("code", lambda rows: rows[0].update(code="bj.920001")),
     ("code", lambda rows: rows[0].update(code="sh.000001")),
     ("volume", lambda rows: rows[0].update(volume="1000.0")),
+    ("amount", lambda rows: rows[0].update(amount="1.5e8")),
+    ("average_price", lambda rows: rows[0].update(amount="0.0000")),
+    ("average_price", lambda rows: rows[0].update(amount="1.0000")),
+    ("average_price", lambda rows: rows[0].update(amount="10020.0000")),
+    ("average_price", lambda rows: rows[0].update(tradestatus="0", volume="1118342", amount="0.0000")),
+    ("average_price", lambda rows: rows[0].update(CHEAP, volume="1", amount="0.0000")),  # worth half a yuan
 ]
+
+
+def test_amounts_cut_to_the_whole_yuan_pass(tmp_path):
+    w = World()
+    w.stock("600000.SH", STEADY)
+    w.days[D1][0].update(CHEAP, volume="113", amount="56.0000")  # 113 shares at 0.50 are 56.50 yuan
+    store, raw = w.write(tmp_path)
+    assert read_daily(raw, [D1])["amount"].to_list() == [56.0]
 
 
 @pytest.mark.parametrize("check, change", BROKEN)
