@@ -29,7 +29,10 @@ def load_panel(
     store: Store | None = None,
     cache_dir: Path | None = None,
 ) -> Panel:
-    """Date × stock matrices of one store version (current unless pinned) over [start, end] inclusive, all stocks unless codes are given (kept in that order)."""
+    """Date × stock matrices of one store version over [start, end] inclusive.
+
+    Current version unless pinned; all stocks unless codes are given (kept in that order).
+    """
     store = store if store is not None else Store()
     manifest = store.manifest(version)
     if manifest is None:
@@ -54,7 +57,7 @@ class Panel:
     # ------------------------------------------------------------ bars
 
     def raw(self, field: str) -> np.ndarray:
-        """Unadjusted (T, N) float64: prices in yuan, volume in shares, amount in yuan; NaN where the stock did not trade."""
+        """Unadjusted (T, N) float64: prices and amount in yuan, volume in shares; NaN where the stock did not trade."""
         if field not in RAW_FIELDS:
             raise ValueError(f"{field!r} is not one of {RAW_FIELDS}")
         return self._grid(field)
@@ -70,44 +73,54 @@ class Panel:
 
     @cached_property
     def factor(self) -> np.ndarray:
+        """(T, N) back-adjustment factor in force: 1.0 before a code's first event, never NaN."""
         return self._grid("factor")
 
     @cached_property
     def boards(self) -> np.ndarray:
+        """(N,) board of each code: main, chinext, star or bse."""
         return self._vector("boards")
 
     @cached_property
     def exchanges(self) -> np.ndarray:
+        """(N,) exchange of each code: SH, SZ or BJ."""
         return self._vector("exchanges")
 
     # ------------------------------------------------------------ status and masks
 
     @cached_property
     def status(self) -> np.ndarray:
+        """(T, N) int8 NOT_LISTED, TRADED, SUSPENDED or MISSING; descriptive where daily_status has no row."""
         return self._grid("status")
 
     @cached_property
     def listed(self) -> np.ndarray:
+        """status != NOT_LISTED."""
         return _frozen(self.status != NOT_LISTED)
 
     @cached_property
     def traded(self) -> np.ndarray:
+        """A bar exists: status == TRADED (point-in-time)."""
         return _frozen(self.status == TRADED)
 
     @cached_property
     def suspended(self) -> np.ndarray:
+        """status == SUSPENDED."""
         return _frozen(self.status == SUSPENDED)
 
     @cached_property
     def missing(self) -> np.ndarray:
+        """status == MISSING: daily_status says traded or a source bar was dropped, and the store has no bar."""
         return _frozen(self.status == MISSING)
 
     @cached_property
     def st(self) -> np.ndarray:
+        """daily_status marks the stock ST."""
         return _frozen(self._grid("st") == 1)
 
     @cached_property
     def st_known(self) -> np.ndarray:
+        """daily_status has a row for the cell."""
         return _frozen(self._grid("st") != NO_ROW)
 
     def on_bars(self, mask: np.ndarray) -> np.ndarray:
@@ -121,30 +134,37 @@ class Panel:
 
     @cached_property
     def rules_key(self) -> str:
+        """Rule-book digest and limit format the limit arrays come from."""
         return f"{default_book().digest[:12]}-r{LIMITS_FORMAT}"
 
     @cached_property
     def limit_up_price(self) -> np.ndarray:
+        """(T, N) yuan: finite where LIMITED, +inf where FREE, NaN where UNKNOWN or without a bar."""
         return self._slice(self._limits[0])
 
     @cached_property
     def limit_down_price(self) -> np.ndarray:
+        """(T, N) yuan: finite where LIMITED, -inf where FREE, NaN where UNKNOWN or without a bar."""
         return self._slice(self._limits[1])
 
     @cached_property
     def limit_known(self) -> np.ndarray:
+        """A limit rule is known: traded and LIMITED or FREE."""
         return _frozen(~np.isnan(self.limit_up_price))
 
     @cached_property
     def limit_up(self) -> np.ndarray:
+        """Closed at the up limit; never where FREE or UNKNOWN."""
         return _frozen(self.raw("close") == self.limit_up_price)
 
     @cached_property
     def limit_down(self) -> np.ndarray:
+        """Closed at the down limit; never where FREE or UNKNOWN."""
         return _frozen(self.raw("close") == self.limit_down_price)
 
     @cached_property
     def limit_locked(self) -> np.ndarray:
+        """一字板: high == low and closed at a limit."""
         return _frozen((self.raw("high") == self.raw("low")) & (self.limit_up | self.limit_down))
 
     @cached_property

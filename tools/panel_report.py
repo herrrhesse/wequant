@@ -32,7 +32,8 @@ WARM_LIMIT = 1.0  # seconds
 HALF_FEN = 0.005  # yuan: the exchange rounds preclose to the fen
 FLOAT_SLACK = 1e-9
 LISTED_ROWS = 50
-BREAK_COLUMNS = ["kind", "code", "date", "preclose", "previous bar", "previous close", "factor step", "gap / tolerance"]
+FLAGGED = ("event_missing", "event_unimplied", "event_step_off")  # the merge's adjustment check on adj_factor
+BREAK_COLUMNS = ["kind", "code", "date", "preclose", "previous bar", "previous close", "factor step", "half fens off"]
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ def report(run: Run) -> str:
         "",
         f"- **Store:** {run.store.home} (version {run.version}, last trade date {manifest.get('last_trade_date')})",
         f"- **Panel key:** {cache_key(manifest)}",
+        f"- **Rules key:** {run.panel().rules_key}",
         f"- **code_version:** {code_version()}",
         f"- **Cache:** {run.cache}",
         "",
@@ -140,31 +142,39 @@ def years_before(day: dt.date, years: int) -> dt.date:
 
 def continuity_section(run: Run) -> list[str]:
     panel = run.panel()
-    raw_pre, adj_pre = panel.raw("preclose"), panel.adjusted("preclose")
-    previous = previous_bar(panel.adjusted("close"))
-    with np.errstate(invalid="ignore", divide="ignore"):
-        checked = ~np.isnan(adj_pre) & ~np.isnan(previous)
-        broken = checked & (np.abs(adj_pre / previous - 1) > HALF_FEN / raw_pre + FLOAT_SLACK)
+    checked, broken = continuity(panel)
     derived = bars_grid(run, panel, "preclose_derived", pl.col("preclose_derived"))
+    flagged, after = flagged_grid(run, panel), after_missing(panel)
     rows, listed = [], []
     for name, group in (("exchange preclose", checked & ~derived), ("derived preclose", checked & derived)):
-        found = [break_row(panel, t, j) for t, j in zip(*np.nonzero(broken & group))]
-        after_drop = [r for r in found if r[-1]]
-        rows.append((name, count(group.sum()), count(len(found)), count(len(after_drop))))
-        listed += [(name, *r[:-1]) for r in found if not r[-1]]
+        found = broken & group
+        rows.append((name, *map(count, (group.sum(), found.sum(), (found & after).sum(), (found & flagged).sum()))))
+        listed += [(name, *break_row(panel, t, j)) for t, j in zip(*np.nonzero(found & ~after & ~flagged))]
     note = f" (first {LISTED_ROWS} listed)" if len(listed) > LISTED_ROWS else ""
     return [
         "## 2. Continuity of adjusted prices",
         "",
-        "Adjusted preclose on each bar against the adjusted close of the code's previous bar, within half a fen "
-        "of the preclose. Exchange-preclose cells are the evidence; derived cells were computed from the same "
-        "factor and only check the build.",
+        "Each bar's preclose against the one the factor implies: the previous bar's close × its factor / today's "
+        "factor. A violation is more than half a fen away; an exact half-fen tie is the exchange's rounding. "
+        "Exchange-preclose cells are the evidence and should match the merge's flagged adj_factor rows "
+        f"({' / '.join(FLAGGED)}); derived cells were computed from the same factor and only check the build. "
+        "After a MISSING day the preclose may refer to a close the store does not hold.",
         "",
-        *table(["preclose", "checked", "violations", "after a dropped bar"], rows),
-        f"Violations not after a dropped bar: {len(listed):,}{note}.",
+        *table(["preclose", "checked", "violations", "after a MISSING day", "flagged by the merge"], rows),
+        f"Flagged cells without a violation: {count((flagged & ~broken).sum())}.",
+        "",
+        f"Violations neither after a MISSING day nor flagged: {len(listed):,}{note}.",
         "",
         *(table(BREAK_COLUMNS, listed[:LISTED_ROWS]) if listed else []),
     ]
+
+
+def continuity(panel: Panel) -> tuple[np.ndarray, np.ndarray]:
+    """(checked, broken): bars with a preclose and an earlier bar, and those over half a fen from the implied one."""
+    implied = previous_bar(panel.adjusted("close")) / panel.factor
+    pre = panel.raw("preclose")
+    checked = ~np.isnan(pre) & ~np.isnan(implied)
+    return checked, checked & (np.abs(pre - implied) > HALF_FEN + FLOAT_SLACK)
 
 
 def previous_bar(grid: np.ndarray) -> np.ndarray:
@@ -173,34 +183,44 @@ def previous_bar(grid: np.ndarray) -> np.ndarray:
     return np.vstack([np.full((1, grid.shape[1]), np.nan), filled[:-1]])
 
 
+def after_missing(panel: Panel) -> np.ndarray:
+    """Cells with a MISSING day since the code's previous bar."""
+    seen = np.cumsum(panel.missing, axis=0, dtype=np.float64)
+    return seen > previous_bar(np.where(panel.traded, seen, np.nan))
+
+
 def bars_grid(run: Run, panel: Panel, column: str, flag: pl.Expr) -> np.ndarray:
     """flag, a bool expression of one bars column, on the full grid at the panel's version; False without a bar."""
-    frame = (
-        run.store.scan("bars", columns=["code", "date", column], version=run.version)
-        .select("code", "date", flag.alias("flag"))
-        .collect()
+    frame = run.store.scan("bars", columns=["code", "date", column], version=run.version).select(
+        "code", "date", flag.alias("flag")
     )
+    return on_grid(panel, frame.collect())
+
+
+def flagged_grid(run: Run, panel: Panel) -> np.ndarray:
+    """Cells with a flagged adj_factor row of the merge's adjustment check at the panel's version."""
+    frame = (
+        run.store.scan("data_issues", columns=["table", "code", "date", "kind"], version=run.version)
+        .filter(pl.col("table") == "adj_factor", pl.col("kind").is_in(FLAGGED))
+        .filter(pl.col("code").is_in(panel.codes.tolist()))
+        .select("code", "date", flag=pl.lit(True))
+    )
+    return on_grid(panel, frame.collect())
+
+
+def on_grid(panel: Panel, frame: pl.DataFrame) -> np.ndarray:
+    """frame's bool flag column on the panel's grid; False on cells without a row."""
     rows, cols = cells(frame, panel.dates, panel.codes)
     return scatter(panel.traded.shape, rows, cols, frame["flag"].to_numpy(), False)
 
 
 def break_row(panel: Panel, t: int, j: int) -> tuple:
-    """One continuity violation, ending with whether a dropped bar lies between it and the previous bar."""
+    """One continuity violation: code, dates, prices, factor step and its distance in half fens."""
     p = np.flatnonzero(panel.traded[:t, j])[-1]
     pre, close = panel.raw("preclose")[t, j], panel.raw("close")[p, j]
     step = panel.factor[t, j] / panel.factor[p, j]
-    gap = abs(panel.adjusted("preclose")[t, j] / panel.adjusted("close")[p, j] - 1) / (HALF_FEN / pre)
-    after_drop = bool((panel.status[p + 1 : t, j] == MISSING).any())
-    return (
-        panel.codes[j],
-        panel.dates[t],
-        f"{pre:.2f}",
-        panel.dates[p],
-        f"{close:.2f}",
-        f"{step:.6g}",
-        f"{gap:.6f}",
-        after_drop,
-    )
+    gap = abs(pre - close / step) / HALF_FEN
+    return panel.codes[j], panel.dates[t], f"{pre:.2f}", panel.dates[p], f"{close:.2f}", f"{step:.6g}", f"{gap:.6f}"
 
 
 # ---------------------------------------------------------------- 3. status
@@ -328,7 +348,6 @@ def limits_section(run: Run) -> list[str]:
     return [
         "## 4. Limits",
         "",
-        f"- **Rules key:** {panel.rules_key}",
         f"- **Recorded limit check current:** {'yes' if current else 'no'}",
         f"- **Out of band** (close above the up limit or below the down limit on a LIMITED cell): "
         f"{count(totals['out of band'])}. It cannot exceed the limit check's high/low breach count, and is 0 "

@@ -15,6 +15,7 @@ A, B, C, D, E = "600000.SH", "300001.SZ", "830001.BJ", "000001.SZ", "600001.SH"
 DAYS = ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11"]
 STATUS = {"N": NOT_LISTED, "T": TRADED, "S": SUSPENDED, "M": MISSING}
 NAN = np.nan
+LIMIT_ARRAYS = ("limit_up_price", "limit_down_price", "limit_known", "limit_up", "limit_down", "limit_locked")
 
 
 def bar(code, day, close, pre=None, **prices):
@@ -312,7 +313,7 @@ def test_limits_with_the_real_rules(store, cache):
 # ---------------------------------------------------------------- slicing and read-only
 
 
-def test_slicing(store, cache):
+def test_slicing(store, cache, stub_rules):
     full = load_panel(store=store, cache_dir=cache)
     part = load_panel("2024-01-04", "2024-01-09", store=store, cache_dir=cache)
     assert part.dates.tolist() == [dt.date.fromisoformat(d) for d in DAYS[2:6]]
@@ -320,8 +321,8 @@ def test_slicing(store, cache):
         assert np.array_equal(part.raw(field), full.raw(field)[2:6], equal_nan=True)
         if field in PRICE_FIELDS:
             assert np.array_equal(part.adjusted(field), full.adjusted(field)[2:6], equal_nan=True)
-    for name in ("factor", "status", "listed", "traded", "suspended", "missing", "st", "st_known"):
-        assert np.array_equal(getattr(part, name), getattr(full, name)[2:6])
+    for name in ("factor", "status", "listed", "traded", "suspended", "missing", "st", "st_known", *LIMIT_ARRAYS):
+        assert np.array_equal(getattr(part, name), getattr(full, name)[2:6], equal_nan=name.endswith("price"))
     weekend = load_panel("2024-01-06", "2024-01-13", store=store, cache_dir=cache)
     assert weekend.dates.tolist() == [dt.date.fromisoformat(d) for d in DAYS[4:]]
     early = load_panel(dt.date(2023, 12, 30), "2024-01-07", store=store, cache_dir=cache)
@@ -329,6 +330,8 @@ def test_slicing(store, cache):
     picked = load_panel(codes=[C, A], store=store, cache_dir=cache)
     assert picked.codes.tolist() == [C, A] and picked.boards.tolist() == ["bse", "main"]
     assert np.array_equal(picked.raw("close"), full.raw("close")[:, [3, 2]], equal_nan=True)
+    for name in LIMIT_ARRAYS:
+        assert np.array_equal(getattr(picked, name), getattr(full, name)[:, [3, 2]], equal_nan=name.endswith("price"))
     assert full.row("2024-01-08") == 4 and full.row(np.datetime64("2024-01-08")) == 4
     with pytest.raises(KeyError):
         full.row("2024-01-06")
@@ -394,8 +397,7 @@ def test_later_versions_do_not_change_earlier_rows(tmp_path, stub_rules):
     after = load_panel(store=store, cache_dir=tmp_path / "cache")
     assert (before.version, after.version) == (1, 2) and before.codes.tolist() == after.codes.tolist()
     grids = [*(f"raw:{f}" for f in RAW_FIELDS), *(f"adjusted:{f}" for f in PRICE_FIELDS)]
-    grids += ["factor", "traded", "st", "st_known", "limit_up_price", "limit_down_price", "limit_known"]
-    grids += ["limit_up", "limit_down", "limit_locked"]
+    grids += ["factor", "traded", "st", "st_known", *LIMIT_ARRAYS]
     for name in grids:
         old, new = (_grid(p, name) for p in (before, after))
         assert np.array_equal(old[:7], new[:7], equal_nan=True), name
