@@ -4,15 +4,19 @@ import numpy as np
 
 
 class FakePanel:
-    """Grids are (T, N), or (T,) for one code; traded where close is finite; FREE limits unless up and down are set."""
+    """Grids are (T, N), or (T,) for one code; traded where close is finite; FREE limits unless up and down are set.
+
+    amount (yuan) is NaN unless given.
+    """
 
     version, key, rules_key = 1, "fake", "fake-r1"
 
-    def __init__(self, dates, codes, boards, open, close, factor=None, up=None, down=None):
+    def __init__(self, dates, codes, boards, open, close, factor=None, up=None, down=None, amount=None):
         self.dates = np.array(dates, dtype="datetime64[D]")
         self.codes, self.boards = np.array(codes), np.array(boards)
         self.exchanges = np.array([code[-2:] for code in codes])
-        self._raw = {"open": self._grid(open), "close": self._grid(close)}
+        amount = np.full((len(self.dates), len(self.codes)), np.nan) if amount is None else amount
+        self._raw = {"open": self._grid(open), "close": self._grid(close), "amount": self._grid(amount)}
         self.traded = np.isfinite(self._raw["close"])
         self.factor = np.ones(self.traded.shape) if factor is None else self._grid(factor)
         bound = np.where(self.traded, np.inf, np.nan)
@@ -23,7 +27,12 @@ class FakePanel:
     def __repr__(self) -> str:
         """The call that builds this panel, so a failing hypothesis example prints its market."""
         grids = (self.dates.astype(str), self.codes, self.boards, self._raw["open"], self._raw["close"])
-        named = {"factor": self.factor, "up": self.limit_up_price, "down": self.limit_down_price}
+        named = {
+            "factor": self.factor,
+            "up": self.limit_up_price,
+            "down": self.limit_down_price,
+            "amount": self._raw["amount"],
+        }
         args = [repr(grid.tolist()) for grid in grids] + [f"{name}={grid.tolist()!r}" for name, grid in named.items()]
         return f"FakePanel({', '.join(args)})"
 

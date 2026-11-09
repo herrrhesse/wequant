@@ -107,7 +107,7 @@ def panel(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def ledger(panel):
-    account = Account(panel, 1_000_000, DAYS[0])
+    account = Account(panel, 1_000_000, DAYS[0], Execution(slippage_bps=0))  # the costs below leave slippage out
     column = {code: i for i, code in enumerate(panel.codes.tolist())}
     for t in range(1, len(DAYS)):
         account.begin(t)
@@ -140,6 +140,7 @@ def test_orders(ledger):
         assert row["price"] == price
         got = [li(row[name]) for name in ("value", "commission", "stamp_tax", "transfer_fee", "slippage")]
         assert got == [li(value), li(commission), li(stamp), li(transfer), 0]
+        assert row["day_amount"] == (None if price is None else 1e7)  # every golden bar trades 1e7 yuan
 
 
 def test_daily(ledger):
@@ -178,6 +179,10 @@ def test_metrics(panel, ledger):
     assert m["turnover"].value == pytest.approx(7.561705320347529, rel=1e-12)
     assert m["avg_holding_days"].value == 7.0
     assert m["executable_order_share"].value == pytest.approx(11 / 19, rel=1e-15)
+    assert m["capacity_max"].value == pytest.approx(942_594.40 / 1e7, rel=1e-12)
+    # 11 fills; the 95th percentile sits halfway between the 10th (100,000) and the 11th (942,594.40) value
+    assert m["capacity_p95"].value == pytest.approx(521_297.20 / 1e7, rel=1e-12)
+    assert m["capacity_unknown_fills"].value == 0
 
 
 def test_close_model_agrees_with_the_limit_mask(panel):

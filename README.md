@@ -67,3 +67,16 @@ uv run python -m tools.account_report --cache /tmp/wequant-cache     # buy-and-h
 
 Run `check_limits --commit` again after every import: the panel applies the voids it records. Panels are cached by store
 version under `$WEQUANT_HOME/cache/panel/`. The cache is derived data and can be deleted at any time.
+
+## Backtest assumptions
+
+- **Fills:** an order fills at the next trading day's raw open (`Execution(price="open")`).
+- **Limits:** a buy is refused when the fill price is at the up limit, a sell when it is at the down limit.
+- **Costs:** commission of 0.03% per order (at least 5 yuan), stamp tax and transfer fee as dated in
+  `wequant/rules/rules.toml`, and slippage of 0.1% per side by default (`Execution(slippage_bps=10)`). Slippage is a
+  cost on the trade value; it moves neither the fill price nor the limit checks.
+- **Volume:** no cap on a fill's share of the stock's traded amount that day; the `capacity_*` metrics report it.
+- **Corporate actions:** simulated with the adjustment factors, i.e. dividends are reinvested and dividend tax is
+  ignored.
+- **ST stocks:** on the seed store ST status is unknown, so ST stocks get the normal price band.
+- **Halts:** a stock without a bar stays valued at its last close.

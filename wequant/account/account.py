@@ -137,7 +137,7 @@ class Account:
         return Ledger(
             daily_frame(self._days, panel.dates),
             positions_frame(self._holdings, panel.dates, panel.codes),
-            orders_frame(self._batches, panel.dates, panel.codes),
+            orders_frame(self._batches, panel.dates, panel.codes, panel.raw("amount")),
             meta,
         )
 

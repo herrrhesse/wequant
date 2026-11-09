@@ -53,8 +53,15 @@ def test_slippage_is_half_up_to_the_fen():
     assert Execution().slippage(5) == 0
 
 
+def test_the_default_slippage_is_ten_basis_points_half_up_to_the_fen():
+    assert Execution().slippage_bps == 10 and Execution().to_dict()["slippage_bps"] == 10.0
+    assert Execution().slippage(12_345_000) == 12_350  # 12.345 yuan
+    assert Execution().slippage(12_333_000) == 12_330  # 12.333 yuan
+    assert Execution(slippage_bps=0).slippage(12_345_000) == 0
+
+
 def test_numpy_scalars_are_kept_as_floats():
-    execution = Execution(commission_rate=np.float64(0.0003), min_commission=np.float64(5.0), slippage_bps=np.int64(0))
+    execution = Execution(commission_rate=np.float64(0.0003), min_commission=np.float64(5.0), slippage_bps=np.int64(10))
     assert execution == Execution()
     assert all(type(value) is float for value in execution.to_dict().values() if not isinstance(value, str))
     assert execution.commission(100_000_000) == 30_000
