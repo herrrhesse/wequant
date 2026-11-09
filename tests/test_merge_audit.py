@@ -84,9 +84,8 @@ def test_audit_bars():
         ("000001.SZ", D2, "bar_added"),
         ("000002.SZ", D3, "bar_unconfirmed"),
         *(("600849.SH", day, "bar_added") for day in (D1, D2, D3)),
-        ("600004.SH", D1, "price_mismatch"),
         ("600005.SH", D2, "preclose_mismatch"),
-    }
+    }  # 600004.SH's other prices on D1 are a conflict for the resolutions, not an audit issue
     assert detail(issues, "600000.SH", D3, "volume_mismatch") == {
         "store_volume": 900000,
         "volume": 904500,
@@ -98,12 +97,6 @@ def test_audit_bars():
     assert (unconfirmed["store_close"], unconfirmed["store_volume"], unconfirmed["tradestatus"]) == (5000, 1000, 0)
     assert unconfirmed["store_source"] == SEED
     assert detail(issues, "600005.SH", D2, "preclose_mismatch") == {"preclose": 10000, "store_preclose": 10010}
-    assert detail(issues, "600004.SH", D1, "price_mismatch") == {
-        **{p: 10010 for p in ("open", "high", "low", "close")},
-        **{f"store_{p}": 10000 for p in ("open", "high", "low", "close")},
-        "next_date": "2024-01-03",
-        "next_preclose": 10000,  # the exchange's close for D1 is the store's
-    }
     assert set(issues["action"]) == {"row_added", "row_dropped", "value_replaced"}
     replaced = compared.filter(pl.col("store_preclose_derived") & (pl.col("preclose") != pl.col("store_preclose")))
     assert replaced.select("code", "date").rows() == [("600006.SH", D2)]

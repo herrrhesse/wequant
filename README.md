@@ -42,6 +42,30 @@ systemd-inhibit --what=sleep --why="baostock backfill" uv run --extra baostock p
 - **Report:** when it has finished, run `uv run python -m tools.baostock_backfill report` (local files only).
 - **Sleep:** `systemd-inhibit --what=sleep` needs an active desktop session. From a non-interactive shell, use `--what=idle`.
 
+## Merging BaoStock into the store
+
+`tools/baostock_merge.py` merges the raw days into the store as one version. Two kinds of conflict need your decision:
+a bar whose open, high, low or close differ from the store's (`price_mismatch`), and a traded bar whose amount / volume
+lies outside [low, high] (`average_price`). Each needs an approved entry in `wequant/data/merge/resolutions.toml`; while
+one lacks it, the merge writes nothing and its report lists the conflicts awaiting approval.
+
+```bash
+uv run python -m tools.baostock_merge propose        # add a proposed entry for each conflict; reads only
+# review the entries and set status = "approved" on those you accept
+uv run python -m tools.baostock_merge run            # dry run with the approved entries applied
+uv run python -m tools.baostock_merge run --commit   # one version, its report in $WEQUANT_HOME/reports/
+```
+
+- **Proposals:** a price mismatch takes the prices of the source whose close the next trading day's exchange preclose
+  repeats (BaoStock's, with the cell flagged, when neither does or an adj_factor step lies between). An average-price
+  conflict takes the store's amount, or its volume and amount, when the store's bar passes the check, and otherwise a
+  null amount.
+- **Record:** each applied entry is one `data_issues` row (`resolved_baostock`, `resolved_seed` or `resolved_null`) whose
+  detail holds the fields, the values before and after, and the evidence.
+- **Null amount:** unknown, never 0. The panel shows NaN and operators and expressions skip it.
+- **turn:** BaoStock's turnover in percent, kept on its bars; seed and BJ bars have none.
+- **Memory:** a merge whose bars gain a column rewrites every year of bars; on the full store its commit peaks near 8 GB.
+
 ## Data checks and reports
 
 These tools read the store under `$WEQUANT_HOME` (or `--home`). Without `--commit` they write nothing there: the report

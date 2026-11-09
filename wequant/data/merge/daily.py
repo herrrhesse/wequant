@@ -13,7 +13,7 @@ from wequant.data.schema import BARS, DAILY_STATUS
 from wequant.data.sources.baostock import parse_daily
 
 PRICES = ("open", "high", "low", "close", "preclose")
-COLUMNS = ("date", "code", *PRICES, "volume", "amount", "tradestatus", "isST", "_baostock_version")
+COLUMNS = ("date", "code", *PRICES, "volume", "amount", "turn", "tradestatus", "isST", "_baostock_version")
 SAMPLES = 20
 AVERAGE_RTOL = 1e-3  # a clean row's amount / volume strays less than 1e-4 beyond [low, high]
 AMOUNT_ATOL = 1.0  # yuan: some amounts are cut to the whole yuan
@@ -26,6 +26,7 @@ TEXT_CHECKS = {
     "price": pl.all_horizontal(pl.col(p).str.contains(r"^([0-9]+[.][0-9]{2}(00)?)?$") for p in PRICES),
     "volume": pl.col("volume").str.contains(r"^[0-9]*$"),
     "amount": pl.col("amount").str.contains(r"^([0-9]+([.][0-9]+)?)?$"),
+    "turn": pl.col("turn").str.contains(r"^([0-9]+([.][0-9]+)?)?$"),
 }
 
 _TRADED = (pl.col("volume") > 0).fill_null(False)
@@ -38,16 +39,15 @@ _SANE = (
 )
 
 
-def _value(price: str) -> pl.Expr:
-    """The day's volume at a price column, in yuan."""
-    return pl.col(price) * pl.col("volume") / 1000
-
-
-_PAID = (
-    (pl.col("amount") > 0)
-    & (pl.col("amount") >= _value("low") * (1 - AVERAGE_RTOL) - AMOUNT_ATOL)
-    & (pl.col("amount") <= _value("high") * (1 + AVERAGE_RTOL) + AMOUNT_ATOL)
-)
+def paid(prefix: str = "") -> pl.Expr:
+    """Whether the amount is positive and amount / volume lies in [low, high], columns named with prefix."""
+    amount, volume = pl.col(f"{prefix}amount"), pl.col(f"{prefix}volume")
+    low, high = (pl.col(f"{prefix}{price}") * volume / 1000 for price in ("low", "high"))
+    return (
+        (amount > 0)
+        & (amount >= low * (1 - AVERAGE_RTOL) - AMOUNT_ATOL)
+        & (amount <= high * (1 + AVERAGE_RTOL) + AMOUNT_ATOL)
+    )
 
 
 class RawDataError(ValueError):
@@ -59,13 +59,14 @@ class RawDataError(ValueError):
 
 
 def read_daily(raw: BaoStockRaw, days: Iterable[dt.date]) -> pl.DataFrame:
-    """DAILY columns plus source ('baostock@<_baostock_version>') for these days' snapshots; RawDataError lists malformed rows."""
+    """DAILY columns, turn and source ('baostock@<_baostock_version>') of these days' snapshots; RawDataError lists
+    malformed rows. Amounts failing paid() are left to the resolutions."""
     paths = [str(raw.daily(day)) for day in sorted(days)]
     scan = pl.scan_parquet(paths, include_file_paths="path")
     frame = scan.select(*COLUMNS, file=pl.col("path").str.extract(r"([^/\\]+)\.parquet$"))
     _raise_on(_failures(frame, TEXT_CHECKS))
     source = frame.select(source=pl.lit("baostock@") + pl.col("_baostock_version"))
-    daily = pl.concat([parse_daily(frame), source], how="horizontal").collect(engine="streaming")
+    daily = pl.concat([parse_daily(frame, turn=True), source], how="horizontal").collect(engine="streaming")
     _raise_on(_failures(daily.lazy(), _row_checks(daily)))
     return daily
 
@@ -82,7 +83,6 @@ def _row_checks(daily: pl.DataFrame) -> dict[str, pl.Expr]:
         "code": ~pl.col("code").is_in(not_stock),
         "unique": ~pl.col("code").is_duplicated().over("date"),
         "traded": ~_TRADED | _SANE,
-        "average_price": ~_TRADED | _PAID,
     }
 
 

@@ -290,6 +290,7 @@ def test_the_report_runs_on_local_files(home):
         schema_overrides={**{c: pl.Int32 for c in ("open", "high", "low", "close", "preclose")}, "volume": pl.Int64},
     ).with_columns(
         preclose_derived=pl.lit(True),
+        turn=pl.lit(None, dtype=pl.Float64),
         tradestatus=pl.lit(None, dtype=pl.Int8),
         is_st=pl.lit(None, dtype=pl.Boolean),
         source=pl.lit("seed"),

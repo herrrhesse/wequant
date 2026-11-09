@@ -1,7 +1,7 @@
 """Every wequant table, column and type, defined once.
 
 Prices are int32 厘 (0.001 元; index points × 1000), volume is int64 shares and amount is
-float64 yuan.
+float64 yuan; a null bars amount is unknown, never zero.
 """
 
 from __future__ import annotations
@@ -85,7 +85,10 @@ BARS = Table(
         _price("low"),
         _price("close"),
         Column("volume", pl.Int64, doc="shares (股)"),
-        Column("amount", pl.Float64, doc="yuan (元)"),
+        Column("amount", pl.Float64, nullable=True, doc="yuan (元); null: unknown (a resolution voided it), never 0"),
+        Column(
+            "turn", pl.Float64, nullable=True, doc="turnover in percent of tradable shares, BaoStock's; null elsewhere"
+        ),
         _price("preclose", nullable=True),
         Column(
             "preclose_derived",
@@ -174,9 +177,10 @@ DATA_ISSUES = Table(
             "kind",
             pl.String,
             doc="off_scale / removed_security / adj_blip / invalid_member_code / bar_added / bar_unconfirmed / "
-            "duplicate_code / price_mismatch / volume_mismatch / amount_mismatch / preclose_mismatch / "
-            "tradestatus_conflict / before_first_bar / event_unconfirmed / event_added / step_mismatch / "
-            "event_missing / event_unimplied / event_step_off / no_bars / limit_breach; each kind belongs to one table",
+            "duplicate_code / price_mismatch / average_price / close_unconfirmed / volume_mismatch / amount_mismatch / "
+            "preclose_mismatch / tradestatus_conflict / before_first_bar / event_unconfirmed / event_added / "
+            "step_mismatch / event_missing / event_unimplied / event_step_off / no_bars / limit_breach; "
+            "each kind belongs to one table",
         ),
         Column(
             "action",
@@ -184,7 +188,9 @@ DATA_ISSUES = Table(
             doc="row_dropped (on bars: a delivered bar the store does not keep; the day reads as missing data unless "
             "daily_status reports it suspended) / security_removed / excluded_from_adj_factor_and_preclose / "
             "span_dropped / row_added / duplicate_dropped / value_replaced / bar_kept / no_bar / status_dropped / "
-            "event_dropped / event_added / flagged (nothing changed; to review) / limits_voided (limits unknown that day)",
+            "event_dropped / event_added / flagged (nothing changed; to review) / limits_voided (limits unknown that day) / "
+            "resolved_baostock / resolved_seed / resolved_null (an approved resolution took BaoStock's values, the "
+            "store's, or voided the amount; detail has its fields, before and after values and evidence)",
         ),
         Column("detail", pl.String, nullable=True, doc="JSON object with the measured values"),
         Column("source", pl.String),

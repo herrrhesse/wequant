@@ -26,6 +26,14 @@ SOURCE = f"baostock@{VERSION}"
 DAY_COLUMNS = ("date", "code", "open", "high", "low", "close", "preclose", "volume", "amount", "adjustflag")
 DAY_COLUMNS += ("turn", "tradestatus", "isST")
 LIMIT_BREACH = {"table": "bars", "code": "600000.SH", "date": D1, "kind": "limit_breach", "action": "limits_voided"}
+STEADY = {C1: 10000, C2: 10100, D1: 10200, D2: 10300, D3: 10400}
+CONFLICTS = [  # conflict_world's, as find_conflicts sorts them
+    ("600000.SH", D1, "price_mismatch"),
+    ("600001.SH", D2, "average_price"),
+    ("600002.SH", D2, "average_price"),
+    ("600003.SH", D3, "average_price"),
+    ("600004.SH", D1, "price_mismatch"),
+]
 
 
 def text(li: int | None) -> str:
@@ -137,9 +145,10 @@ class World:
 def standard_world() -> World:
     """The stocks the end-to-end tests look at; each one stands for one case."""
     w = World()
-    steady = {C1: 10000, C2: 10100, D1: 10200, D2: 10300, D3: 10400}
-    w.stock("600000.SH", steady)
-    w.stock("920001.BJ", steady, raw=(), factor=1.5)
+    w.stock("600000.SH", STEADY)
+    for day in MERGED:
+        raw_row(w, "600000.SH", day, turn="0.512300")
+    w.stock("920001.BJ", STEADY, raw=(), factor=1.5)
     w.stock("600849.SH", {D1: 5000, D2: 5100, D3: 5200}, seed=())
     w.stock("600006.SH", {C1: 3700, C2: 3750, D1: 3800, D2: 3720, D3: 3730}, steps={D2: 3.8 / 3.7}, factor=3.7)
     w.stock("600008.SH", {D1: 7000, D2: 7100, D3: 7200}, raw=(), factor=2.0)
@@ -172,6 +181,28 @@ def conflicts(w: World) -> None:
     w.day(D2, day_row("600647.SH", D2, 1790, preclose=1640, tradestatus="0"))
     w.stock("600766.SH", {C1: 370, C2: 370, D1: 380, D2: 390}, raw=(D1, D2))
     w.day(D3, day_row("600766.SH", D3, 390, volume="0", amount="0.0000"))
+
+
+def conflict_world() -> World:
+    """CONFLICTS, one stock per resolution rule; every other bar agrees with the seed."""
+    w = World()
+    for code in ("600000.SH", "600001.SH", "600002.SH", "600004.SH"):
+        w.stock(code, STEADY)
+    w.stock("600003.SH", {D1: 5000, D2: 5100, D3: 5200}, seed=())
+    # BaoStock's D1 close is 10.21; D2's exchange preclose repeats the seed's 10.20, or for 600004.SH neither (10.22)
+    for code in ("600000.SH", "600004.SH"):
+        raw_row(w, code, D1, close="10.2100", high="10.2100", amount="10200.0000")
+    raw_row(w, "600004.SH", D2, preclose="10.2200")
+    raw_row(w, "600001.SH", D2, amount="0.0000")  # the seed bar is the same and its amount 10300 passes
+    raw_row(w, "600002.SH", D2, volume="1100")  # 10300 yuan for 1100 shares is 9.36 a share, below low 10.30
+    raw_row(w, "600003.SH", D3, amount="0.0000")  # no seed bar
+    return w
+
+
+def raw_row(w: World, code: str, day: dt.date, **text: str) -> None:
+    """Change the text of code's raw row on day."""
+    digits, exchange = codes.split(code)
+    next(r for r in w.days[day] if r["code"] == f"{exchange.lower()}.{digits}").update(text)
 
 
 def seed_tables(bars: list[dict], adj: list[dict]) -> dict[str, pl.DataFrame]:
@@ -233,13 +264,13 @@ def write_factors(raw: BaoStockRaw, code: str, rows: list[tuple[dt.date, float]]
 
 
 def stale_bars(store: Store) -> None:
-    """A next version whose bars files have an older layout: no tradestatus or is_st, an extra turn column."""
+    """A next version whose bars files have an older layout: no turn, tradestatus or is_st, an extra vwap column."""
     manifest = store.manifest()
     version = manifest["version"] + 1
     entries = []
     for entry in manifest["tables"]["bars"]["files"]:
-        frame = pl.read_parquet(store.home / entry["path"]).drop("tradestatus", "is_st")
-        data = parquet_bytes(frame.with_columns(turn=pl.lit(None, dtype=pl.Float64)))
+        frame = pl.read_parquet(store.home / entry["path"]).drop("turn", "tradestatus", "is_st")
+        data = parquet_bytes(frame.with_columns(vwap=pl.lit(None, dtype=pl.Float64)))
         path = f"bars/{entry['part']}.v{version}.parquet"
         atomic_write(store.home / path, data)
         entries.append({"part": entry["part"], "path": path, "rows": frame.height, "sha256": _sha256(data)})
