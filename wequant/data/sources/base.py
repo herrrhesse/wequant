@@ -1,7 +1,8 @@
 """The DataSource protocol: what every market-data source provides, in wequant's columns and units.
 
 Columns follow wequant.data.schema: prices int32 厘, volume int64 shares, amount float64 yuan.
-securities_on and corporate_actions have no table yet; their columns are defined here.
+securities_on, daily_bars and corporate_actions have no table of their own; their columns
+(SECURITIES_ON, DAILY, CORPORATE_ACTIONS) are defined here.
 """
 
 from __future__ import annotations
@@ -12,6 +13,20 @@ from typing import Protocol
 import polars as pl
 
 SECURITIES_ON = {"code": pl.String, "date": pl.Date, "name": pl.String, "tradestatus": pl.Int8}
+
+DAILY = {
+    "code": pl.String,
+    "date": pl.Date,
+    "open": pl.Int32,
+    "high": pl.Int32,
+    "low": pl.Int32,
+    "close": pl.Int32,
+    "preclose": pl.Int32,
+    "volume": pl.Int64,
+    "amount": pl.Float64,
+    "tradestatus": pl.Int8,
+    "is_st": pl.Boolean,
+}
 
 CORPORATE_ACTIONS = {
     "code": pl.String,
@@ -39,9 +54,9 @@ class DataSource(Protocol):
         """Every code the source lists on one day, with that day's name and trade status: SECURITIES_ON."""
 
     def daily_bars(self, code: str, start: dt.date | str, end: dt.date | str) -> pl.DataFrame:
-        """Unadjusted daily bars with the exchange's preclose, trade status and ST flag: bars columns.
+        """Unadjusted daily rows with the exchange's preclose, trade status and ST flag: DAILY.
 
-        Suspended days are included when the source reports them (tradestatus 0).
+        One row per listed day; volume and amount are null on days without trading.
         """
 
     def adj_factors(self, code: str) -> pl.DataFrame:

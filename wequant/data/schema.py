@@ -65,7 +65,7 @@ SECURITIES = Table(
         Column("source", pl.String, doc="<source>@<version> the rows came from"),
     ),
     key=("code",),
-    doc="Stocks only. Indices are in index_bars.",
+    doc="Stocks only; indices are in index_bars. Every code in bars, adj_factor and daily_status has a row here.",
 )
 
 CALENDAR = Table(
@@ -100,7 +100,23 @@ BARS = Table(
     key=("code", "date"),
     date_column="date",
     partitioned=True,
-    doc="Unadjusted daily stock bars. Days without trading have no row.",
+    doc="Unadjusted daily stock bars, one row per traded day. "
+    "tradestatus and is_st repeat daily_status on these days; null where no source provides them.",
+)
+
+DAILY_STATUS = Table(
+    "daily_status",
+    (
+        Column("code", pl.String),
+        Column("date", pl.Date),
+        Column("tradestatus", pl.Int8, doc="1 traded, 0 suspended, as the source reports it"),
+        Column("is_st", pl.Boolean, doc="ST or *ST that day"),
+        Column("source", pl.String, doc="<source>@<version>"),
+    ),
+    key=("code", "date"),
+    date_column="date",
+    partitioned=True,
+    doc="One row per listed day of each SH/SZ stock, suspended days included. No row: status unknown.",
 )
 
 ADJ_FACTOR = Table(
@@ -117,7 +133,7 @@ ADJ_FACTOR = Table(
     ),
     key=("code", "ex_date"),
     date_column="ex_date",
-    doc="One row on each code's first day with data, then one per adjustment event.",
+    doc="One row on each code's first day with data, then one per adjustment event. A code without rows has factor 1.0.",
 )
 
 INDEX_BARS = Table(
@@ -151,23 +167,34 @@ INDEX_MEMBERS = Table(
 DATA_ISSUES = Table(
     "data_issues",
     (
-        Column("table", pl.String, doc="affected table: bars / adj_factor / securities / index_members"),
+        Column("table", pl.String, doc="affected table: bars / daily_status / adj_factor / securities / index_members"),
         Column("code", pl.String, doc="affected code; a malformed code is kept as found, e.g. SHT00018"),
         Column("date", pl.Date, doc="affected day; for an index member span, its start_date"),
-        Column("kind", pl.String, doc="off_scale / removed_security / adj_blip / invalid_member_code"),
+        Column(
+            "kind",
+            pl.String,
+            doc="off_scale / removed_security / adj_blip / invalid_member_code / bar_added / bar_unconfirmed / "
+            "duplicate_code / price_mismatch / volume_mismatch / amount_mismatch / preclose_mismatch / "
+            "tradestatus_conflict / before_first_bar / event_unconfirmed / event_added / step_mismatch / "
+            "event_missing / event_unimplied / event_step_off / no_bars / limit_breach; each kind belongs to one table",
+        ),
         Column(
             "action",
             pl.String,
-            doc="row_dropped / security_removed / excluded_from_adj_factor_and_preclose / span_dropped",
+            doc="row_dropped (on bars: a delivered bar the store does not keep; the day reads as missing data unless "
+            "daily_status reports it suspended) / security_removed / excluded_from_adj_factor_and_preclose / "
+            "span_dropped / row_added / duplicate_dropped / value_replaced / bar_kept / no_bar / status_dropped / "
+            "event_dropped / event_added / flagged (nothing changed; to review) / limits_voided (limits unknown that day)",
         ),
         Column("detail", pl.String, nullable=True, doc="JSON object with the measured values"),
         Column("source", pl.String),
     ),
     key=("table", "code", "date", "kind"),
     date_column="date",
-    doc="Data a source delivered that was dropped or bypassed, so a gap is never mistaken for a suspension.",
+    doc="Data a source delivered that was dropped, changed or flagged, so a gap is never mistaken for a suspension. "
+    "State kinds (event_missing / event_unimplied / event_step_off / limit_breach) are replaced by their writer on every run.",
 )
 
 TABLES: dict[str, Table] = {
-    t.name: t for t in (SECURITIES, CALENDAR, BARS, ADJ_FACTOR, INDEX_BARS, INDEX_MEMBERS, DATA_ISSUES)
+    t.name: t for t in (SECURITIES, CALENDAR, BARS, DAILY_STATUS, ADJ_FACTOR, INDEX_BARS, INDEX_MEMBERS, DATA_ISSUES)
 }

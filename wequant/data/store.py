@@ -94,6 +94,13 @@ def split_parts(table: Table, df: pl.DataFrame) -> dict[str, pl.DataFrame]:
     return {str(y): df.filter(years == y) for y in sorted(years.unique().to_list())}
 
 
+def tables_digest(manifest: dict, names: Iterable[str] | None = None) -> str:
+    """sha256 hex of the named tables' manifest entries (all tables by default): the identity of their content."""
+    tables = manifest["tables"]
+    chosen = tables if names is None else {name: tables.get(name) for name in names}
+    return hashlib.sha256(json.dumps(chosen, sort_keys=True).encode("utf-8")).hexdigest()
+
+
 class Store:
     def __init__(self, home: Path | None = None):
         self.home = Path(home) if home is not None else wequant_home()
@@ -203,9 +210,11 @@ class Store:
                         are kept. upsert never deletes rows.
 
         Tables and parts not touched keep their manifest entries unread. A touched part whose
-        content is unchanged keeps its file, and a commit that changes nothing creates no
-        version. meta goes into the manifest.
+        content is unchanged keeps its file, and a commit that changes no table and no meta value
+        other than code_version creates no version. meta is merged into the previous manifest's keys.
         """
+        # Compare meta as the manifest will hold it (a tuple comes back a list); bad meta fails before any write.
+        meta = json.loads(json.dumps(meta))
         writes: dict[str, tuple[str, pl.DataFrame]] = {}
         for mode, tables in (("replace", replace), ("replace_parts", replace_parts), ("upsert", upsert)):
             for name, df in (tables or {}).items():
@@ -224,10 +233,11 @@ class Store:
             touched = {*result.files_written, *result.files_reused}
             result.files_kept = [e["path"] for t in new_tables.values() for e in t["files"] if e["path"] not in touched]
 
-            if current is not None and new_tables == old_tables and all(current.get(k) == v for k, v in meta.items()):
+            if current is not None and new_tables == old_tables and _same_meta(current, meta):
                 result.version = current["version"]
                 return result
-            manifest = {"version": result.version, "created_at": _now(), **meta, "tables": new_tables}
+            carried = {k: v for k, v in (current or {}).items() if k not in ("version", "created_at", "tables")}
+            manifest = {"version": result.version, "created_at": _now(), **carried, **meta, "tables": new_tables}
             data = json.dumps(manifest, indent=1, ensure_ascii=False).encode("utf-8") + b"\n"
             self._manifest_path(result.version).parent.mkdir(parents=True, exist_ok=True)
             atomic_write(self._manifest_path(result.version), data)
@@ -340,3 +350,14 @@ def _date(value: dt.date | str | None) -> dt.date | None:
 
 def _year_in(year: int, start: dt.date | None, end: dt.date | None) -> bool:
     return (start is None or year >= start.year) and (end is None or year <= end.year)
+
+
+def _same_meta(current: dict, meta: dict) -> bool:
+    """True when meta changes no value but code versions, which alone never make a version."""
+    return _versionless({k: current.get(k) for k in meta}) == _versionless(meta)
+
+
+def _versionless(value):
+    if isinstance(value, dict):
+        return {k: _versionless(v) for k, v in value.items() if k != "code_version"}
+    return value

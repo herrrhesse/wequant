@@ -16,7 +16,7 @@ import polars as pl
 
 from wequant.data import codes as codemod
 from wequant.data.schema import TABLES
-from wequant.data.sources.base import CORPORATE_ACTIONS, SECURITIES_ON
+from wequant.data.sources.base import CORPORATE_ACTIONS, DAILY, SECURITIES_ON
 
 SOURCE = "baostock"
 DAILY_FIELDS = "date,code,open,high,low,close,preclose,volume,amount,tradestatus,isST"
@@ -139,17 +139,19 @@ class BaoStock:
             adjustflag="3",
         )
         decimals = 2 if codemod.security_type(code) == "stock" else 3
-        return _frame(fields, rows).select(
-            code=pl.lit(code),
-            date=pl.col("date").str.to_date(),
-            **{f: _li(f, decimals) for f in ("open", "high", "low", "close")},
-            volume=_text("volume").cast(pl.Float64).round(0).cast(pl.Int64),
-            amount=_text("amount").cast(pl.Float64),
-            preclose=_li("preclose", decimals),
-            preclose_derived=pl.lit(False),
-            tradestatus=_text("tradestatus").cast(pl.Int8),
-            is_st=_text("isST").cast(pl.Int8).cast(pl.Boolean),
-            source=pl.lit(SOURCE),
+        return (
+            _frame(fields, rows)
+            .select(
+                code=pl.lit(code),
+                date=pl.col("date").str.to_date(),
+                **{f: _li(f, decimals) for f in ("open", "high", "low", "close")},
+                volume=_text("volume").cast(pl.Float64).round(0).cast(pl.Int64),
+                amount=_text("amount").cast(pl.Float64),
+                preclose=_li("preclose", decimals),
+                tradestatus=_text("tradestatus").cast(pl.Int8),
+                is_st=_text("isST").cast(pl.Int8).cast(pl.Boolean),
+            )
+            .select(list(DAILY))
         )
 
     def adj_factors(self, code: str) -> pl.DataFrame:

@@ -9,7 +9,7 @@ import polars as pl
 import pytest
 
 from wequant.data.schema import TABLES
-from wequant.data.store import Store, StoreLocked, wequant_home
+from wequant.data.store import Store, StoreLocked, tables_digest, wequant_home
 
 META = {"last_trade_date": "2003-12-31", "source": "test", "release_tag": "t1"}
 
@@ -181,6 +181,37 @@ def test_tables_not_in_a_commit_are_carried_over(store):
     store.commit(META, replace={"calendar": pl.DataFrame({"date": [dt.date(2003, 1, 2)]})})
     store.commit(META, replace={"bars": four_years()})
     assert set(store.manifest()["tables"]) == {"calendar", "bars"}
+
+
+def test_commit_merges_meta(store):
+    store.commit({"source": "a", "release_tag": "t1"}, replace={"bars": four_years()})
+    store.commit({"source": "b"}, upsert={"bars": bars([("600000.SH", "2003-06-03", 1)])})
+    manifest = store.manifest()
+    assert manifest["source"] == "b" and manifest["release_tag"] == "t1"
+
+
+def test_code_version_alone_creates_no_version(store):
+    store.commit({"w": {"code_version": "a", "n": 1}}, replace={"bars": four_years()})
+    assert not store.commit({"w": {"code_version": "b", "n": 1}}, replace={"bars": four_years()}).changed
+    assert store.manifest()["w"]["code_version"] == "a"
+    assert not store.commit({"code_version": "b"}, replace={"bars": four_years()}).changed
+    assert store.commit({"w": {"code_version": "b", "n": 2}}, replace={"bars": four_years()}).changed
+
+
+def test_meta_compares_as_the_manifest_stores_it(store):
+    store.commit({"w": {"span": (1, 2)}}, replace={"bars": four_years()})
+    assert not store.commit({"w": {"span": (1, 2)}}, replace={"bars": four_years()}).changed
+    before = sorted(store.home.rglob("*"))
+    with pytest.raises(TypeError):
+        store.commit({"w": {"day": dt.date(2003, 6, 3)}}, upsert={"bars": bars([("600000.SH", "2003-06-03", 1)])})
+    assert sorted(store.home.rglob("*")) == before
+
+
+def test_tables_digest_identifies_named_tables(store):
+    store.commit(META, replace={"bars": four_years()})
+    manifest = store.manifest()
+    assert tables_digest(manifest, ["bars"]) == tables_digest(manifest) != tables_digest(manifest, ["bars", "calendar"])
+    assert len(tables_digest(manifest)) == 64
 
 
 def test_duplicates_and_schema(store):

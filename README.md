@@ -26,3 +26,21 @@ systemd-inhibit --what=sleep --why="baostock backfill" uv run --extra baostock p
 - **Resume:** run the same command again.
 - **Report:** when it has finished, run `uv run python -m tools.baostock_backfill report` (local files only).
 - **Sleep:** `systemd-inhibit --what=sleep` needs an active desktop session. From a non-interactive shell, use `--what=idle`.
+
+## Data checks and reports
+
+These tools read the store under `$WEQUANT_HOME` (or `--home`). Without `--commit` they write nothing there: the report
+goes to stdout or `--out FILE`. `--commit` writes a new store version under the writer lock and its report to
+`reports/<tool>_<last trade date>_v<version>.md`, so never run it while another writer (an import or a merge) is running.
+
+```bash
+uv run python -m tools.baostock_merge copy-store /tmp/wequant-copy   # copy the current snapshot, no lock
+uv run python -m tools.baostock_merge run --home /tmp/wequant-copy --raw $WEQUANT_HOME/raw/baostock   # dry run
+uv run python -m tools.check_limits                                  # price-limit check, dry run
+uv run python -m tools.panel_report --cache /tmp/wequant-cache       # panel timings, day status, limit masks
+uv run python -m tools.ops_report --cache /tmp/wequant-cache         # operator speed and TDX comparison values
+uv run python -m tools.metrics_report                                # metrics of index buy-and-hold
+```
+
+Run `check_limits --commit` again after every import: the panel applies the voids it records. Panels are cached by store
+version under `$WEQUANT_HOME/cache/panel/`. The cache is derived data and can be deleted at any time.

@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "numba>=0.68",
     "numpy>=2.0",
     "polars>=1.0",
 ]
@@ -17,6 +18,7 @@ baostock = ["baostock>=0.9.4"]  # the release probed in S2.2 (reports itself as 
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.100",
     "pytest>=8.0",
 ]
 

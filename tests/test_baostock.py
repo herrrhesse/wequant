@@ -9,7 +9,7 @@ from tests.baostock_fake import FakeClient, FakeResult
 from wequant.data.schema import TABLES
 from wequant.data.sources import baostock as bsmod
 from wequant.data.sources.baostock import PAGE_ROWS, BaoStock, BaoStockError, from_baostock, to_baostock
-from wequant.data.sources.base import CORPORATE_ACTIONS, SECURITIES_ON
+from wequant.data.sources.base import CORPORATE_ACTIONS, DAILY, SECURITIES_ON
 
 RECORDED = json.loads((Path(__file__).parent / "data" / "baostock.json").read_text("utf-8"))
 
@@ -35,7 +35,7 @@ def test_codes_round_trip():
 def test_daily_bars_are_in_wequant_units():
     source = session(query_history_k_data_plus=[recorded("daily_traded")])
     bars = source.daily_bars("600000.SH", "2026-11-02", "2026-11-06")
-    assert dict(bars.schema) == TABLES["bars"].schema
+    assert dict(bars.schema) == DAILY
     raw = RECORDED["daily_traded"]["rows"][-1]
     f = RECORDED["daily_traded"]["fields"]
     last = bars.row(-1, named=True)
@@ -44,8 +44,7 @@ def test_daily_bars_are_in_wequant_units():
     assert last["preclose"] == round(float(raw[f.index("preclose")]) * 100) * 10
     assert last["volume"] == int(raw[f.index("volume")])
     assert last["amount"] == float(raw[f.index("amount")])
-    assert last["tradestatus"] == 1 and last["is_st"] is False and last["preclose_derived"] is False
-    assert set(bars["source"]) == {"baostock"}
+    assert last["tradestatus"] == 1 and last["is_st"] is False
     call = source.client.calls[-1]
     assert call[1]["code"] == "sh.600000" and call[1]["adjustflag"] == "3"
 
@@ -148,4 +147,4 @@ def test_gives_up_after_three_retries(monkeypatch):
 def test_live_daily_bars():
     with BaoStock() as source:
         bars = source.daily_bars("600000.SH", "2026-11-02", "2026-11-06")
-    assert dict(bars.schema) == TABLES["bars"].schema and bars.height == 5
+    assert dict(bars.schema) == DAILY and bars.height == 5

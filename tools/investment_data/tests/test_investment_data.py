@@ -232,7 +232,7 @@ def test_run_import_end_to_end_is_idempotent(tmp_path):
     manifest = Store(home).manifest()
     assert manifest["version"] == 1 and manifest["release_tag"] == syn.TAG
     assert manifest["last_trade_date"] == str(syn.DAYS[-1])
-    assert set(manifest["tables"]) == set(TABLES)
+    assert set(manifest["tables"]) == set(TABLES) - {"daily_status"}
     assert run_import(syn.TAG, home, check_idempotency=False)[0] == 0
     shutil.rmtree(raw / "extracted")
     assert run_import(syn.TAG, home, check_idempotency=False)[0] == 0  # re-extracted: same data
