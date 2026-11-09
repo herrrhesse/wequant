@@ -8,7 +8,7 @@ import pytest
 
 from tests.account.fake import FakePanel
 from tests.account.golden import DAYS, A, B, C, build_store
-from wequant.account import Account, Execution
+from wequant.account import ORDER_REASONS, REJECTED, Account, Execution
 from wequant.analytics import compute_metrics
 from wequant.panel import load_panel
 
@@ -187,7 +187,7 @@ def test_close_model_agrees_with_the_limit_mask(panel):
         account.begin(t)
         if t == 7:
             got = account.trade([column], [100])
-            assert (got.status[0], got.reason[0], got.price[0]) == (2, 3, 8.58)  # rejected limit_up
+            assert (got.status[0], ORDER_REASONS[got.reason[0]], got.price[0]) == (REJECTED, "limit_up", 8.58)
         account.end()
     assert account.cash == 1_000_000
 

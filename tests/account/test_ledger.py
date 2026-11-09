@@ -2,6 +2,7 @@
 
 import math
 
+import numpy as np
 import polars as pl
 import pytest
 
@@ -89,6 +90,29 @@ def test_prices_without_a_bar_are_null(traded):
     orders = traded[1].ledger().orders
     assert orders["price"].to_list() == [10.0, 8.0, 10.5, None, None, 8.2]
     assert orders["reason"].to_list() == [None, None, None, "no_bar", "no_bar", None]
+
+
+def test_orders_keep_what_was_sent_although_the_caller_reuses_its_buffers():
+    panel = FakePanel(DATES, CODES, ["main", "main"], PRICES, PRICES)
+    account = Account(panel, 100_000, DATES[0], EXECUTION)
+    cols, qty = np.array([0]), np.array([1000.0])
+    account.begin(1)
+    got = account.trade(cols, qty)
+    for array in got:
+        with pytest.raises(ValueError):
+            array[0] = 0
+    account.end()
+    cols[0], qty[0] = 1, -500.0
+    account.begin(2)
+    account.trade(cols, qty)
+    account.end()
+    orders = account.ledger().orders.select("code", "side", "requested", "shares", "status")
+    assert orders.rows() == [("600000.SH", "buy", 1000, 1000, "filled"), ("000001.SZ", "sell", 500, 0, "rejected")]
+
+
+def test_columns_of_any_integer_type_make_one_orders_frame():
+    _, account = run({1: [(np.array([0], dtype=np.uint64), [1000])], 2: [(np.array([1], dtype=np.int64), [500])]})
+    assert account.ledger().orders["code"].to_list() == CODES
 
 
 def test_meta_holds_the_run_identities(traded):

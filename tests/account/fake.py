@@ -20,6 +20,13 @@ class FakePanel:
         self.limit_down_price = -bound if down is None else self._grid(down)
         self.limit_known = ~np.isnan(self.limit_up_price)
 
+    def __repr__(self) -> str:
+        """The call that builds this panel, so a failing hypothesis example prints its market."""
+        grids = (self.dates.astype(str), self.codes, self.boards, self._raw["open"], self._raw["close"])
+        named = {"factor": self.factor, "up": self.limit_up_price, "down": self.limit_down_price}
+        args = [repr(grid.tolist()) for grid in grids] + [f"{name}={grid.tolist()!r}" for name, grid in named.items()]
+        return f"FakePanel({', '.join(args)})"
+
     def raw(self, field: str) -> np.ndarray:
         return self._raw[field]
 

@@ -58,7 +58,7 @@ def opened(panel, cash, execution=Execution()) -> Account:
     return account
 
 
-# ---------------------------------------------------------------- U1-U15
+# ---------------------------------------------------------------- the day protocol, sizing, fees and price models
 
 
 def test_d3_keeps_equity_and_values_consistent():

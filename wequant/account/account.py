@@ -7,9 +7,19 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from wequant.account import ledger
 from wequant.account.execution import EXECUTION_VERSION, FEN, LI, Execution, exact, finite_number
-from wequant.account.ledger import FILLED, ORDER_REASONS, PARTIAL, REJECTED, Fills, Ledger
+from wequant.account.ledger import (
+    FILLED,
+    ORDER_REASONS,
+    PARTIAL,
+    REJECTED,
+    Fills,
+    Ledger,
+    daily_frame,
+    fills_from_rows,
+    orders_frame,
+    positions_frame,
+)
 from wequant.rules import default_book, max_buy, max_sell, trade_fees
 from wequant.version import code_version
 
@@ -90,7 +100,7 @@ class Account:
         results = [()] * len(cols)
         for k in np.concatenate([np.flatnonzero(qty < 0), np.flatnonzero(qty > 0)]).tolist():
             results[k] = self._order(int(cols[k]), float(qty[k]))
-        got = ledger.fills(results)
+        got = fills_from_rows(results)
         self._batches.append((self.t, cols, qty, got))
         return got
 
@@ -125,16 +135,16 @@ class Account:
             "start": panel.dates[self._days[0][0]].item().isoformat(),
         }
         return Ledger(
-            ledger.daily_frame(self._days, panel.dates),
-            ledger.positions_frame(self._holdings, panel.dates, panel.codes),
-            ledger.orders_frame(self._batches, panel.dates, panel.codes),
+            daily_frame(self._days, panel.dates),
+            positions_frame(self._holdings, panel.dates, panel.codes),
+            orders_frame(self._batches, panel.dates, panel.codes),
             meta,
         )
 
     # ------------------------------------------------------------ one order
 
     def _order(self, j: int, q: float) -> tuple:
-        """The fill of one order of column j, q shares (< 0 sells), as a ledger.fills row."""
+        """The fill of one order of column j, q shares (< 0 sells), as a fills_from_rows row."""
         price, traded, known, up, down = (part[j] for part in self._row)
         sell = q < 0
         p = float(price) if traded and price > 0 else math.nan
@@ -223,7 +233,8 @@ class Account:
         return self._last_close * (self._last_factor / self._factor[self.t])
 
     def _batch(self, cols: ArrayLike, qty: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
-        cols, qty = np.asarray(cols), np.asarray(qty, dtype=np.float64)
+        """Own copies of a valid batch, int64 columns and float64 quantities: the ledger keeps them."""
+        cols, qty = np.asarray(cols), np.array(qty, dtype=np.float64)
         cols = cols.astype(np.int64) if cols.size == 0 else cols
         if cols.ndim != 1 or not np.issubdtype(cols.dtype, np.integer):
             raise IndexError(f"columns must be a 1-D sequence of integers, not {cols.dtype} of shape {cols.shape}")
@@ -233,7 +244,7 @@ class Account:
             raise ValueError(f"{qty.size} quantities for {cols.size} columns")
         if np.any((qty == 0) | np.isnan(qty) | (qty == np.inf)):
             raise ValueError("a quantity is 0, NaN or +inf")
-        return cols, qty
+        return cols.astype(np.int64), qty
 
     def _require_open(self) -> None:
         if not self._open:

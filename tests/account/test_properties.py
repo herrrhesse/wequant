@@ -16,7 +16,7 @@ from wequant.rules import default_book, max_buy, max_sell, trade_fees
 
 STARTS = {dt.date(2014, 6, 2): False, dt.date(2023, 8, 21): True, dt.date(2024, 1, 2): True}  # STAR has a lot rule
 KINDS = (("600{:03d}.SH", "main"), ("000{:03d}.SZ", "main"), ("300{:03d}.SZ", "chinext"), ("688{:03d}.SH", "star"))
-STEPS = (1, 1, 1, 1, 1.25, 2, 0.5, 1.0625, 1.1, 1.0329)  # the last two are not exact in binary
+STEPS = (1, 1, 1, 1.25, 2, 0.5, 1.0625, 1.1, 1.0329)  # the last two are not exact in binary
 NO_COSTS = (0, 0, 0, 0)
 MONEY = ("value", "commission", "stamp_tax", "transfer_fee", "slippage")
 
@@ -26,7 +26,7 @@ MONEY = ("value", "commission", "stamp_tax", "transfer_fee", "slippage")
 
 @st.composite
 def scenarios(draw):
-    """A random market, initial cash, execution and the calls of each day."""
+    """A random market, initial cash, execution and the calls of each day; one seeded generator fills in cells and orders."""
     rows, n = draw(st.integers(3, 12)), draw(st.integers(1, 4))
     start = draw(st.sampled_from(sorted(STARTS)))
     kinds = draw(st.lists(st.sampled_from(KINDS if STARTS[start] else KINDS[:3]), min_size=n, max_size=n))

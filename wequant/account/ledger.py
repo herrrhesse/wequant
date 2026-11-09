@@ -27,7 +27,7 @@ ORDERS = {
     "slippage": pl.Float64,
     "reason": pl.String,
 }
-MONEY = ("value", "commission", "stamp_tax", "transfer_fee", "slippage")
+_MONEY = ("value", "commission", "stamp_tax", "transfer_fee", "slippage")
 
 
 class Fills(NamedTuple):
@@ -54,11 +54,14 @@ class Ledger:
     meta: dict  # store_version, data_key, rules_key, code_version, execution, execution_version, cash, start
 
 
-def fills(results: list[tuple]) -> Fills:
-    """Fills from one row per order: shares, price, value and the four costs in 厘, status and reason."""
-    columns = list(zip(*results)) or [()] * len(Fills._fields)
+def fills_from_rows(rows: list[tuple]) -> Fills:
+    """Read-only Fills from one row per order: shares, price, value and the four costs in 厘, status and reason."""
+    columns = list(zip(*rows)) or [()] * len(Fills._fields)
     shares, price, *money, status, reason = (np.array(column, dtype=np.float64) for column in columns)
-    return Fills(shares, price, *(m / 1000 for m in money), status.astype(np.int8), reason.astype(np.int8))
+    got = Fills(shares, price, *(m / 1000 for m in money), status.astype(np.int8), reason.astype(np.int8))
+    for array in got:  # the ledger keeps these arrays
+        array.flags.writeable = False
+    return got
 
 
 def daily_frame(days: list[tuple], dates: np.ndarray) -> pl.DataFrame:
@@ -91,7 +94,7 @@ def orders_frame(batches: list[tuple], dates: np.ndarray, codes: np.ndarray) -> 
         "requested": np.abs(qty),
         "shares": got.shares,
         "price": pl.Series(got.price).fill_nan(None),
-        **{name: getattr(got, name) for name in MONEY},
+        **{name: getattr(got, name) for name in _MONEY},
         "reason": _names(got.reason, ORDER_REASONS),
     }
     return pl.DataFrame(columns, schema=ORDERS)

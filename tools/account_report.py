@@ -186,7 +186,10 @@ def hold_section(run: Run) -> list[str]:
     present = set(run.panel().codes.tolist())
     codes = [code for code in run.codes if code in present]
     panel = run.panel(run.start, codes=codes)
-    rows = [hold_row(run, panel, j) for j in range(len(codes))]
+    holdings = [hold(panel, j) for j in range(len(codes))]
+    for h in holdings:
+        run.hits |= down_hits(panel, h.ledger)
+    rows = [hold_row(panel, j, h) for j, h in enumerate(holdings)]
     missing = [code for code in run.codes if code not in present]
     header = ["code", "buy date", "refusals", "ex-dates held", "no-bar days", "final equity", "expected"]
     header += ["difference", "result", "share gap", "max rel. error", "result"]
@@ -197,9 +200,10 @@ def hold_section(run: Run) -> list[str]:
         "floor(cash / open) shares (1 share without a bar); it then holds and sells everything on "
         f"{panel.dates[-1]}. Expected: the cash after the buy plus the sale of q × r_1 × r_2 × … shares at the last "
         "open (r = factor[t] / factor[t-1] in row order, costs on whole shares, the fraction half up to the fen); "
-        "PASS at 0.001 yuan. The share gap is that product less q × factor_last / factor_buy (float representation, "
-        "not judged). The value error compares each traded day's value with q × close × factor / factor_buy; PASS at "
-        "1e-12.",
+        "when that sale does not fill (no bar or a limit that day, or a buy on that day), the cash after the buy plus "
+        "those shares at the last traded close × factor ratio, with the reason. PASS at 0.001 yuan. The share gap is "
+        "that product less q × factor_last / factor_buy (float representation, not judged). The value error compares "
+        "each traded day's value with q × close × factor / factor_buy; PASS at 1e-12.",
         "",
         *table(header, rows),
         *([f"Not in the store: {', '.join(missing)}.", ""] if missing else []),
@@ -224,9 +228,7 @@ def hold(panel: Panel, j: int) -> Holding:
     return Holding(account.ledger(), refusals, buy, shares, cash, sale)
 
 
-def hold_row(run: Run, panel: Panel, j: int) -> list:
-    h = hold(panel, j)
-    run.hits |= down_hits(panel, h.ledger)
+def hold_row(panel: Panel, j: int, h: Holding) -> list:
     refusals = ", ".join(f"{reason} {n:,}" for reason, n in sorted(h.refusals.items())) or "none"
     if h.buy is None:
         return [panel.codes[j], "never", refusals, *["—"] * 9]
@@ -236,8 +238,7 @@ def hold_row(run: Run, panel: Panel, j: int) -> list:
     for t in range(h.buy + 1, last + 1):
         shares = shares * (factor[t] / factor[t - 1])
     final = h.ledger.daily["equity"][-1]
-    sold = h.sale is not None and h.sale.shares[0] > 0
-    expected = (h.cash + proceeds(panel, j, shares)) / 1000 if sold else math.nan
+    expected, unsold = expected_equity(panel, j, h, shares)
     error = value_error(panel, j, h)
     return [
         panel.codes[j],
@@ -246,13 +247,21 @@ def hold_row(run: Run, panel: Panel, j: int) -> list:
         int((factor[held] != factor[h.buy : last]).sum()),
         int((~panel.traded[held, j]).sum()),
         f"{final:,.2f}",
-        f"{expected:,.2f}" if sold else "not sold",
-        f"{final - expected:.2f}" if sold else "—",
-        verdict(sold and abs(final - expected) <= 0.001),
+        f"{expected:,.2f}" + (f" (held: {unsold})" if unsold else ""),
+        f"{final - expected:.2f}",
+        verdict(abs(final - expected) <= 0.001),
         f"{shares - h.shares * factor[last] / factor[h.buy]:.1e}",
         f"{error:.1e}",
         verdict(error <= 1e-12),
     ]
+
+
+def expected_equity(panel: Panel, j: int, h: Holding, shares: float) -> tuple[float, str | None]:
+    """Final equity with shares held after the buy, and why the last day's sale did not fill (None when it did)."""
+    if h.sale is not None and h.sale.shares[0] > 0:
+        return (h.cash + proceeds(panel, j, shares)) / 1000, None
+    unsold = "bought on the last day" if h.sale is None else ORDER_REASONS[h.sale.reason[0]]
+    return h.cash / 1000 + shares * independent_marks(panel)[-1, j], unsold
 
 
 def proceeds(panel: Panel, j: int, shares: float) -> int:
