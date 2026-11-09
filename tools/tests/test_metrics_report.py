@@ -52,6 +52,7 @@ def test_report_of_a_synthetic_store(home: Path, tmp_path_factory):
     assert "| max_drawdown_recovery | date | 2024-01-09 | 2024-01-09 |" in text
     assert "| benchmark_missing_days | days | 0 | 2 |" in text
     assert "| turnover | fraction | null (no_trade_values) | null (no_trade_values) |" in text
+    assert "| capacity_max | fraction | null (no_orders) | null (no_orders) |" in text
     assert "**000852.SH:** days without a bar: 1 (2024-01-08)" in text
     assert '"max_drawdown_trough": {\n   "value": "2024-01-05",' in text
 

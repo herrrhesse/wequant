@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 
 from wequant.analytics import METRICS_VERSION, Metric, MetricSpec, compute_metrics, metrics_json
-from wequant.analytics.inputs import ORDER_STATUSES, ORDERS, POSITIONS
+from wequant.analytics.inputs import ORDER_AMOUNTS, ORDER_STATUSES, ORDERS, POSITIONS
 
 KEYS = [
     "trading_days",
@@ -34,7 +34,11 @@ KEYS = [
     "turnover",
     "avg_holding_days",
     "executable_order_share",
+    "capacity_max",
+    "capacity_p95",
+    "capacity_unknown_fills",
 ]
+CAPACITY = KEYS[-3:]
 SPEC = MetricSpec(periods_per_year=4, risk_free_rate=0.0, tail_fraction=0.25)
 GOLDEN_DAYS = ["2024-01-31", "2024-02-01", "2024-02-02", "2024-02-05", "2024-03-01"]
 GOLDEN_EQUITY = [100, 110, 99, 99, 118.8]
@@ -86,6 +90,12 @@ def positions(rows: list[tuple]) -> pl.DataFrame:
 
 def orders(statuses: list[str]) -> pl.DataFrame:
     return pl.DataFrame([(day("2024-02-01"), "600000.SH", s) for s in statuses], schema=ORDERS, orient="row")
+
+
+def sized(rows: list[tuple]) -> pl.DataFrame:
+    """Orders from (status, value, day_amount) rows; None is null."""
+    rows = [(day("2024-02-01"), "600000.SH", *row) for row in rows]
+    return pl.DataFrame(rows, schema=ORDERS | ORDER_AMOUNTS, orient="row")
 
 
 # ------------------------------------------------------------ Golden A
@@ -257,6 +267,61 @@ def test_executable_order_share():
         golden(orders=orders([None]))
 
 
+def test_capacity():
+    rows = [
+        ("filled", 10_000.0, 1e6),
+        ("partial", 3_000.0, 1e5),
+        ("filled", 2_000.0, 1e6),
+        ("filled", 50_000.0, 2e6),
+        ("rejected", 0.0, 1e3),
+        ("filled", 1_000.0, None),
+        ("filled", 1_000.0, math.nan),
+        ("partial", 1_000.0, 0.0),
+    ]
+    m = values(golden(orders=sized(rows)))
+    assert m["capacity_max"] == pytest.approx(0.03, rel=1e-12)
+    assert m["capacity_p95"] == pytest.approx(0.025 + 0.85 * 0.005, rel=1e-12)  # 0.95 × 3 = 2.85: 3rd to 4th share
+    assert m["capacity_unknown_fills"] == 3
+    assert golden(orders=sized([("filled", 3e6, 1e6)]))["capacity_max"].value == 3.0  # no cap at the day's amount
+
+
+@pytest.mark.parametrize(
+    ("frame", "expected"),
+    [
+        pytest.param(None, ("no_orders", "no_orders", "no_orders"), id="no_orders"),
+        pytest.param(orders(["filled"]), ("no_order_amounts",) * 3, id="no_amount_columns"),
+        pytest.param(sized([]), ("no_fills", "no_fills", 0), id="no_orders_at_all"),
+        pytest.param(sized([("rejected", 0.0, 1e6)]), ("no_fills", "no_fills", 0), id="only_rejected"),
+        pytest.param(
+            sized([("filled", 1.0, None), ("filled", 1.0, 0.0)]),
+            ("no_day_amounts", "no_day_amounts", 2),
+            id="all_unknown",
+        ),
+    ],
+)
+def test_capacity_without_a_known_fill(frame, expected):
+    m = golden() if frame is None else golden(orders=frame)
+    assert [m[key].reason or m[key].value for key in CAPACITY] == list(expected)
+
+
+@pytest.mark.parametrize(
+    ("frame", "message"),
+    [
+        pytest.param(sized([("filled", 1.0, 1.0)]).drop("day_amount"), "both", id="value_only"),
+        pytest.param(sized([("filled", 1.0, -1.0)]), "day_amount", id="negative_amount"),
+        pytest.param(sized([("filled", 1.0, math.inf)]), "day_amount", id="infinite_amount"),
+        pytest.param(sized([("filled", None, 1.0)]), "value", id="null_value"),
+        pytest.param(sized([("partial", -1.0, 1.0)]), "value", id="negative_value"),
+        pytest.param(
+            sized([("filled", 1.0, 1.0)]).with_columns(pl.col("day_amount").cast(pl.Int64)), "not Float64", id="int"
+        ),
+    ],
+)
+def test_bad_order_amounts_raise(frame, message):
+    with pytest.raises(ValueError, match=message):
+        golden(orders=frame)
+
+
 # ------------------------------------------------------------ degenerate runs
 
 
@@ -390,6 +455,9 @@ def random_run(seed: int) -> dict:
         (days[t + 1].item(), f"C{c}", shares[c, t]) for c, t in zip(*np.nonzero(held | (rng.random(held.shape) < 0.05)))
     ]
     statuses = list(rng.choice(ORDER_STATUSES, int(rng.integers(0, 25))))
+    kinds, sizes = rng.integers(0, 10, len(statuses)), rng.uniform(100, 2e6, (2, len(statuses)))
+    amounts = [None if k == 0 else math.nan if k == 1 else 0.0 if k == 2 else 100 * a for k, a in zip(kinds, sizes[1])]
+    sent = [(days[1].item(), "C0", s, 0.0 if s == "rejected" else v, a) for s, v, a in zip(statuses, sizes[0], amounts)]
     return {
         "calendar": pl.Series("date", open_days),
         "daily": pl.DataFrame(
@@ -402,7 +470,7 @@ def random_run(seed: int) -> dict:
             }
         ),
         "positions": pl.DataFrame(rows, schema=POSITIONS, orient="row"),
-        "orders": pl.DataFrame([(days[1].item(), "C0", s) for s in statuses], schema=ORDERS, orient="row"),
+        "orders": pl.DataFrame(sent, schema=ORDERS | ORDER_AMOUNTS, orient="row"),
     }
 
 
@@ -463,6 +531,7 @@ def reference(run: dict, spec: MetricSpec) -> dict:
     active = [x - y for x, y in zip(r, rb) if y is not None]
     bought, sold = frame["bought"].to_list(), frame["sold"].to_list()
     statuses = run["orders"]["status"].to_list()
+    out |= reference_capacity(run["orders"].rows())
     return out | {
         "benchmark_missing_days": rb.count(None),
         "tracking_error": stdev(active) * math.sqrt(k),
@@ -473,6 +542,17 @@ def reference(run: dict, spec: MetricSpec) -> dict:
         if statuses
         else None,
     }
+
+
+def reference_capacity(rows: list[tuple]) -> dict:
+    fills = [(value, amount) for _, _, status, value, amount in rows if status != "rejected"]
+    ratios = sorted(value / amount for value, amount in fills if amount is not None and amount > 0)
+    if not ratios:
+        return dict(zip(CAPACITY, (None, None, len(fills))))
+    h = 0.95 * (len(ratios) - 1)
+    lo = math.floor(h)
+    p95 = ratios[lo] + (h - lo) * (ratios[min(lo + 1, len(ratios) - 1)] - ratios[lo])
+    return dict(zip(CAPACITY, (ratios[-1], p95, len(fills) - len(ratios))))
 
 
 def reference_drawdown(days: list, nav: list) -> dict:
@@ -531,7 +611,10 @@ def test_scale_changes_no_metric():
     spec = MetricSpec()
     run = random_run(7)
     base = values(run_metrics(run, spec))
-    money = run | {"daily": run["daily"].with_columns(pl.col("equity", "bought", "sold") * 7.3)}
+    money = run | {
+        "daily": run["daily"].with_columns(pl.col("equity", "bought", "sold") * 7.3),
+        "orders": run["orders"].with_columns(pl.col("value", "day_amount") * 7.3),
+    }
     index = run | {"daily": run["daily"].with_columns(pl.col("benchmark") * 7.3)}
     shares = run | {"positions": run["positions"].with_columns(pl.col("shares") * 7.3)}
     for scaled in (money, index):

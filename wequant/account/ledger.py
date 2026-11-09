@@ -20,14 +20,14 @@ ORDERS = {
     "requested": pl.Float64,
     "shares": pl.Float64,
     "price": pl.Float64,
-    "value": pl.Float64,
+    **inputs.ORDER_AMOUNTS,
     "commission": pl.Float64,
     "stamp_tax": pl.Float64,
     "transfer_fee": pl.Float64,
     "slippage": pl.Float64,
     "reason": pl.String,
 }
-_MONEY = ("value", "commission", "stamp_tax", "transfer_fee", "slippage")
+_COSTS = ("commission", "stamp_tax", "transfer_fee", "slippage")
 
 
 class Fills(NamedTuple):
@@ -79,8 +79,8 @@ def positions_frame(holdings: list[tuple], dates: np.ndarray, codes: np.ndarray)
     return pl.DataFrame(dict(zip(POSITIONS, [dates[rows], codes[cols], shares, values])), schema=POSITIONS)
 
 
-def orders_frame(batches: list[tuple], dates: np.ndarray, codes: np.ndarray) -> pl.DataFrame:
-    """ORDERS from one (row, columns, quantities, Fills) per batch."""
+def orders_frame(batches: list[tuple], dates: np.ndarray, codes: np.ndarray, amount: np.ndarray) -> pl.DataFrame:
+    """ORDERS from one (row, columns, quantities, Fills) per batch, with each stock's (T, N) day amount in yuan."""
     if not batches:
         return pl.DataFrame(schema=ORDERS)
     rows = np.concatenate([np.full(len(cols), row) for row, cols, _, _ in batches])
@@ -94,7 +94,9 @@ def orders_frame(batches: list[tuple], dates: np.ndarray, codes: np.ndarray) -> 
         "requested": np.abs(qty),
         "shares": got.shares,
         "price": pl.Series(got.price).fill_nan(None),
-        **{name: getattr(got, name) for name in _MONEY},
+        "value": got.value,
+        "day_amount": pl.Series(amount[rows, cols], dtype=pl.Float64).fill_nan(None),
+        **{name: getattr(got, name) for name in _COSTS},
         "reason": _names(got.reason, ORDER_REASONS),
     }
     return pl.DataFrame(columns, schema=ORDERS)

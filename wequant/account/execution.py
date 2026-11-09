@@ -11,7 +11,7 @@ import numpy as np
 
 from wequant.rules.rounding import round_half_up
 
-EXECUTION_VERSION = 1  # bump when an execution rule, a reason or a status changes meaning
+EXECUTION_VERSION = 2  # bump when an execution rule, a default, a reason or a status changes meaning
 PRICES = ("open", "close")
 FEN = 10  # 厘
 LI = 1000  # 厘 per yuan
@@ -24,7 +24,7 @@ class Execution:
     price: str = "open"  # the fill day's raw open (D4); "close" fills at its raw close
     commission_rate: float = 0.0003  # of the whole-share trade value, both sides
     min_commission: float = 5.0  # yuan per order that trades whole shares; a whole number of fen
-    slippage_bps: float = 0.0  # a cost in basis points of the whole-share trade value, both sides; price unmoved
+    slippage_bps: float = 10.0  # 0.1% per side: a cost on the whole-share trade value; price and limits unmoved
 
     def __post_init__(self) -> None:
         """ValueError for a price outside PRICES or a cost out of range; numbers, numpy scalars included, are kept as float."""

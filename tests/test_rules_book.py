@@ -146,7 +146,6 @@ def test_stamp_tax_and_transfer_fee_cover_sh_and_sz_from_2000():
 
 def test_uncertain_rules_carry_confirm_notes():
     assert {row.id for row in default_book().unconfirmed()} == {
-        "band-main-2026",
         "band-bse-2020",
         "ipo-main-2014",
         "ipo-chinext-2014",

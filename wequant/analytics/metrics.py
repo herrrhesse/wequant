@@ -10,10 +10,10 @@ from dataclasses import dataclass
 import numpy as np
 import polars as pl
 
-from wequant.analytics.inputs import EXECUTED, RunSeries, check_orders, held_days, run_series
+from wequant.analytics.inputs import EXECUTED, RunSeries, check_orders, day_amount_ratios, held_days, run_series
 from wequant.analytics.series import annualize, compound, drawdowns, period_keys, runs
 
-METRICS_VERSION = 1  # bump when a metric's definition changes
+METRICS_VERSION = 2  # bump when a metric is added or its definition changes
 UNITS = ("fraction", "ratio", "days", "date", "count")
 REASONS = (
     "too_few_periods",
@@ -28,7 +28,11 @@ REASONS = (
     "never_held",
     "no_orders",
     "no_rebalance_orders",
+    "no_order_amounts",
+    "no_fills",
+    "no_day_amounts",
 )
+_CAPACITY = {"capacity_max": "fraction", "capacity_p95": "fraction", "capacity_unknown_fills": "count"}
 _PERIODS = {"daily": None, "weekly": "week", "monthly": "month"}  # win-rate name -> period_keys period
 _ROUNDING = 1e-12  # return gaps and stds up to this are float rounding: V_t / V_{t-1} - 1 is off by ~1e-16
 
@@ -98,6 +102,7 @@ def compute_metrics(
         "turnover": turnover(s, spec),
         "avg_holding_days": avg_holding_days(positions, s),
         "executable_order_share": executable_order_share(orders),
+        **capacity(orders),
     }
 
 
@@ -194,6 +199,21 @@ def executable_order_share(orders: pl.DataFrame | None) -> Metric:
     if status.is_empty():
         return Metric(None, "fraction", "no_rebalance_orders")
     return Metric(float(status.is_in(EXECUTED).mean()), "fraction")
+
+
+def capacity(orders: pl.DataFrame | None) -> Metrics:
+    """Each fill's value as a share of its stock's traded amount that day: max, 95th percentile, fills of unknown amount."""
+    got = None if orders is None else day_amount_ratios(orders)
+    if got is None:
+        reason = "no_orders" if orders is None else "no_order_amounts"
+        return {name: Metric(None, unit, reason) for name, unit in _CAPACITY.items()}
+    ratios, unknown = got
+    if ratios.size:
+        top = Metric(float(ratios.max()), "fraction")
+        p95 = Metric(float(np.percentile(ratios, 95)), "fraction")  # linear between order statistics
+    else:
+        top = p95 = Metric(None, "fraction", "no_day_amounts" if unknown else "no_fills")
+    return {"capacity_max": top, "capacity_p95": p95, "capacity_unknown_fills": Metric(unknown, "count")}
 
 
 def metrics_json(metrics: Metrics, spec: MetricSpec) -> bytes:

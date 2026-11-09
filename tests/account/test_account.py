@@ -13,6 +13,7 @@ SH, SZ, STAR, BJ = "600000.SH", "000001.SZ", "688001.SH", "830001.BJ"
 JAN = ["2024-01-02", "2024-01-03", "2024-01-04"]
 INF, NAN = math.inf, math.nan
 STATUSES = ("filled", "partial", "rejected")
+NO_SLIPPAGE = Execution(slippage_bps=0)  # the hand-computed costs below leave slippage out
 
 
 def one(dates, prices, code=SH, board="main", **grids):
@@ -42,7 +43,7 @@ def outcome(fills, k=0) -> tuple:
     return STATUSES[fills.status[k]], None if reason < 0 else ORDER_REASONS[reason]
 
 
-def bought(panel, cash, qty=1000, col=0, execution=Execution()) -> Account:
+def bought(panel, cash, qty=1000, col=0, execution=NO_SLIPPAGE) -> Account:
     """An account from the panel's first date that bought qty of col on row 1 and closed the day."""
     account = Account(panel, cash, panel.dates[0], execution)
     account.begin(1)
@@ -51,7 +52,7 @@ def bought(panel, cash, qty=1000, col=0, execution=Execution()) -> Account:
     return account
 
 
-def opened(panel, cash, execution=Execution()) -> Account:
+def opened(panel, cash, execution=NO_SLIPPAGE) -> Account:
     """An account from the panel's first date with row 1 open."""
     account = Account(panel, cash, panel.dates[0], execution)
     account.begin(1)
@@ -162,11 +163,18 @@ def test_fees_follow_the_date_and_the_exchange(dates, code, buy, sell, cash):
     assert money(account.trade([0], [-INF])) == yuan(10_000, *sell) and li(account.cash) == li(cash[1])
 
 
-def test_slippage_is_a_cost_and_leaves_the_price():
-    account = opened(one(JAN[:2], [10.0] * 2), 20_000, Execution(slippage_bps=10))
-    got = account.trade([0], [1000])
-    assert money(got) == yuan(10_000, 5.00, 0, 0.10, 10.00) and got.price[0] == 10.0
-    assert li(account.cash) == li(9_984.90)
+def test_the_default_slippage_costs_ten_basis_points_and_leaves_the_price_and_the_limits():
+    panel = one(JAN, [41.15, 41.15, 41.11], up=[41.16] * 3, down=[41.10] * 3)  # fills a tick inside each limit
+    account = opened(panel, 20_000, Execution())
+    got = account.trade([0], [300])
+    assert money(got) == yuan(12_345, 5.00, 0, 0.12, 12.35) and got.price[0] == 41.15  # 12.345 yuan, half up
+    assert li(account.cash) == li(7_637.53) and li(account.end()) == li(19_982.53)
+    account.begin(2)
+    got = account.trade([0], [-INF])
+    assert money(got) == yuan(12_333, 5.00, 6.17, 0.12, 12.33) and got.price[0] == 41.11  # 12.333 yuan, down
+    assert li(account.cash) == li(19_946.91)
+    configured = opened(panel, 20_000, Execution(slippage_bps=25))
+    assert money(configured.trade([0], [300])) == yuan(12_345, 5.00, 0, 0.12, 30.86)  # 30.8625 yuan
 
 
 def test_cash_cuts_a_buy_to_the_largest_lot_it_pays_for():
@@ -233,6 +241,19 @@ def test_inexact_ratios_are_not_snapped_to_whole_shares():
     assert c.shares[0] == held - 1099
 
 
+@pytest.mark.parametrize(
+    "sell_at, buy_at, reasons", [(9.0, 11.0, ("limit_down", "limit_up")), (9.01, 10.99, (None, None))]
+)
+def test_a_fill_at_its_own_limit_is_refused_on_both_sides(sell_at, buy_at, reasons):
+    prices = [[10.0, 10.0], [10.0, 10.0], [sell_at, buy_at]]
+    panel = FakePanel(JAN, [SH, SZ], ["main", "main"], prices, prices, up=[[11.0, 11.0]] * 3, down=[[9.0, 9.0]] * 3)
+    account = bought(panel, 100_000)
+    account.begin(2)
+    got = account.trade([0, 1], [-INF, 100])
+    assert [outcome(got, k)[1] for k in (0, 1)] == list(reasons) and got.price.tolist() == [sell_at, buy_at]
+    assert (account.sellable[0], account.shares[1]) == ((1000, 0) if reasons[0] else (0, 100))
+
+
 def test_the_other_side_of_a_limit_passes():
     panel = one(JAN, [10.0] * 3, up=[11.0, 11.0, 10.0], down=[9.0] * 3)
     account = bought(panel, 20_000)
@@ -249,7 +270,7 @@ def test_the_other_side_of_a_limit_passes():
 
 def test_the_close_model_fills_at_the_close():
     panel = one(JAN[:2], [10.0, 11.0], close=[10.0, 10.5], up=[11.0] * 2, down=[9.0] * 2)
-    account = opened(panel, 20_000, Execution(price="close"))
+    account = opened(panel, 20_000, Execution(price="close", slippage_bps=0))
     got = account.trade([0], [1000])
     assert money(got) == yuan(10_500, 5.00, 0, 0.11) and got.price[0] == 10.5
     assert li(account.cash) == li(9_494.89) and li(account.end()) == li(19_994.89)
@@ -277,7 +298,7 @@ def test_numpy_scalar_cash_and_execution():
     panel = one(JAN[:2], [10.0] * 2)
     for cash in (np.int64(1_000_000), np.float64(1e6)):
         assert Account(panel, cash, JAN[0]).cash == 1_000_000
-    scalars = Execution(commission_rate=np.float64(0.0003), min_commission=np.float64(5.0), slippage_bps=np.int64(0))
+    scalars = Execution(commission_rate=np.float64(0.0003), min_commission=np.float64(5.0), slippage_bps=np.int64(10))
     runs = [
         opened(panel, np.int64(1_000_000), execution).trade([0, 0], [300, 25_000])
         for execution in (Execution(), scalars)

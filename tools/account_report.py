@@ -22,6 +22,7 @@ import numpy as np
 import polars as pl
 
 from wequant.account import EXECUTION_VERSION, ORDER_REASONS, REJECTED, Account, Execution, Fills, Ledger
+from wequant.analytics.metrics import capacity
 from wequant.data.store import Store
 from wequant.panel import Panel, load_panel
 from wequant.rules import default_book, limit_check_current, max_buy, max_sell, trade_fees
@@ -109,7 +110,10 @@ def report(run: Run) -> str:
         f"- **Store:** {run.store.home} (version {run.version}, last trade date {manifest.get('last_trade_date')})",
         f"- **code_version:** {code_version()}",
         f"- **Rules key:** {run.panel().rules_key}",
-        f"- **EXECUTION_VERSION:** {EXECUTION_VERSION}",
+        f"- **EXECUTION_VERSION:** {EXECUTION_VERSION}; sections 1 and 3 run {Execution()}: slippage is a cost and "
+        "moves neither the fill price nor the limit checks.",
+        "- **Corporate actions:** simulated with the adjustment factors, i.e. dividends reinvested; dividend tax is "
+        "ignored.",
         f"- **Cache:** {run.cache}",
         f"- **Memory:** peak RSS: {peak:,.0f} MB, taken after section 4.",
         "",
@@ -128,6 +132,20 @@ def verdict(ok: bool) -> str:
 
 def li(yuan: float) -> int:
     return round(yuan * 1000)
+
+
+def capacity_text(orders: pl.DataFrame) -> str:
+    """The capacity metrics of a run's orders, with the fill behind the maximum."""
+    m = {key: metric.value for key, metric in capacity(orders).items()}
+    unknown = f"{m['capacity_unknown_fills']:,} fills with an unknown day amount"
+    if m["capacity_max"] is None:
+        return f"no fill with a known day amount; {unknown}"
+    known = orders.filter(pl.col("status") != "rejected", pl.col("day_amount").fill_nan(None) > 0)  # NaN > 0 in polars
+    top = known.sort(pl.col("value") / pl.col("day_amount"), descending=True).row(0, named=True)
+    return (
+        f"max {m['capacity_max']:.3%} ({top['code']} on {top['date']}: {top['value']:,.2f} of {top['day_amount']:,.2f} "
+        f"yuan), 95th percentile {m['capacity_p95']:.3%}; {unknown}"
+    )
 
 
 def code_columns(panel: Panel, codes) -> np.ndarray:
@@ -410,6 +428,7 @@ def stream_section(run: Run) -> list[str]:
         "",
         *table(["invariant", "violations", "result"], rows),
         "Informational:",
+        f"- **Capacity:** each fill's value over its stock's traded amount that day: {capacity_text(orders)}.",
         "- **ST band:** fills on LIMITED main-board cells with st_known False on days of a narrower ST band, at "
         f"its price from the day's preclose: buys at the +ST-band price {st_buys:,}, sells at the -ST-band price "
         f"{st_sells:,}.",
@@ -456,11 +475,12 @@ def band_prices(pre: np.ndarray, bp: np.ndarray, tick: np.ndarray) -> tuple[np.n
 def speed_section(run: Run) -> list[str]:
     last = run.panel().dates[-1].item()
     panel = run.panel(years_before(last, run.years))
-    rows = []
+    rows, capacities = [], []
     for top in TOPS:
-        orders, loop, ledger = speed_run(panel, top, np.random.default_rng([run.seed, top]))
+        orders, loop, seconds, ledger = speed_run(panel, top, np.random.default_rng([run.seed, top]))
         limit = f"{verdict(loop < SPEED_LIMIT)} (limit {SPEED_LIMIT:.1f} s)" if top == TOPS[0] else "—"
-        rows.append([top, f"{orders:,}", f"{loop:.2f}", f"{ledger:.2f}", f"{loop / max(orders, 1) * 1e6:.1f}", limit])
+        rows.append([top, f"{orders:,}", f"{loop:.2f}", f"{seconds:.2f}", f"{loop / max(orders, 1) * 1e6:.1f}", limit])
+        capacities.append(f"- **Capacity, N = {top}:** {capacity_text(ledger.orders)}.")
     return [
         "## 3. Speed",
         "",
@@ -470,11 +490,15 @@ def speed_section(run: Run) -> list[str]:
         "buys each new target with budget = cash / new targets at the fill price, by descending score.",
         "",
         *table(["N", "orders", "loop (s)", "ledger (s)", "µs per order", "result"], rows),
+        "Each fill's value over its stock's traded amount that day:",
+        "",
+        *capacities,
+        "",
     ]
 
 
-def speed_run(panel: Panel, top: int, rng: np.random.Generator) -> tuple[int, float, float]:
-    """Orders, loop seconds and ledger seconds of one rebalancing run."""
+def speed_run(panel: Panel, top: int, rng: np.random.Generator) -> tuple[int, float, float, Ledger]:
+    """Orders, loop seconds, ledger seconds and the ledger of one rebalancing run."""
     account, price = Account(panel, SPEED_CASH, panel.dates[0]), panel.raw("open")
     eligible, orders = panel.traded & (panel.exchanges != "BJ"), 0
     started = time.perf_counter()
@@ -485,8 +509,8 @@ def speed_run(panel: Panel, top: int, rng: np.random.Generator) -> tuple[int, fl
         account.end()
     loop = time.perf_counter() - started
     started = time.perf_counter()
-    account.ledger()
-    return orders, loop, time.perf_counter() - started
+    ledger = account.ledger()
+    return orders, loop, time.perf_counter() - started, ledger
 
 
 def rebalance(account: Account, price: np.ndarray, pool: np.ndarray, top: int, rng: np.random.Generator) -> int:

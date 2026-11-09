@@ -14,6 +14,7 @@ TRADES = {"bought": pl.Float64, "sold": pl.Float64}
 BENCHMARK = {"benchmark": pl.Float64}
 POSITIONS = {"date": pl.Date, "code": pl.String, "shares": pl.Float64}
 ORDERS = {"date": pl.Date, "code": pl.String, "status": pl.String}
+ORDER_AMOUNTS = {"value": pl.Float64, "day_amount": pl.Float64}  # yuan: the fill, the stock's traded amount that day
 ORDER_STATUSES = ("filled", "partial", "rejected")
 EXECUTED = ("filled", "partial")
 
@@ -77,6 +78,28 @@ def check_orders(orders: pl.DataFrame) -> pl.Series:
     if unknown.len():
         raise ValueError(f"orders have unknown statuses {unknown.unique().to_list()}")
     return status
+
+
+def day_amount_ratios(orders: pl.DataFrame) -> tuple[np.ndarray, int] | None:
+    """value / day_amount of each filled order whose day amount is known, and the count of those whose is not.
+
+    A null, NaN or zero day amount is unknown, never 0 or infinity; None when orders have neither column.
+    """
+    status = check_orders(orders)
+    given = ORDER_AMOUNTS.keys() & set(orders.columns)
+    if not given:
+        return None
+    if given != ORDER_AMOUNTS.keys():
+        raise ValueError("orders need both value and day_amount, or neither")
+    check_columns(orders, ORDER_AMOUNTS, "orders")
+    fills = orders.filter(status.is_in(EXECUTED))
+    value, amount = (fills[column].to_numpy() for column in ORDER_AMOUNTS)
+    if not np.all(np.isfinite(value) & (value >= 0)):
+        raise ValueError("orders.value must be finite and non-negative on filled orders")
+    if np.any(np.isinf(amount) | (amount < 0)):
+        raise ValueError("orders.day_amount must be null, NaN or finite and non-negative")
+    known = amount > 0
+    return value[known] / amount[known], int((~known).sum())
 
 
 def _calendar_slice(dates: pl.Series, calendar: pl.Series) -> np.ndarray:
