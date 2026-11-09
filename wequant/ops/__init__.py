@@ -3,7 +3,7 @@
 Importing it sets OMP_WAIT_POLICY=PASSIVE for the process unless already set, so idle OpenMP threads sleep, not spin.
 """
 
-from wequant.ops.arith import ABS, DIV, LN, MAX, MIN
+from wequant.ops.arith import ABS, ADD, DIV, LN, MAX, MIN, MUL, SUB
 from wequant.ops.logic import AND, BETWEEN, EQ, GE, GT, IF, LE, LT, NOT, OR
 from wequant.ops.rolling import (
     AVEDEV,
@@ -69,4 +69,7 @@ __all__ = [
     "ABS",
     "DIV",
     "LN",
+    "ADD",
+    "SUB",
+    "MUL",
 ]

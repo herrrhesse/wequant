@@ -204,4 +204,7 @@ REGISTRY: dict[str, Op] = {
     "ABS": _cells(ops.ABS, strict(abs), "unary"),
     "DIV": _cells(ops.DIV, strict(lambda a, b: a / b if b else nan), "binary"),
     "LN": _cells(ops.LN, strict(lambda x: math.log(x) if x > 0 else nan), "unary"),
+    "ADD": _cells(ops.ADD, strict(lambda a, b: a + b), "binary"),
+    "SUB": _cells(ops.SUB, strict(lambda a, b: a - b), "binary"),
+    "MUL": _cells(ops.MUL, strict(lambda a, b: a * b), "binary"),
 }

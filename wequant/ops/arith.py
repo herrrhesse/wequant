@@ -30,3 +30,18 @@ def ABS(x) -> np.ndarray:
 def LN(x) -> np.ndarray:
     """Natural logarithm; NaN where x <= 0."""
     return elementwise(np.log, x)
+
+
+def ADD(a, b) -> np.ndarray:
+    """a + b."""
+    return elementwise(np.add, a, b)
+
+
+def SUB(a, b) -> np.ndarray:
+    """a − b."""
+    return elementwise(np.subtract, a, b)
+
+
+def MUL(a, b) -> np.ndarray:
+    """a × b."""
+    return elementwise(np.multiply, a, b)

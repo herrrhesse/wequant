@@ -16,6 +16,10 @@ uv sync --extra baostock     # BaoStock data source
 - `wequant/rules/`: dated A-share trading rules: price limits, lots, ticks, stamp tax and transfer fees.
 - `wequant/panel/`: date × stock matrices of one store version, with day status and limit masks.
 - `wequant/ops/`: TDX-style operators on those matrices.
+- `wequant/expr/`: signal expressions: checked trees of panel fields and operators with one canonical JSON form,
+  evaluated once per distinct subexpression and cached.
+- `wequant/account/`: cash, positions and order execution on raw prices: lots, T+1, fees, corporate actions and one order
+  validation.
 - `wequant/analytics/`: the metrics of a run.
 - `tools/`: command-line jobs: fetch, merge, data checks and reports. `tools/investment_data/` is a temporary seed
   import and not part of the package.
@@ -51,6 +55,8 @@ uv run python -m tools.check_limits                                  # price-lim
 uv run python -m tools.panel_report --cache /tmp/wequant-cache       # panel timings, day status, limit masks
 uv run python -m tools.ops_report --cache /tmp/wequant-cache         # operator speed and TDX comparison values
 uv run python -m tools.metrics_report                                # metrics of index buy-and-hold
+uv run python -m tools.expr_report --cache /tmp/wequant-cache        # expression timings, cache hits, equality with operators
+uv run python -m tools.account_report --cache /tmp/wequant-cache     # buy-and-hold through ex-dates, account invariants, speed
 ```
 
 Run `check_limits --commit` again after every import: the panel applies the voids it records. Panels are cached by store

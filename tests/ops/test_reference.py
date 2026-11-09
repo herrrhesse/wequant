@@ -13,12 +13,12 @@ EXACT = {
     *("MA", "SUM"),  # compensated sums round once, like fsum and fmean
     *("REF", "HHV", "LLV", "HHVBARS", "LLVBARS", "COUNT", "EVERY", "EXIST", "TS_RANK"),
     *("CROSS", "BARSLAST", "BARSCOUNT", "VALUEWHEN", "CS_RANK", "CS_PCT"),
-    *("GT", "GE", "LT", "LE", "EQ", "AND", "OR", "NOT", "IF", "BETWEEN", "MAX", "MIN", "ABS"),
+    *("GT", "GE", "LT", "LE", "EQ", "AND", "OR", "NOT", "IF", "BETWEEN", "MAX", "MIN", "ABS", "ADD", "SUB", "MUL"),
 }
 
 
 def test_the_registry_covers_every_operator():
-    assert len(ops.__all__) == 42
+    assert len(ops.__all__) == 45
     assert set(REGISTRY) == set(ops.__all__)
 
 
