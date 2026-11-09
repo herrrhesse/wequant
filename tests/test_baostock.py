@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import socket
 import threading
+import time
 from pathlib import Path
 
 import polars as pl
@@ -169,6 +170,32 @@ def test_a_guarded_socket_raises_once_the_server_has_closed():
     assert sock.recv(8192) == b"reply"
     with pytest.raises(ConnectionError):
         sock.recv(8192)
+
+
+class SlowSocket(StubSocket):
+    """Each reply arrives after `delay` seconds; an exception in the replies is raised instead."""
+
+    def __init__(self, replies, delay):
+        super().__init__(replies)
+        self.delay = delay
+
+    def recv(self, size):
+        time.sleep(self.delay)
+        reply = super().recv(size)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+def test_a_guarded_socket_counts_the_time_spent_waiting_for_replies():
+    before = GuardedSocket.waited
+    sock = GuardedSocket(SlowSocket([b"reply", TimeoutError("timed out"), b""], delay=0.05))
+    assert sock.recv(8192) == b"reply"
+    with pytest.raises(TimeoutError):
+        sock.recv(8192)
+    with pytest.raises(ConnectionError):
+        sock.recv(8192)
+    assert GuardedSocket.waited - before >= 3 * 0.05  # the wait for a timeout or a close counts too
 
 
 def serve_once(handle) -> int:

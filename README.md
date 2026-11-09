@@ -37,9 +37,15 @@ systemd-inhibit --what=sleep --why="baostock backfill" uv run --extra baostock p
 ```
 
 - **Progress:** `uv run python -m tools.baostock_backfill status`, or `tail -f $WEQUANT_HOME/logs/baostock_backfill.log`.
+  The log has one line per file with its rows, the seconds spent waiting for BaoStock (server) and the rest (local).
 - **Stop:** Ctrl-C in tmux, or `kill -TERM <pid>`. It finishes the current file, logs out and exits 0.
 - **Resume:** run the same command again.
 - **Report:** when it has finished, run `uv run python -m tools.baostock_backfill report` (local files only).
+- **Refetch:** `uv run --extra baostock python -m tools.baostock_backfill refetch 2020-06-17 2020-07-21` fetches those
+  days again into `raw/baostock/refetch/` and never touches `daily/` or `progress.json`. `run` and `refetch` hold
+  `raw/baostock/.lock`, so neither starts while the other is running (exit code 5).
+- **Compare:** `uv run python -m tools.baostock_backfill compare [--rows resolutions.toml] [--out FILE]` compares each
+  refetched day with its `daily/` file row by row; `--rows` adds whether each listed row's problem reproduces.
 - **Sleep:** `systemd-inhibit --what=sleep` needs an active desktop session. From a non-interactive shell, use `--what=idle`.
 
 ## Data checks and reports
