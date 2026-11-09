@@ -44,6 +44,28 @@ def from_baostock(code: str) -> str:
     return f"{digits}.{exchange.upper()}"
 
 
+def parse_daily(frame: pl.DataFrame | pl.LazyFrame, decimals: int = 2) -> pl.DataFrame | pl.LazyFrame:
+    """BaoStock daily rows (string columns) in DAILY columns; empty strings become null."""
+    return frame.select(
+        code=_code("code"),
+        date=_text("date").str.to_date(),
+        **{f: _li(f, decimals) for f in ("open", "high", "low", "close", "preclose")},
+        volume=_text("volume").cast(pl.Int64),
+        amount=_text("amount").cast(pl.Float64),
+        tradestatus=_text("tradestatus").cast(pl.Int8),
+        is_st=_text("isST").cast(pl.Int8).cast(pl.Boolean),
+    ).select(list(DAILY))
+
+
+def parse_adjust_factor(frame: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
+    """BaoStock adjustment-factor rows in adj_factor columns, with backAdjustFactor as factor."""
+    return frame.select(
+        code=_code("code"),
+        ex_date=_text("dividOperateDate").str.to_date(),
+        factor=_text("backAdjustFactor").cast(pl.Float64),
+    ).select(list(TABLES["adj_factor"].schema))
+
+
 class BaoStock:
     """A BaoStock session; use it as `with BaoStock() as source: ...`.
 
@@ -139,20 +161,7 @@ class BaoStock:
             adjustflag="3",
         )
         decimals = 2 if codemod.security_type(code) == "stock" else 3
-        return (
-            _frame(fields, rows)
-            .select(
-                code=pl.lit(code),
-                date=pl.col("date").str.to_date(),
-                **{f: _li(f, decimals) for f in ("open", "high", "low", "close")},
-                volume=_text("volume").cast(pl.Float64).round(0).cast(pl.Int64),
-                amount=_text("amount").cast(pl.Float64),
-                preclose=_li("preclose", decimals),
-                tradestatus=_text("tradestatus").cast(pl.Int8),
-                is_st=_text("isST").cast(pl.Int8).cast(pl.Boolean),
-            )
-            .select(list(DAILY))
-        )
+        return parse_daily(_frame(fields, rows), decimals)
 
     def adj_factors(self, code: str) -> pl.DataFrame:
         factors = _frame(
@@ -163,11 +172,7 @@ class BaoStock:
                 end_date=dt.date.today().isoformat(),
             )
         )
-        return factors.select(
-            code=pl.lit(code),
-            ex_date=pl.col("dividOperateDate").str.to_date(),
-            factor=_text("backAdjustFactor").cast(pl.Float64),
-        ).select(list(TABLES["adj_factor"].schema))
+        return parse_adjust_factor(factors)
 
     def corporate_actions(self, code: str, start_year: int, end_year: int) -> pl.DataFrame:
         frames = [
