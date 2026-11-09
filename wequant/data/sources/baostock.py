@@ -23,6 +23,7 @@ DAILY_FIELDS = "date,code,open,high,low,close,preclose,volume,amount,tradestatus
 PAGE_ROWS = 2000  # BaoStock pages results; a full page means next() fetches another one
 FIRST_DAY = "1990-12-19"  # first trading day in China; BaoStock's own defaults start in 2015
 NOT_LOGGED_IN = "10001001"
+REPLY_TIMEOUT = 60.0  # seconds a reply may stall before the request fails and the caller may log in again
 
 
 class BaoStockError(RuntimeError):
@@ -89,7 +90,7 @@ class BaoStock:
 
     def login(self) -> None:
         if self.client is None:
-            self.client = importlib.import_module("baostock")
+            self.client = import_baostock()
         result = _quiet(self.client.login)
         self.requests += 1
         if result.error_code != "0":
@@ -212,6 +213,41 @@ class BaoStock:
         if len(result.data) == PAGE_ROWS:  # a page fetch failed without an error code
             raise BaoStockError(method, "truncated", f"stopped after {len(rows)} rows")
         return list(result.fields), rows
+
+
+def import_baostock():
+    """The baostock module, with every connection it opens wrapped in a GuardedSocket."""
+    client = importlib.import_module("baostock")
+    socketutil = importlib.import_module("baostock.util.socketutil")
+    context = importlib.import_module("baostock.common.context")
+    connect = socketutil.SocketUtil.connect
+    if not getattr(connect, "guarded", False):
+
+        def guarded_connect(self, *args, **kwargs):
+            connect(self, *args, **kwargs)
+            context.default_socket = GuardedSocket(context.default_socket)
+
+        guarded_connect.guarded = True
+        socketutil.SocketUtil.connect = guarded_connect
+    return client
+
+
+class GuardedSocket:
+    """A socket that fails instead of hanging: baostock reads a reply until its end marker,
+    so a closed connection (recv returning b"" forever) or a silent server would block it for good."""
+
+    def __init__(self, sock):
+        sock.settimeout(REPLY_TIMEOUT)
+        self.sock = sock
+
+    def recv(self, size: int) -> bytes:
+        data = self.sock.recv(size)
+        if not data:
+            raise ConnectionError("BaoStock closed the connection")
+        return data
+
+    def __getattr__(self, name: str):
+        return getattr(self.sock, name)
 
 
 def _quiet(call):

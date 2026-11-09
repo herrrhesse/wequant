@@ -1,5 +1,7 @@
 import datetime as dt
 import json
+import socket
+import threading
 from pathlib import Path
 
 import polars as pl
@@ -8,7 +10,14 @@ import pytest
 from tests.baostock_fake import FakeClient, FakeResult
 from wequant.data.schema import TABLES
 from wequant.data.sources import baostock as bsmod
-from wequant.data.sources.baostock import PAGE_ROWS, BaoStock, BaoStockError, from_baostock, to_baostock
+from wequant.data.sources.baostock import (
+    PAGE_ROWS,
+    BaoStock,
+    BaoStockError,
+    GuardedSocket,
+    from_baostock,
+    to_baostock,
+)
 from wequant.data.sources.base import CORPORATE_ACTIONS, DAILY, SECURITIES_ON
 
 RECORDED = json.loads((Path(__file__).parent / "data" / "baostock.json").read_text("utf-8"))
@@ -141,6 +150,66 @@ def test_gives_up_after_three_retries(monkeypatch):
     with pytest.raises(BaoStockError, match="10002007"):
         source.query("query_trade_dates")
     assert delays == [1.0, 2.0, 4.0] and len(source.errors) == 4
+
+
+class StubSocket:
+    def __init__(self, replies):
+        self.replies, self.timeout = list(replies), None
+
+    def settimeout(self, seconds):
+        self.timeout = seconds
+
+    def recv(self, size):
+        return self.replies.pop(0)
+
+
+def test_a_guarded_socket_raises_once_the_server_has_closed():
+    sock = GuardedSocket(StubSocket([b"reply", b""]))
+    assert sock.timeout == bsmod.REPLY_TIMEOUT
+    assert sock.recv(8192) == b"reply"
+    with pytest.raises(ConnectionError):
+        sock.recv(8192)
+
+
+def serve_once(handle) -> int:
+    """The port of a local server that reads the first request, hands the connection to handle, then closes it."""
+    server = socket.create_server(("127.0.0.1", 0))
+
+    def run():
+        with server, server.accept()[0] as conn:
+            conn.recv(65536)  # an unread request would make the close a reset, which baostock survives
+            handle()
+
+    threading.Thread(target=run, daemon=True).start()
+    return server.getsockname()[1]
+
+
+@pytest.fixture
+def released():
+    event = threading.Event()
+    yield event
+    event.set()
+
+
+@pytest.mark.parametrize("silent", [False, True], ids=["closed", "silent"])
+def test_a_dead_connection_fails_the_login_instead_of_hanging(silent, released, monkeypatch):
+    constants = pytest.importorskip("baostock.common.contants")
+    monkeypatch.setattr(bsmod, "REPLY_TIMEOUT", 0.5)
+    monkeypatch.setattr(constants, "BAOSTOCK_SERVER_IP", "127.0.0.1")
+    monkeypatch.setattr(constants, "BAOSTOCK_SERVER_PORT", serve_once(released.wait if silent else lambda: None))
+    errors = []
+
+    def login():
+        try:
+            BaoStock(retries=0).login()
+        except BaoStockError as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=login, daemon=True)
+    thread.start()
+    thread.join(5)
+    assert not thread.is_alive(), "the login hangs on a dead connection"
+    assert [error.code for error in errors] == ["10002007"]
 
 
 @pytest.mark.network
