@@ -36,7 +36,7 @@ def test_max_buy(board, qty, expected):
         ("main", 240, 250, 200),
         ("main", 300, 250, 250),
         ("main", 1019.417, 1019.417, 1019.417),
-        ("main", 1019, 1019.417, 1000),
+        ("main", 1019, 1019.417, 1019),  # ten lots and the 19 odd whole shares; the fraction stays
         ("star", 150, 180, 0),
         ("star", 180, 180, 180),
         ("star", 240, 250, 240),
@@ -48,7 +48,8 @@ def test_max_sell(board, qty, position, expected):
 
 def test_the_odd_remainder_sells_whole_in_one_order():
     assert max_sell(lot("main"), 50, 250) == 50
-    assert max_sell(lot("main"), 160, 250) == 100
+    assert max_sell(lot("main"), 160, 250) == 150  # one lot and the 50 odd shares
+    assert max_sell(lot("main"), 1150, 1250) == 1150
     assert max_sell(lot("main"), 30, 250) == 0
     assert max_sell(lot("star"), 100, 250) == 0
 
