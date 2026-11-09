@@ -95,13 +95,26 @@ def EXIST(cond, n) -> Grid:
 
 
 @numba.njit(cache=True)
+def _add(total, carry, value):
+    """total + value rounded, and carry plus the exact rounding error of that sum (Neumaier)."""
+    rounded = total + value
+    if abs(total) >= abs(value):
+        return rounded, carry + ((total - rounded) + value)
+    return rounded, carry + ((value - rounded) + total)
+
+
+@numba.njit(cache=True)
 def _running_sum(v, out, n, divisor):
-    total = 0.0
+    """Sums of the last n bars (n = 0: all of them) over divisor, NaN until n bars exist.
+
+    The sum is compensated so that rounding errors of bars that have left the window do not stay in it.
+    """
+    total = carry = 0.0
     for k in range(len(v)):
-        total += v[k]
+        total, carry = _add(total, carry, v[k])
         if 0 < n <= k:
-            total -= v[k - n]
-        out[k] = total / divisor if k >= n - 1 else np.nan
+            total, carry = _add(total, carry, -v[k - n])
+        out[k] = (total + carry) / divisor if k >= n - 1 else np.nan
 
 
 @kernel

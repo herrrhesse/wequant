@@ -8,7 +8,7 @@ import numba
 import numpy as np
 from numba import prange, types
 
-from wequant.ops.inputs import Grid, common_ndim, series, values
+from wequant.ops.inputs import Grid, Value, common_ndim, series, values
 
 # Set before numba starts its threads: idle OpenMP workers otherwise spin, and on a busy machine a call then
 # costs about 6 ms instead of 0.1 ms.
@@ -96,7 +96,7 @@ def per_stock(x: Grid, kern, a: int = 0, b: int = 0) -> Grid:
     return out
 
 
-def per_stock2(x: Grid, y, kern, n: int = 0) -> Grid:
+def per_stock2(x: Grid, y: Value, kern, n: int = 0) -> Grid:
     """kern over the bars x and y share; y may also be a scalar."""
     x = series(x)
     y = series(y) if np.ndim(y) else values(y)  # a constant has a value every day, whatever its type

@@ -10,6 +10,7 @@ from tests.ops.reference import REGISTRY, ROLES
 from wequant import ops
 
 EXACT = {
+    *("MA", "SUM"),  # compensated sums round once, like fsum and fmean
     *("REF", "HHV", "LLV", "HHVBARS", "LLVBARS", "COUNT", "EVERY", "EXIST", "TS_RANK"),
     *("CROSS", "BARSLAST", "BARSCOUNT", "VALUEWHEN", "CS_RANK", "CS_PCT"),
     *("GT", "GE", "LT", "LE", "EQ", "AND", "OR", "NOT", "IF", "BETWEEN", "MAX", "MIN", "ABS"),

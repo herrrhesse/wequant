@@ -26,7 +26,6 @@ ROLES = {
     "choice": "cyy",
     "range": "xyy",
 }
-TIME_SERIES = {"series", "pair", "condition", "when"}
 ELEMENTWISE = {"unary", "binary", "choice", "range"}
 
 

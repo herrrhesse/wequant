@@ -1,4 +1,7 @@
-"""TDX-style operators on date × stock grids; time-series operators count each stock's bars and skip NaN days."""
+"""TDX-style operators on date × stock grids; time-series operators count each stock's bars and skip NaN days.
+
+Importing it sets OMP_WAIT_POLICY=PASSIVE for the process unless already set, so idle OpenMP threads sleep, not spin.
+"""
 
 from wequant.ops.arith import ABS, DIV, LN, MAX, MIN
 from wequant.ops.logic import AND, BETWEEN, EQ, GE, GT, IF, LE, LT, NOT, OR

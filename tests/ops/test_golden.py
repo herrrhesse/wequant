@@ -78,6 +78,12 @@ def test_windows_count_bars_not_rows(op, n, expected):
     same(op(X, n), expected)
 
 
+def test_window_sums_keep_no_rounding_error_from_older_bars():
+    x = np.array([10.23, 10.45, 9.87, 10.01, 10.33, 10.29, 10.5, 10.25, 10.25, 10.25])
+    assert np.array_equal(MA(x, 1), x) and np.array_equal(SUM(x, 1), x)
+    assert MA(x, 3)[-1] == 10.25  # 3 × 10.25 is exact in binary
+
+
 def test_stdp_and_sma():
     same(STDP(X, 3), [nan, nan, 0.8164965809, 0.4714045208, 0.8164965809, nan, 1.2472191289, 0.8164965809], rel=1e-9)
     same(SMA(X, 3, 1), [10, 31 / 3, 98 / 9, 295 / 27, 941 / 81, nan, 3016 / 243, 8948 / 729])

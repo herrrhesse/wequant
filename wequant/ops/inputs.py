@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 Grid = np.ndarray  # float64 (dates, codes), or (dates,) for one security
+Value = np.ndarray | float | bool  # a grid, or a scalar that has a value every day
 
 
 def series(x) -> np.ndarray:

@@ -1,4 +1,9 @@
-"""Operator contracts: no look-ahead, bars rather than rows, ±inf as NaN, any layout, untouched inputs, validation."""
+"""Operator contracts: no look-ahead, bars rather than rows, ±inf as NaN, any layout, untouched inputs, validation,
+windows that forget older bars, and kernels loaded from numba's cache."""
+
+import subprocess
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -14,7 +19,9 @@ NAMES = list(REGISTRY)
 SECTION = [name for name, op in REGISTRY.items() if op.kind == "section"]
 FLOAT_ONLY = [name for name, op in REGISTRY.items() if op.kind not in ELEMENTWISE]
 WINDOWED = [name for name, op in REGISTRY.items() if op.minimum is not None]
+ANCHORED = {"EMA", "SMA"}  # windowed, yet every bar since the grid's first row weighs in
 GRID = np.array([[1.0, 4.0], [2.0, 3.0], [5.0, 3.0], [4.0, 1.0], [6.0, 2.0], [3.0, 5.0]])
+SQUARE = np.array([[1.0, 4.0, 2.0], [5.0, 3.0, 3.0], [4.0, 1.0, 6.0]])
 
 
 def identical(a, b) -> bool:
@@ -64,6 +71,19 @@ def test_days_without_a_bar_are_skipped(name, data):
     out = call(*on_grids(lambda a: scatter(a, bars, rng), dense))
     assert identical(out[bars], call(*dense))
     assert np.isnan(out[~bars]).all()
+
+
+@pytest.mark.parametrize("name", [name for name in WINDOWED if name not in ANCHORED])
+@EXAMPLES
+@given(data=st.data())
+def test_windows_do_not_depend_on_where_the_grid_starts(name, data):
+    op = REGISTRY[name]
+    arguments, window = data.draw(cases(ROLES[op.kind], max(op.minimum, 1), min_rows=1))
+    start = data.draw(st.integers(0, len(arguments[0]) - 1))
+    full = op.call(*arguments, **window)[start:]
+    later = op.call(*on_grids(lambda a: a[start:], arguments), **window)
+    defined = ~np.isnan(later)
+    assert identical(later[defined], full[defined])
 
 
 def assert_prefix(call, arguments, expected, t):
@@ -133,10 +153,10 @@ def frozen(a):
     return a
 
 
-def valid_arguments(name) -> list:
+def valid_arguments(name, grid=GRID) -> list:
     """Fixed valid inputs for the operator, its window 3 last."""
     op = REGISTRY[name]
-    return [GRID % 2 if role == "c" else GRID for role in ROLES[op.kind]] + ([3] if op.minimum is not None else [])
+    return [grid % 2 if role == "c" else grid for role in ROLES[op.kind]] + ([3] if op.minimum is not None else [])
 
 
 @pytest.mark.parametrize(
@@ -178,8 +198,9 @@ def test_sma_weight_is_an_integer_from_1_to_n(n, m, error):
 
 @pytest.mark.parametrize("name", [name for name, op in REGISTRY.items() if len(ROLES[op.kind]) > 1])
 def test_series_and_grids_do_not_mix(name):
+    # On a square grid numpy would broadcast a date series across the codes, reading later dates into earlier rows.
     for position in range(len(ROLES[REGISTRY[name].kind])):
-        arguments = valid_arguments(name)
+        arguments = valid_arguments(name, SQUARE)
         arguments[position] = arguments[position][:, 0]
         with pytest.raises(ValueError):
             REGISTRY[name].call(*arguments)
@@ -199,3 +220,24 @@ def test_elementwise_operators_accept_bool_int_and_scalars(name, dtype):
     np.testing.assert_array_equal(call(*typed), call(*(a.astype(float) for a in typed)))
     scalar = dtype(1)
     np.testing.assert_array_equal(call(scalar, *typed[1:]), call(np.full(GRID.shape, 1.0), *typed[1:]))
+
+
+CACHE_PROBE = """
+from numba.core.registry import CPUDispatcher
+from wequant.ops import drivers, rolling, scan, section
+for module in (drivers, rolling, scan, section):
+    for name, f in vars(module).items():
+        if isinstance(f, CPUDispatcher) and f.signatures:
+            print(name, "cache" if f.stats.cache_hits and not f.stats.cache_misses else "compiled")
+"""
+
+
+def test_kernels_and_drivers_load_from_the_numba_cache():
+    root = Path(__file__).parents[2]
+    for _ in range(2):  # the first interpreter fills the cache when it is cold
+        probe = subprocess.run(
+            [sys.executable, "-c", CACHE_PROBE], cwd=root, capture_output=True, text=True, check=True
+        )
+    loaded = dict(line.split() for line in probe.stdout.splitlines())
+    assert {"by_column", "by_column2", "by_row", "_mean", "_corr", "_rank"} <= loaded.keys()
+    assert set(loaded.values()) == {"cache"}, loaded
