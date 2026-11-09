@@ -8,8 +8,12 @@ import pytest
 from wequant.data.codes import BOARDS
 from wequant.rules.book import Band, default_book, load_book
 
-LAUNCH = {"main": dt.date(1996, 12, 16), "chinext": dt.date(2009, 10, 30), "star": dt.date(2019, 7, 22)}
-LAUNCH["bse"] = dt.date(2020, 7, 27)
+LAUNCH = {
+    "main": dt.date(1996, 12, 16),
+    "chinext": dt.date(2009, 10, 30),
+    "star": dt.date(2019, 7, 22),
+    "bse": dt.date(2020, 7, 27),
+}
 
 MINIMAL = """
 [[band]]
@@ -141,6 +145,16 @@ def test_stamp_tax_and_transfer_fee_cover_sh_and_sz_from_2000():
 
 
 def test_uncertain_rules_carry_confirm_notes():
-    unconfirmed = {row.id for row in default_book().unconfirmed()}
-    assert {"band-main-2026", "ipo-main-2014", "transfer-sh-par-1990", "transfer-2015"} <= unconfirmed
-    assert "band-main-1996" not in unconfirmed
+    assert {row.id for row in default_book().unconfirmed()} == {
+        "band-main-2026",
+        "band-bse-2020",
+        "ipo-main-2014",
+        "ipo-chinext-2014",
+        "ipo-bse-2020",
+        "lot-bse",
+        "transfer-sh-par-1990",
+        "transfer-sh-par-2012-06",
+        "transfer-sh-par-2012-09",
+        "transfer-sz-amount",
+        "transfer-2015",
+    }

@@ -15,9 +15,13 @@ def max_buy(lot: Lot, qty: int) -> int:
 
 
 def max_sell(lot: Lot, qty: float, position: float) -> float:
-    """Largest valid sell <= qty of a (possibly fractional) position: whole lots, the whole odd remainder or all of it."""
+    """The whole (possibly fractional) position when qty covers it, else the largest valid order of whole shares <= qty.
+
+    A valid partial sell is whole lots, or the position's whole odd remainder in whole shares (odd lots go in one order).
+    """
     if qty >= position:
         return position
     lots = max_buy(lot, math.floor(qty))
-    odd = position - max_buy(lot, math.floor(position))
+    whole = math.floor(position)
+    odd = whole - max_buy(lot, whole)
     return max(lots, odd) if odd <= qty else lots

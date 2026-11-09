@@ -27,12 +27,13 @@ def limit_inputs(store: Store, manifest: dict | None = None) -> pl.DataFrame:
     scan = functools.partial(store.scan, manifest=manifest)
     securities = scan("securities", columns=["code", "exchange", "board", "first_date"]).collect()
     calendar = scan("calendar", columns=["date"]).collect()["date"]
+    events = _events(scan("adj_factor", columns=["code", "ex_date"]), scan("bars", columns=["code", "date"]))
     frame = (
         scan("bars", columns=BAR_COLUMNS)
         .join(securities.lazy().select("code", "board"), on="code", how="left")
         .join(list_dates(securities).lazy(), on="code", how="left")
         .join(scan("daily_status", columns=["code", "date", "is_st"]), on=["code", "date"], how="left")
-        .join(_events(scan("adj_factor", columns=["code", "ex_date"])), on=["code", "date"], how="left")
+        .join(events.lazy(), on=["code", "date"], how="left")
         .with_columns(pl.col("ex_date").fill_null(False))
         .sort("code", "date")
         .collect()
@@ -100,7 +101,16 @@ def _pinned(store: Store, manifest: dict | None) -> dict:
     return manifest
 
 
-def _events(adj: pl.LazyFrame) -> pl.LazyFrame:
-    """(code, date) of each adjustment event after the code's first adj_factor row, with ex_date True."""
-    later = pl.col("ex_date") > pl.col("ex_date").min().over("code")
-    return adj.filter(later).select("code", date=pl.col("ex_date"), ex_date=pl.lit(True))
+def _events(adj: pl.LazyFrame, days: pl.LazyFrame) -> pl.DataFrame:
+    """(code, date, ex_date True) of the first bar on or after each adjustment event after the code's first adj_factor row."""
+    events = adj.filter(pl.col("ex_date") > pl.col("ex_date").min().over("code")).sort("ex_date")
+    first_bars = events.join_asof(
+        days.sort("code", "date"),
+        left_on="ex_date",
+        right_on="date",
+        by="code",
+        strategy="forward",
+        check_sortedness=False,
+    )
+    # Collected here, so the sorted bar days are freed before limit_inputs builds the full bar frame.
+    return first_bars.select("code", "date", ex_date=pl.lit(True)).drop_nulls("date").unique().collect()

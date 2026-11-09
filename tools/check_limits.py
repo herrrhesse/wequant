@@ -14,7 +14,7 @@ import polars as pl
 from wequant.data.files import atomic_write
 from wequant.data.store import Store
 from wequant.rules.book import NewListing, RuleBook, default_book
-from wequant.rules.check import ACTION, KIND, missing_issues
+from wequant.rules.check import ACTION, KIND, missing_issues, void
 from wequant.rules.limits import FREE, LIMITED, LIMITS_FORMAT, UNKNOWN, down_price, up_price
 from wequant.rules.rounding import round_half_up
 from wequant.rules.tables import CheckResult, check_store, limit_check_current
@@ -24,11 +24,15 @@ STATES = (("LIMITED", LIMITED), ("FREE", FREE), ("UNKNOWN", UNKNOWN))
 HINTS = ("resumed", "ex_date", "preclose_derived", "other")
 CLUSTER_CODES = 5
 SAMPLE = 20
-GUARD_BELOW = 100  # 厘: from 0.10 元 up even a 5% band moves the price by half a tick or more
-NOT_MODELLED = (
+STATE_COLUMNS = ["code", "date", "limit_up", "limit_down", "limit_rule", "limit_state"]
+UNMODELLED_LIMITS = (
     "The 5% band of unreformed S-shares from 2007-01-08 (exchange notice of 2007-01-05; about 194 stocks, 91 of them "
     "already ST), PT stocks and share-reform resumption days.",
-    "Delisting-period days: a first day outside the band is recorded as a breach like any other.",
+    "The first day after 恢复上市 (a suspended listing resumes) or 重新上市 (relisting), which has no limit.",
+    "The delisting period (退市整理期): a 10% main-board band even for ST stocks, and since 2020 no limit on its first "
+    "day.",
+)
+UNMODELLED_OTHER = (
     "The transfer-fee minimum of 1 元 and par values other than 1 元 (e.g. 601899.SH 0.1, 603993.SH 0.2).",
     "The tick guards (a limit at least one tick from the preclose and at least one tick): the exchange text was not read.",
 )
@@ -40,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     result = check_store(store, commit=args.commit, book=book)
     version = result.committed or result.version
     if args.commit:
-        verify(store, result, version)
+        verify(store, result, version, book)
     text = "\n".join(report(store, result, book, version, args.commit)) + "\n"
     if args.commit:
         path = report_path(store, version)
@@ -61,11 +65,12 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def verify(store: Store, result: CheckResult, version: int) -> None:
-    """Fail unless the committed version records every breach and a current limit_check block."""
+def verify(store: Store, result: CheckResult, version: int, book: RuleBook) -> None:
+    """Fail unless the committed version records exactly the breaches found and a current limit_check block."""
     manifest = store.manifest(version)
     recorded = store.read_table("data_issues", manifest=manifest).filter(pl.col("kind") == KIND)
-    if missing_issues(result.issues, recorded).height or not limit_check_current(manifest, default_book()):
+    differ = missing_issues(result.issues, recorded).height or missing_issues(recorded, result.issues).height
+    if differ or not limit_check_current(manifest, book):
         raise RuntimeError(f"version {version} does not hold the limit check just committed")
 
 
@@ -76,7 +81,7 @@ def report_path(store: Store, version: int) -> Path:
 
 def report(store: Store, result: CheckResult, book: RuleBook, version: int, commit: bool) -> list[str]:
     issues = store.read_table("data_issues", version=version)
-    frame = result.frame.with_columns(hint=hint())
+    frame = result.frame
     return [
         *header(store, result, book, version, commit),
         *states_section(frame, issues),
@@ -132,44 +137,45 @@ def hint() -> pl.Expr:
         .when(pl.col("preclose_derived"))
         .then(pl.lit("preclose_derived"))
         .otherwise(pl.lit("other"))
+        .alias("hint")
     )
 
 
-def voided(frame: pl.DataFrame, issues: pl.DataFrame) -> pl.DataFrame:
-    keys = issues.filter((pl.col("kind") == KIND) & (pl.col("action") == ACTION)).select("code", "date")
-    return frame.join(keys, on=["code", "date"], how="semi")
-
-
 def states_section(frame: pl.DataFrame, issues: pl.DataFrame) -> list[str]:
-    states = dict(frame.group_by("limit_state").len().iter_rows())
-    unknown = frame.filter(pl.col("limit_state") == UNKNOWN)
-    free = frame.filter(pl.col("limit_state") == FREE).group_by("limit_rule").len().sort("limit_rule")
+    recorded = issues.filter(pl.col("kind") == KIND)
+    states = void(frame.select(STATE_COLUMNS).with_columns(checked=pl.col("limit_state")), recorded)
+    counts = dict(states.group_by("limit_state").len().iter_rows())
+    unknown = states.filter(pl.col("limit_state") == UNKNOWN)
+    free = states.filter(pl.col("limit_state") == FREE).group_by("limit_rule").len().sort("limit_rule")
+    has_rule = pl.col("limit_rule").is_not_null()
     return [
         "## 1. Limit states",
         "",
-        f"{frame.height:,} bars.",
+        f"{frame.height:,} bars, counted as load_limits returns them: the {ACTION} rows recorded at this version "
+        "make their bars UNKNOWN.",
         "",
-        *table(["state", "bars"], [(name, states.get(code, 0)) for name, code in STATES]),
+        *table(["state", "bars"], [(name, counts.get(code, 0)) for name, code in STATES]),
         "FREE bars by rule:",
         "",
         *table(["rule", "bars"], free.iter_rows()),
-        "UNKNOWN bars by cause (no rule must be 0; voided bars are LIMITED bars the recorded check voids):",
+        "UNKNOWN bars by cause (no rule must be 0):",
         "",
         *table(
             ["cause", "bars"],
             [
-                ("no rule", unknown.filter(pl.col("limit_rule").is_null()).height),
-                ("no preclose", unknown.filter(pl.col("limit_rule").is_not_null()).height),
-                ("voided", voided(frame, issues).height),
+                ("no rule", unknown.filter(~has_rule).height),
+                ("no preclose", unknown.filter(has_rule & (pl.col("checked") == UNKNOWN)).height),
+                ("voided", unknown.filter(has_rule & (pl.col("checked") != UNKNOWN)).height),
             ],
         ),
     ]
 
 
 def listing_section(frame: pl.DataFrame, issues: pl.DataFrame) -> list[str]:
-    listed = frame.filter(pl.col("list_date").is_not_null())
     clusters = (
-        listed.group_by("list_date")
+        frame.lazy()
+        .filter(pl.col("list_date").is_not_null())
+        .group_by("list_date")
         .agg(
             codes=pl.col("code").n_unique(),
             boards=pl.col("board").unique().sort().str.join("/"),
@@ -177,6 +183,7 @@ def listing_section(frame: pl.DataFrame, issues: pl.DataFrame) -> list[str]:
         )
         .filter(pl.col("codes") >= CLUSTER_CODES)
         .sort(["codes", "list_date"], descending=[True, False])
+        .collect()
     )
     return [
         "## 2. Free bars by listing date",
@@ -211,15 +218,17 @@ def successor_lines(frame: pl.DataFrame, issues: pl.DataFrame) -> list[str]:
 
 
 def breaches_section(frame: pl.DataFrame, result: CheckResult) -> list[str]:
-    breaches = frame.join(result.issues.select("code", "date"), on=["code", "date"], how="semi")
+    breaches = frame.join(result.issues.select("code", "date"), on=["code", "date"], how="semi").with_columns(hint())
     counts = dict(breaches.group_by("hint").len().iter_rows())
     lines = [
         "## 3. Breaches",
         "",
         f"{breaches.height:,} LIMITED bars trade outside their limits. Hints, first match wins: resumed (gap_days > 0), "
-        "ex_date (an adjustment event that day), preclose_derived (the preclose is computed, not the exchange's), other.",
+        "ex_date (the first bar on or after an adjustment event), preclose_derived (the preclose is computed, not the "
+        "exchange's), other.",
         "",
         *table(["hint", "bars"], [(h, counts.get(h, 0)) for h in HINTS]),
+        *catch_all(frame),
     ]
     for by, title in (("year", "By year"), ("board", "By board"), ("limit_rule", "By rule")):
         lines += [f"{title}:", "", *by_hint(breaches, by)]
@@ -228,6 +237,16 @@ def breaches_section(frame: pl.DataFrame, result: CheckResult) -> list[str]:
         if sample.height:
             lines += [f"First {sample.height} {name} breaches:", "", *breach_rows(sample)]
     return lines
+
+
+def catch_all(frame: pl.DataFrame) -> list[str]:
+    if not frame["preclose_derived"].all():
+        return []
+    return [
+        "Every bar of this snapshot has a derived preclose, so preclose_derived takes every breach that is neither "
+        "resumed nor ex_date, and other cannot occur.",
+        "",
+    ]
 
 
 def by_hint(breaches: pl.DataFrame, by: str) -> list[str]:
@@ -265,17 +284,24 @@ def rules_section(book: RuleBook) -> list[str]:
         "## 5. Rules awaiting a primary source",
         "",
         *table(["rule", "since", "to confirm"], rows),
-        "Not modelled:",
+        "Limit rules not modelled; the bars they govern get the normal or ST band and are voided only when they breach "
+        "it:",
         "",
-        *(f"- {item}" for item in NOT_MODELLED),
+        *(f"- {item}" for item in UNMODELLED_LIMITS),
+        "",
+        "Also not modelled or not sourced:",
+        "",
+        *(f"- {item}" for item in UNMODELLED_OTHER),
         "",
     ]
 
 
 def evidence_section(frame: pl.DataFrame, book: RuleBook) -> list[str]:
-    limited = frame.filter(pl.col("limit_state") == LIMITED)
-    at_up = limited.filter(pl.col("close") == pl.col("limit_up")).height
-    at_down = limited.filter(pl.col("low") == pl.col("limit_down")).height
+    limited = pl.col("limit_state") == LIMITED
+    at_up, at_down = frame.select(
+        up=(limited & (pl.col("close") == pl.col("limit_up"))).sum(),
+        down=(limited & (pl.col("low") == pl.col("limit_down"))).sum(),
+    ).row(0)
     return [
         "## 6. Evidence",
         "",
@@ -285,15 +311,16 @@ def evidence_section(frame: pl.DataFrame, book: RuleBook) -> list[str]:
         "Main-board bars of 2007-2010 not known to be ST closing exactly at the half-up ±5% price (S-shares and ST "
         "stocks, whose status the seed lacks), next to closes at the 10% limit:",
         "",
-        *five_percent_rows(limited),
-        *guard_rows(limited, book),
+        *five_percent_rows(frame),
+        *guard_rows(frame, book),
     ]
 
 
-def five_percent_rows(limited: pl.DataFrame) -> list[str]:
+def five_percent_rows(frame: pl.DataFrame) -> list[str]:
     pre, bp, tick = pl.col("preclose").cast(pl.Int64), pl.lit(500), pl.lit(10)
     years = (
-        limited.filter((pl.col("board") == "main") & ~pl.col("is_st").fill_null(False))
+        frame.lazy()
+        .filter((pl.col("limit_state") == LIMITED) & (pl.col("board") == "main") & ~pl.col("is_st").fill_null(False))
         .filter(pl.col("date").dt.year().is_between(2007, 2010))
         .group_by(year=pl.col("date").dt.year().cast(pl.String))
         .agg(
@@ -303,13 +330,22 @@ def five_percent_rows(limited: pl.DataFrame) -> list[str]:
             up10=(pl.col("close") == pl.col("limit_up")).sum(),
         )
         .sort("year")
+        .collect()
     )
     return table(["year", "bars", "close at +5%", "close at -5%", "close at the 10% limit"], years.iter_rows())
 
 
-def guard_rows(limited: pl.DataFrame, book: RuleBook) -> list[str]:
-    rows = [row for row in limited.filter(pl.col("preclose") < GUARD_BELOW).iter_rows(named=True) if guarded(row, book)]
+def guard_rows(frame: pl.DataFrame, book: RuleBook) -> list[str]:
     columns = ["code", "date", "board", "preclose", "is_st", "limit_up", "limit_down", "limit_rule"]
+    tick = max(lot.tick for lot in book.lot)
+    # A guard leaves a limit one tick from the preclose or at one tick, so only such bars need the exact check.
+    near = (
+        (pl.col("limit_up") - pl.col("preclose") <= tick)
+        | (pl.col("preclose") - pl.col("limit_down") <= tick)
+        | (pl.col("limit_down") <= tick)
+    )
+    candidates = frame.lazy().filter((pl.col("limit_state") == LIMITED) & near).select(columns).collect()
+    rows = [row for row in candidates.iter_rows(named=True) if guarded(row, book)]
     return [
         f"Bars where a tick guard moved a limit: {len(rows)}.",
         "",

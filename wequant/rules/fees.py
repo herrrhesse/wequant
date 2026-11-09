@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
+import numpy as np
+
 from wequant.rules.book import Rate, RuleBook
 from wequant.rules.rounding import round_half_up
 
@@ -27,9 +29,18 @@ def trade_fees(book: RuleBook, exchange: str, day: dt.date, side: str, shares, p
     """Statutory fees of one fill of whole shares at price 厘 on side ('buy'/'sell'); shares and price may be int64 arrays. Commission is broker config, not a rule."""
     if side not in SIDES:
         raise ValueError(f"side {side!r} is not buy or sell")
+    _require_whole("shares", shares)
+    _require_whole("price", price)
     stamp = book.in_force("stamp_tax", exchange, day)
     transfer = book.in_force("transfer_fee", exchange, day)
     return Fees(_fee(stamp, side, shares, price), _fee(transfer, side, shares, price))
+
+
+def _require_whole(name: str, value) -> None:
+    """Fees are defined on whole shares and whole 厘, so a fractional fill is the caller's to settle, not rounded here."""
+    dtype = np.asarray(value).dtype
+    if not np.issubdtype(dtype, np.integer):
+        raise TypeError(f"{name} must be an int or an integer array, not {dtype}")
 
 
 def _fee(rate: Rate, side: str, shares, price):

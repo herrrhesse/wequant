@@ -16,8 +16,15 @@ def lot(board: str):
 
 @pytest.mark.parametrize(
     "board, qty, expected",
-    [("main", 250, 200), ("main", 99, 0), ("chinext", 150, 100), ("star", 199, 0), ("star", 201, 201)]
-    + [("bse", 99, 0), ("bse", 101, 101)],
+    [
+        ("main", 250, 200),
+        ("main", 99, 0),
+        ("chinext", 150, 100),
+        ("star", 199, 0),
+        ("star", 201, 201),
+        ("bse", 99, 0),
+        ("bse", 101, 101),
+    ],
 )
 def test_max_buy(board, qty, expected):
     assert max_buy(lot(board), qty) == expected
@@ -46,9 +53,17 @@ def test_the_odd_remainder_sells_whole_in_one_order():
     assert max_sell(lot("star"), 100, 250) == 0
 
 
+def test_a_fraction_is_sold_only_with_the_full_position():
+    assert max_sell(lot("main"), 50, 1019.417) == 19
+    assert max_sell(lot("main"), 50.5, 250.5) == 50
+    assert max_sell(lot("star"), 100, 250.5) == 0
+    assert max_sell(lot("star"), 250.5, 250.5) == 250.5
+
+
 def test_stamp_tax_tie_rounds_up_to_the_fen():
     fees = trade_fees(default_book(), "SZ", dt.date(2023, 8, 28), "sell", 101, 10000)
     assert fees == Fees(stamp_tax=510, transfer_fee=10) and fees.total == 520
+    assert trade_fees(default_book(), "SZ", dt.date(2023, 8, 28), "sell", np.int64(101), np.int64(10000)) == fees
 
 
 def test_fees_work_elementwise_on_arrays():
@@ -56,6 +71,12 @@ def test_fees_work_elementwise_on_arrays():
     fees = trade_fees(default_book(), "SZ", dt.date(2023, 8, 28), "sell", shares, price)
     assert fees.stamp_tax.tolist() == [5000, 510] and fees.transfer_fee.tolist() == [100, 10]
     assert fees.total.tolist() == [5100, 520]
+
+
+@pytest.mark.parametrize("shares, price", [(1019.417, 10000), (1000, 10000.0), (np.array([1000.5]), 10000)])
+def test_fees_reject_fractional_shares_and_prices(shares, price):
+    with pytest.raises(TypeError):
+        trade_fees(default_book(), "SH", DAY, "sell", shares, price)
 
 
 def test_beijing_has_no_transfer_fee_rule():
