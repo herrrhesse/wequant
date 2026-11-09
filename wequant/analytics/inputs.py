@@ -80,8 +80,8 @@ def check_orders(orders: pl.DataFrame) -> pl.Series:
     return status
 
 
-def day_amount_ratios(orders: pl.DataFrame) -> tuple[np.ndarray, int] | None:
-    """value / day_amount of each filled order whose day amount is known, and the count of those whose is not.
+def known_fills(orders: pl.DataFrame) -> tuple[pl.DataFrame, int] | None:
+    """Filled orders of known day amount, with day_share = value / day_amount, and the count of the other fills.
 
     A null, NaN or zero day amount is unknown, never 0 or infinity; None when orders have neither column.
     """
@@ -99,7 +99,7 @@ def day_amount_ratios(orders: pl.DataFrame) -> tuple[np.ndarray, int] | None:
     if np.any(np.isinf(amount) | (amount < 0)):
         raise ValueError("orders.day_amount must be null, NaN or finite and non-negative")
     known = amount > 0
-    return value[known] / amount[known], int((~known).sum())
+    return fills.filter(known).with_columns(day_share=value[known] / amount[known]), int((~known).sum())
 
 
 def _calendar_slice(dates: pl.Series, calendar: pl.Series) -> np.ndarray:

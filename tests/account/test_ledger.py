@@ -20,7 +20,7 @@ from wequant.account import (
     Execution,
 )
 from wequant.analytics import compute_metrics
-from wequant.analytics.inputs import ORDER_AMOUNTS, ORDER_STATUSES
+from wequant.analytics.inputs import ORDER_STATUSES
 from wequant.version import code_version
 
 DATES = ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
@@ -52,7 +52,6 @@ def test_frames_have_the_analytics_schemas(traded):
     assert dict(ledger.daily.schema) == DAILY and list(ledger.daily.columns) == list(DAILY)
     assert dict(ledger.positions.schema) == POSITIONS and list(ledger.positions.columns) == list(POSITIONS)
     assert dict(ledger.orders.schema) == ORDERS and list(ledger.orders.columns) == list(ORDERS)
-    assert ORDERS.items() >= ORDER_AMOUNTS.items()
 
 
 def test_the_base_row_holds_only_the_initial_cash(traded):

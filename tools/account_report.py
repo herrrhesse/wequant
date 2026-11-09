@@ -22,6 +22,7 @@ import numpy as np
 import polars as pl
 
 from wequant.account import EXECUTION_VERSION, ORDER_REASONS, REJECTED, Account, Execution, Fills, Ledger
+from wequant.analytics.inputs import known_fills
 from wequant.analytics.metrics import capacity
 from wequant.data.store import Store
 from wequant.panel import Panel, load_panel
@@ -137,11 +138,11 @@ def li(yuan: float) -> int:
 def capacity_text(orders: pl.DataFrame) -> str:
     """The capacity metrics of a run's orders, with the fill behind the maximum."""
     m = {key: metric.value for key, metric in capacity(orders).items()}
-    unknown = f"{m['capacity_unknown_fills']:,} fills with an unknown day amount"
+    unknown = f"fills with an unknown day amount: {m['capacity_unknown_fills']:,}"
     if m["capacity_max"] is None:
         return f"no fill with a known day amount; {unknown}"
-    known = orders.filter(pl.col("status") != "rejected", pl.col("day_amount").fill_nan(None) > 0)  # NaN > 0 in polars
-    top = known.sort(pl.col("value") / pl.col("day_amount"), descending=True).row(0, named=True)
+    fills, _ = known_fills(orders)
+    top = fills.row(fills["day_share"].arg_max(), named=True)
     return (
         f"max {m['capacity_max']:.3%} ({top['code']} on {top['date']}: {top['value']:,.2f} of {top['day_amount']:,.2f} "
         f"yuan), 95th percentile {m['capacity_p95']:.3%}; {unknown}"
@@ -198,6 +199,7 @@ class Holding:
     shares: float
     cash: int  # 厘 after the buy
     sale: Fills | None
+    execution: Execution
 
 
 def hold_section(run: Run) -> list[str]:
@@ -228,9 +230,10 @@ def hold_section(run: Run) -> list[str]:
     ]
 
 
-def hold(panel: Panel, j: int) -> Holding:
+def hold(panel: Panel, j: int, execution: Execution = Execution()) -> Holding:
     """One account buys column j as soon as an order fills, holds it and sells all of it on the panel's last day."""
-    account, open_, last = Account(panel, CASH, panel.dates[0]), panel.raw("open")[:, j], len(panel.dates) - 1
+    account = Account(panel, CASH, panel.dates[0], execution)
+    open_, last = panel.raw("open")[:, j], len(panel.dates) - 1
     refusals, buy, shares, cash, sale = Counter(), None, 0.0, 0, None
     for t in range(1, last + 1):
         account.begin(t)
@@ -243,7 +246,7 @@ def hold(panel: Panel, j: int) -> Holding:
         elif t == last:
             sale = account.trade([j], [-math.inf])
         account.end()
-    return Holding(account.ledger(), refusals, buy, shares, cash, sale)
+    return Holding(account.ledger(), refusals, buy, shares, cash, sale, execution)
 
 
 def hold_row(panel: Panel, j: int, h: Holding) -> list:
@@ -277,14 +280,14 @@ def hold_row(panel: Panel, j: int, h: Holding) -> list:
 def expected_equity(panel: Panel, j: int, h: Holding, shares: float) -> tuple[float, str | None]:
     """Final equity with shares held after the buy, and why the last day's sale did not fill (None when it did)."""
     if h.sale is not None and h.sale.shares[0] > 0:
-        return (h.cash + proceeds(panel, j, shares)) / 1000, None
+        return (h.cash + proceeds(panel, h.execution, j, shares)) / 1000, None
     unsold = "bought on the last day" if h.sale is None else ORDER_REASONS[h.sale.reason[0]]
     return h.cash / 1000 + shares * independent_marks(panel)[-1, j], unsold
 
 
-def proceeds(panel: Panel, j: int, shares: float) -> int:
+def proceeds(panel: Panel, execution: Execution, j: int, shares: float) -> int:
     """厘 credited for selling shares of column j at the last open: value less costs."""
-    value, *costs = recomputed(panel, Execution(), len(panel.dates) - 1, j, "sell", shares)
+    value, *costs = recomputed(panel, execution, len(panel.dates) - 1, j, "sell", shares)
     return value - sum(costs)
 
 

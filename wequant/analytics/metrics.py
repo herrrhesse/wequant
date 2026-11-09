@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 import polars as pl
 
-from wequant.analytics.inputs import EXECUTED, RunSeries, check_orders, day_amount_ratios, held_days, run_series
+from wequant.analytics.inputs import EXECUTED, RunSeries, check_orders, held_days, known_fills, run_series
 from wequant.analytics.series import annualize, compound, drawdowns, period_keys, runs
 
 METRICS_VERSION = 2  # bump when a metric is added or its definition changes
@@ -202,12 +202,13 @@ def executable_order_share(orders: pl.DataFrame | None) -> Metric:
 
 
 def capacity(orders: pl.DataFrame | None) -> Metrics:
-    """Each fill's value as a share of its stock's traded amount that day: max, 95th percentile, fills of unknown amount."""
-    got = None if orders is None else day_amount_ratios(orders)
+    """Each fill's value over its stock's traded amount that day: max, 95th percentile, fills of unknown amount."""
+    got = None if orders is None else known_fills(orders)
     if got is None:
         reason = "no_orders" if orders is None else "no_order_amounts"
         return {name: Metric(None, unit, reason) for name, unit in _CAPACITY.items()}
-    ratios, unknown = got
+    fills, unknown = got
+    ratios = fills["day_share"].to_numpy()
     if ratios.size:
         top = Metric(float(ratios.max()), "fraction")
         p95 = Metric(float(np.percentile(ratios, 95)), "fraction")  # linear between order statistics

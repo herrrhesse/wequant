@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 
 from wequant.analytics import METRICS_VERSION, Metric, MetricSpec, compute_metrics, metrics_json
-from wequant.analytics.inputs import ORDER_AMOUNTS, ORDER_STATUSES, ORDERS, POSITIONS
+from wequant.analytics.inputs import ORDER_AMOUNTS, ORDER_STATUSES, ORDERS, POSITIONS, known_fills
 
 KEYS = [
     "trading_days",
@@ -283,6 +283,9 @@ def test_capacity():
     assert m["capacity_p95"] == pytest.approx(0.025 + 0.85 * 0.005, rel=1e-12)  # 0.95 × 3 = 2.85: 3rd to 4th share
     assert m["capacity_unknown_fills"] == 3
     assert golden(orders=sized([("filled", 3e6, 1e6)]))["capacity_max"].value == 3.0  # no cap at the day's amount
+    fills, unknown = known_fills(sized(rows))
+    assert fills["status"].to_list() == ["filled", "partial", "filled", "filled"] and unknown == 3
+    assert fills["day_share"].to_list() == pytest.approx([0.01, 0.03, 0.002, 0.025], rel=1e-12)
 
 
 @pytest.mark.parametrize(
@@ -456,7 +459,8 @@ def random_run(seed: int) -> dict:
     ]
     statuses = list(rng.choice(ORDER_STATUSES, int(rng.integers(0, 25))))
     kinds, sizes = rng.integers(0, 10, len(statuses)), rng.uniform(100, 2e6, (2, len(statuses)))
-    amounts = [None if k == 0 else math.nan if k == 1 else 0.0 if k == 2 else 100 * a for k, a in zip(kinds, sizes[1])]
+    unknown = {0: None, 1: math.nan, 2: 0.0}  # kinds 3-9 get a known amount
+    amounts = [unknown.get(k, 100 * a) for k, a in zip(kinds, sizes[1])]
     sent = [(days[1].item(), "C0", s, 0.0 if s == "rejected" else v, a) for s, v, a in zip(statuses, sizes[0], amounts)]
     return {
         "calendar": pl.Series("date", open_days),
