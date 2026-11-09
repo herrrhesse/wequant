@@ -172,7 +172,7 @@ class Backfill:
         self.raw.remove_temp_files()
         code = 0
         try:
-            self.source.login()
+            self._first_login()
             for phase in phases:
                 if self.stopping:
                     break
@@ -328,15 +328,23 @@ class Backfill:
         except BaoStockError as error:  # counts as part of the failed attempt; the next one tries again
             self.log.warning("login failed: %s", error)
 
+    def _first_login(self) -> None:
+        """Log in, waiting for the server when it does not answer."""
+        try:
+            self.source.login()
+        except BaoStockError as error:
+            if looks_like_limit(error):
+                raise DailyLimit(str(error)) from error
+            self.log.warning("login failed: %s", error)
+            self._wait_for_server()
+
     def _wait_for_server(self) -> None:
         """Wait, logging in now and then, until BaoStock answers; ServerDown after DOWN_GIVE_UP seconds."""
         waited = 0
         for wait in itertools.chain(DOWN_WAITS, itertools.repeat(DOWN_WAITS[-1])):
             if waited >= DOWN_GIVE_UP:
                 raise ServerDown(f"no answer for {waited / 3600:.1f} h")
-            self.log.warning(
-                "%d items failed in a row; trying BaoStock again in %d min", self.failed_in_row, wait // 60
-            )
+            self.log.warning("BaoStock does not answer; trying again in %d min", wait // 60)
             if not self._pause(wait):
                 return
             waited += wait

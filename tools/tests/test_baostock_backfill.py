@@ -230,6 +230,15 @@ def test_an_outage_pauses_the_run_until_a_login_works(home):
     assert server.snapshots().count(DAYS[4]) == 1  # nothing was requested in vain after the third failure
 
 
+def test_a_run_started_during_an_outage_waits_for_the_server(home):
+    server = Server(outage=(None, 2))
+    server.down = True
+    job = backfill(home, server)
+    assert job.run([0, 1]) == 0
+    assert sum(job.sleeps) == bf.DOWN_WAITS[0] + bf.DOWN_WAITS[1]
+    assert BaoStockRaw.at(home).daily_days() == set(DAYS)
+
+
 def test_a_long_outage_stops_the_run(home):
     job = backfill(home, Server(outage=(DAYS[1], 10**6)))
     assert job.run([0, 1]) == bf.SERVER_DOWN_EXIT
