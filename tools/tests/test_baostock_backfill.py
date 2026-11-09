@@ -80,6 +80,7 @@ class Server:
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setattr(bf, "shanghai_today", lambda: TODAY)
+    monkeypatch.setattr(bf, "_baostock_version", lambda: "0.9.4")  # the optional extra may not be installed
     return tmp_path
 
 
