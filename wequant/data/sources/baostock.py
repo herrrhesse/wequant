@@ -236,12 +236,18 @@ class GuardedSocket:
     """A socket that fails instead of hanging: baostock reads a reply until its end marker,
     so a closed connection (recv returning b"" forever) or a silent server would block it for good."""
 
+    waited = 0.0  # seconds every guarded socket has spent blocked in recv, waiting for BaoStock's replies
+
     def __init__(self, sock):
         sock.settimeout(REPLY_TIMEOUT)
         self.sock = sock
 
     def recv(self, size: int) -> bytes:
-        data = self.sock.recv(size)
+        started = time.monotonic()
+        try:
+            data = self.sock.recv(size)
+        finally:
+            GuardedSocket.waited += time.monotonic() - started
         if not data:
             raise ConnectionError("BaoStock closed the connection")
         return data
