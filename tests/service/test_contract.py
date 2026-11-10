@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from wequant import service
-from wequant.service.contract import DIALECT, OPERATIONS, REGENERATE
+from wequant.service.contract import DIALECT, OPERATIONS, PLANNED, REGENERATE
 
 SNAPSHOT = Path(__file__).resolve().parents[2] / "frontend/contract/service-models.schema.json"
 
@@ -23,19 +23,27 @@ def test_the_snapshot_is_the_output_of_the_schema_command(cli):
 
 
 def test_every_operation_is_listed_with_its_request_and_result(document):
+    """Available operations are exactly the service functions; planned ones already fix their models (S3.6)."""
     functions = {name for name in service.__all__ if name.islower()}
-    listed = [row["operation"] for row in document["operations"]]
-    assert listed == [operation.__name__ for operation in OPERATIONS] and set(listed) == functions
+    available = [row["operation"] for row in document["operations"] if row["available"]]
+    planned = [row["operation"] for row in document["operations"] if not row["available"]]
+    assert available == [operation.__name__ for operation in OPERATIONS] and set(available) == functions
+    assert planned == [name for name, _, _ in PLANNED] and not set(planned) & functions
     for row in document["operations"]:
-        assert {row["request"], row["result"]} <= set(service.__all__) & document["$defs"].keys()
+        assert {row["request"], row["result"]} <= document["$defs"].keys()
 
 
 def test_a_json_schema_document_of_every_model_by_name(document):
     defs = document["$defs"]
     assert list(document)[:2] == ["$schema", "title"] and document["$schema"] == DIALECT
-    assert list(defs) == sorted(defs) and {"Failure", "Exit", "Row", "TableStatus", "IssueRow"} <= defs.keys()
+    assert (
+        list(defs) == sorted(defs)
+        and {"ErrorBody", "ErrorDetail", "Exit", "Row", "TableStatus", "IssueRow"} <= defs.keys()
+    )
     assert refs(document) <= {f"#/$defs/{name}" for name in defs}
-    assert defs["Failure"]["required"] == ["exit", "message"] and defs["Exit"]["enum"] == [int(e) for e in service.Exit]
+    assert defs["ErrorBody"]["required"] == ["exit", "name", "message"] and defs["Exit"]["enum"] == [
+        int(e) for e in service.Exit
+    ]
 
 
 def test_requests_as_accepted_and_results_as_printed(document):
@@ -49,11 +57,11 @@ def test_human_output_lists_the_operations_then_the_models(cli):
     code, out, _ = cli("schema")
     operations, models = out.split("\n\n")
     assert code == 0 and operations.splitlines()[:2] == [
-        "operation    request        result",
-        "data_status  StatusRequest  DataStatus",
+        "operation          request                result            available",
+        "data_status        StatusRequest          DataStatus        true",
     ]
     assert models.splitlines()[0].split() == ["model", "description"]
-    assert "\nFailure          A failed operation: the exit code its command ends with and why;" in models
+    assert "\nErrorBody              A failed operation: its exit code, why, and the located details;" in models
 
 
 def refs(node) -> set[str]:

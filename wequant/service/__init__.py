@@ -1,7 +1,7 @@
 """wequant's operations: one function each, pydantic models in and out; the CLI and the API only call these."""
 
 from wequant.service.bars import Bars, BarsRequest, data_bars
-from wequant.service.base import Check, Context, Failure
+from wequant.service.base import Check, Context, ErrorBody, ErrorDetail
 from wequant.service.check import CheckReport, CheckRequest, data_check
 from wequant.service.contract import OperationModels, SchemaRequest, ServiceSchema, schema
 from wequant.service.errors import Exit, ServiceError
@@ -23,7 +23,8 @@ __all__ = [
     "Exit",
     "ExprCheck",
     "ExprRequest",
-    "Failure",
+    "ErrorBody",
+    "ErrorDetail",
     "IssueCount",
     "IssueRow",
     "Issues",
