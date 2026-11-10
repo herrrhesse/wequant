@@ -20,9 +20,10 @@ uv sync --extra baostock     # BaoStock data source
   evaluated once per distinct subexpression and cached.
 - `wequant/account/`: cash, positions and order execution on raw prices: lots, T+1, fees, corporate actions and one order
   validation, plus the batch protocol every engine trades by.
-- `wequant/analytics/`: the metrics of a run.
-- `wequant/strategy/`: strategy descriptions (universe, filters, ranked factors, top N, schedule and weights) with one
-  canonical form, and the screen: a strategy's selection at one day's close.
+- `wequant/analytics/`: the metrics of a run, and its daily and period views from the same definitions.
+- `wequant/strategy/`: strategy descriptions (universe, pool items, filters, ranked factors, top N, hold rank, schedule
+  and weights) with one canonical form, the screen (a strategy's selection at one day's close), the saved-strategy
+  library under `$WEQUANT_HOME/strategies/` and the Chinese summary sentence.
 - `wequant/backtest/`: the rebalance engine: decides at each decision day's close, trades the next day through one
   account and returns the run with its metrics and warnings; it reports progress and can be cancelled.
 - `wequant/runs/`: runs and the archive under `$WEQUANT_HOME/runs/`: each run with each decision day's selection, kept
@@ -45,22 +46,76 @@ wequant data status [--data-version N]
 wequant data bars --codes C... [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--fields F...] [--data-version N]
 wequant data issues [--table T] [--kind K] [--codes C...] [--start D] [--end D] [--limit N] [--data-version N]
 wequant data check [--commit]
+wequant data delistings [--delisting RULE] [--failure-recovery X] [--data-version N]
+wequant data index-check [--data-version N]
 wequant expr check --form JSON
 wequant expr eval --form JSON --codes C... [--start D] [--end D] [--data-version N]
+wequant strategy validate --strategy S
+wequant strategy summary --strategy S
+wequant strategy schema
+wequant strategy save FILE [--id ID] [--name NAME] [--note NOTE]
+wequant strategy list [--archived]
+wequant strategy versions ID
+wequant strategy show ID[@N]
+wequant strategy archive ID [--restore]
+wequant screen --strategy S [--date D] [--data-version N] [--anomalies MODE] [--exclude-suspicious]
+wequant backtest --strategy S [--start D] [--end D] [--cash X] [--benchmark CODE | --no-benchmark]
+                 [--price open|close] [--commission-rate X] [--min-commission X] [--slippage-bps X]
+                 [--delisting RULE] [--failure-recovery X] [--anomalies MODE] [--exclude-suspicious]
+                 [--data-version N] [--no-save] [--report]
+wequant explain (--strategy S | --run ID) --code C --date D [--data-version N] [--anomalies MODE]
+wequant runs list [--strategy-hash H] [--limit N] [--offset N]
+wequant runs show ID | rerun ID | diff A B | day ID DATE
+wequant runs orders ID [--code C] [--status S] [--side S] [--start D] [--end D] [--limit N] [--offset N]
+wequant runs anomalies ID [--channel C] [--code C] [--limit N] [--offset N]
 wequant schema
 ```
 
 ```bash
 uv run wequant data bars --codes 600000.SH 000001.SZ --start 2024-01-02 --fields close adj_close
 uv run wequant expr eval --form '["MA","adj_close",20]' --codes 600000.SH --start 2024-01-02 --json
+uv run wequant strategy save my.json --id momentum --note "first version"
+uv run wequant screen --strategy momentum --date 2024-06-28
+echo '{"factors":[{"name":"mom","expr":["DIV","adj_close",["REF","adj_close",20]]}],"top_n":20}' \
+  | uv run wequant backtest --strategy - --start 2016-11-07 --report
+uv run wequant explain --run 0123456789abcdef --code 600000.SH --date 2024-06-28
 ```
 
-Every command also takes `--json`, `-v`/`--verbose` (`-vv` for debug), `--home PATH` (the data root, default
-`$WEQUANT_HOME`) and `--cache PATH` (panels go under `PATH/panel/`, default `HOME/cache`), after the command name.
+Every command also takes `--json`, `-v`/`--verbose` (`-vv` for debug), `--profile`, `--home PATH` (the data root,
+default `$WEQUANT_HOME`) and `--cache PATH` (panels go under `PATH/panel/`, default `HOME/cache`), after the command
+name.
 
 - **Output:** stdout carries the result. `--json` prints the result model exactly as `model_dump_json()` gives it, the
-  same JSON the HTTP API will return; NaN and infinity are `null`. Logs and errors go to stderr, and stdout is empty
-  when a command fails.
+  same JSON the HTTP API will return; NaN and infinity are `null`. Logs and errors go to stderr. When a command fails,
+  stdout is empty, or with `--json` holds its `ErrorBody` (below).
+- **`--profile`:** times each stage (opening the store and the panel, each expression, the cross-section, the day
+  loop, metrics, frames, archiving, rendering) and writes the table to stderr, or one `ProfileReport` JSON line with
+  `--json`; the result on stdout is unchanged.
+- **`--strategy S`:** a JSON file (a path with `/` or `\`, or ending in `.json`), `-` for JSON on stdin, or a saved
+  version `ID` (the current one) or `ID@N`. `wequant strategy schema` gives the JSON Schema of a strategy and of the
+  execution block.
+- **Strategy files:** `strategy save` writes `$WEQUANT_HOME/strategies/<id>/<n>.json` once and never changes it;
+  `meta.json` beside it indexes the versions (hash, time, note). Saving unchanged content adds no version; restoring old
+  content adds a new version with the old hash; `archive` only hides a strategy from the list. A version file changed
+  by hand is refused (`hash_mismatch`). The data root is not a git repository: back up `strategies/` yourself.
+- **`screen`** is one decision day of the backtest's own path without holdings: the funnel (how many pass each level,
+  alone and along the chain), every scored stock by rank with its factor percentiles, contributions and comparison
+  values, and every other listed stock as a reject at the first level it fails. `explain` reads one stock from the
+  same cross-section; with `--run` it adds the run's role, holding, action and next-day orders, and the date may be
+  the decision day or its fill day.
+- **`backtest`** archives the run under `$WEQUANT_HOME/runs/<id>/` unless `--no-save`; `--report` adds a Markdown
+  report. The execution options are flat (`--price`, `--slippage-bps`, ...); only those given override the defaults.
+  `runs` reads the archive: `show` adds daily rows (nav, benchmark, excess, drawdown, exposure) and returns by year and
+  month, `rerun` repeats a run on its store version and compares the bytes, `day` shows one day's holdings, decisions
+  and fills. A full exit's `requested` is null (the whole holding).
+- **Anomalous data:** `--anomalies flag` (the default) uses every value and reports what the result read
+  (`data_anomaly`, `runs anomalies`). `exclude_day` reads error-level anomalous days as missing, and suspicious ones too
+  with `--exclude-suspicious`. Excluding is a robustness check of whether a result rests on disputed data, not a
+  point-in-time rule: some anomaly labels rest on the next day's exchange data.
+- **`data delistings`** lists every delisted code with its kind, what classified it (the rule, or an entry of
+  `$WEQUANT_HOME/overrides/delisting.toml` with its evidence and source) and how a holding is treated, with counts.
+  **`data index-check`** compares each index's daily member count, as `member@` reads it, with its nominal size and
+  exits 1 when any run of days is off.
 - **Python:** the commands are thin wrappers over `wequant.service`, e.g.
   `data_bars(BarsRequest(codes=["600000.SH"], start="2024-01-02")).rows`.
 - **`data bars`** gives the panel's values as an expression reads them: prices and amount in yuan, volume in shares,
@@ -70,8 +125,8 @@ Every command also takes `--json`, `-v`/`--verbose` (`-vv` for debug), `--home P
   `CS_*` operators rank among the given codes only.
 - **`data check`** is read-only. `--commit` records the breaches and the check in a new store version under the writer
   lock and writes its report to `reports/check_limits_<last trade date>_v<version>.md`.
-- **`schema`** gives one JSON Schema (2020-12) document of every operation's request and result model and of `Failure`
-  (exit code and message), the error body of the HTTP API. `$defs` holds each model by name in alphabetical order and
+- **`schema`** gives one JSON Schema (2020-12) document of every operation's request and result model, of `ErrorBody`
+  (the error body of the HTTP API) and of `ProfileReport`. `$defs` holds each model by name in alphabetical order and
   `operations` names each operation's request and result; requests are described as the operations accept them,
   results as they print them. The text form lists the operations, then each model with its description's first line.
 - **Contract snapshot:** `frontend/contract/service-models.schema.json` is the output of `wequant schema --json` and the
@@ -85,13 +140,21 @@ Exit codes (`wequant.service.Exit`):
 | Code | Name | Meaning |
 | --- | --- | --- |
 | 0 | `OK` | success |
-| 1 | `PROBLEMS` | a check found something to act on: `data check` found breaches the store does not record, recorded breaches that are gone, or no current limit check |
-| 2 | `USAGE` | bad arguments or input, a refused expression included |
-| 3 | `NOT_FOUND` | no store, store version, code or trading day |
+| 1 | `PROBLEMS` | a check found something to act on: `data check` found breaches the store does not record, recorded breaches that are gone, or no current limit check; `data index-check` found days off an index's nominal size |
+| 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day |
+| 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, or run |
 | 4 | `UNREACHABLE` | a data source cannot be reached |
-| 5 | `LOCKED` | another writer holds the store lock; try again later |
+| 5 | `LOCKED` | another writer holds the store lock or a strategy's lock; try again later |
 | 70 | `INTERNAL` | a bug (the traceback is on stderr), or the cli extra is not installed |
-| 130 | `INTERRUPTED` | Ctrl-C |
+| 130 | `INTERRUPTED` | Ctrl-C, or a cancelled run |
+
+A failure's `ErrorBody` holds `exit`, `name`, `message`, `detail` and `complete`. Each detail has a stable `code`
+(`unknown_key`, `missing_key`, `wrong_type`, `not_a_choice`, `out_of_range`, `requires`, `duplicate_name`,
+`reserved_name`, `bad_ref`, `hash_mismatch`, `not_a_decision_day`, the expression codes such as `unknown_field` or
+`future_function`, and the NOT_FOUND codes `no_store`, `version_not_kept`, `unknown_code`, `not_a_trading_day`,
+`unknown_strategy`, `unknown_version`, `unknown_run`), its `loc` in the request (e.g. `["strategy", "filters", 2,
+"expr"]`) and, inside an expression, its `path`. One failure reports every field error at once; `complete` is false
+when rules that relate fields to each other could not run yet because a field failed.
 
 ## Fetching BaoStock raw data
 
@@ -182,4 +245,11 @@ by store version under `$WEQUANT_HOME/cache/panel/`. The cache is derived data a
 - **Corporate actions:** simulated with the adjustment factors, i.e. dividends are reinvested and dividend tax is
   ignored.
 - **ST stocks:** on the seed store ST status is unknown, so ST stocks get the normal price band.
-- **Halts:** a stock without a bar stays valued at its last close.
+- **Halts:** a stock without a bar stays valued at its last close; one held more than 20 trading days without a bar is
+  reported (`stale_holdings`).
+- **Delistings:** `--delisting auto` (the default) writes a forced delisting down to zero, cashes a merger or
+  privatisation at its last close without costs, and holds a long suspension. Until official delisting dates are in
+  the store, the day comes from the data's last date and every delisting is written down (`delisting_approximate`).
+  `--failure-recovery` returns a share of the last close for sensitivity checks; `hold` treats delistings as before.
+  The result lists the delisted holdings it handled.
+- **Anomalous data:** used and reported by default; see `--anomalies` above.
