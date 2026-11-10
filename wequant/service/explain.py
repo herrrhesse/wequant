@@ -25,6 +25,7 @@ from wequant.service.outputs import (
     SellReason,
     Warning,
     anomaly_use,
+    order_row,
     warnings_out,
 )
 from wequant.service.runs import load_run
@@ -221,7 +222,7 @@ def _with_run(request: ExplainRequest, context: Context) -> Explain:
         held=bool(decided.get("held", False)),
         action=action,
         sell_reason=reason or None,
-        execution=[OrderRow(**order) for order in orders.iter_rows(named=True)],
+        execution=[order_row(order) for order in orders.iter_rows(named=True)],
         anomalies=[anomaly_use(use) for use in uses.iter_rows(named=True)],
         warnings=warnings_out(screen_warnings(spec.strategy, panel, shot.section, shot.choice, screened)),
     )

@@ -35,6 +35,7 @@ from wequant.service.outputs import (
     Warning,
     anomaly_use,
     data_anomaly,
+    order_row,
     warnings_out,
 )
 from wequant.service.specs import DataSpec, ExecutionSpec, IsoDate, MetricSpecModel, Name, StrategySpec
@@ -385,7 +386,7 @@ def runs_orders(request: OrdersRequest, context: Context = Context()) -> OrdersP
         *([pl.col("date") <= request.end] if request.end else []),
     )
     window = orders.slice(request.offset, request.limit)
-    rows = [OrderRow(**row) for row in window.iter_rows(named=True)]
+    rows = [order_row(row) for row in window.iter_rows(named=True)]
     return OrdersPage(total=orders.height, offset=request.offset, limit=request.limit, rows=rows)
 
 
@@ -410,7 +411,7 @@ def runs_day(request: RunDayRequest, context: Context = Context()) -> RunDay:
         positions=positions,
         decision_day=bool((run.funnel["date"] == request.date).any()),
         decisions=_decisions(run, request.date),
-        orders=[OrderRow(**row) for row in orders.iter_rows(named=True)],
+        orders=[order_row(row) for row in orders.iter_rows(named=True)],
     )
 
 
