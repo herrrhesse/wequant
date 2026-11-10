@@ -44,7 +44,7 @@ class Backtest:
         _check_window(self.start, self.end, self.strategy.anchor)
         object.__setattr__(self, "cash", _cash(self.cash))
         if self.benchmark is not None and (not isinstance(self.benchmark, str) or not self.benchmark):
-            raise ValueError(f"benchmark: {self.benchmark!r} is neither None nor an index code")
+            raise SpecError("wrong_type", ("benchmark",), f"{self.benchmark!r} is neither None nor an index code")
 
     @property
     def form(self) -> dict:
@@ -97,19 +97,19 @@ def span(backtest: Backtest, panel: Panel) -> tuple[int, int]:
 def _check_window(start: object, end: object, anchor: dt.date | None) -> None:
     for name, day in (("start", start), ("end", end)):
         if day is not None and (not isinstance(day, dt.date) or isinstance(day, dt.datetime)):
-            raise ValueError(f"{name}: {day!r} is not a date")
+            raise SpecError("wrong_type", (name,), f"{day!r} is not a date")
     if start is not None and end is not None and start > end:
-        raise ValueError(f"start: {start} is after end {end}")
+        raise SpecError("out_of_range", ("start",), f"{start} is after end {end}")
     if start is not None and anchor is not None and start < anchor:
-        raise ValueError(f"start: {start} is before the strategy's anchor {anchor}")
+        raise SpecError("out_of_range", ("start",), f"{start} is before the strategy's anchor {anchor}")
 
 
 def _cash(cash: object) -> float:
-    """cash as a float + 0.0; ValueError unless it is a positive, finite whole number of fen."""
+    """cash as a float + 0.0; SpecError unless it is a positive, finite whole number of fen."""
     try:
         value = finite_number("cash", cash)
     except OverflowError:  # an int too large for a float
-        raise ValueError(f"cash: {cash!r} is not a finite number") from None
+        raise SpecError("out_of_range", ("cash",), f"{cash!r} is not a finite number") from None
     if value <= 0 or exact(value) * LI % FEN:
-        raise ValueError(f"cash: {cash!r} is not a positive whole number of fen")
+        raise SpecError("out_of_range", ("cash",), f"{cash!r} is not a positive whole number of fen")
     return value

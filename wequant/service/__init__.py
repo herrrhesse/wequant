@@ -1,5 +1,6 @@
 """wequant's operations: one function each, pydantic models in and out; the CLI and the API only call these."""
 
+from wequant.service.backtest import BacktestRequest, BacktestResult, backtest
 from wequant.service.bars import Bars, BarsRequest, data_bars
 from wequant.service.base import Check, Context, ErrorBody, ErrorDetail
 from wequant.service.check import CheckReport, CheckRequest, data_check
@@ -37,6 +38,9 @@ from wequant.service.strategies import (
 )
 
 __all__ = [
+    "BacktestRequest",
+    "BacktestResult",
+    "backtest",
     "ScreenRequest",
     "ScreenResult",
     "screen",

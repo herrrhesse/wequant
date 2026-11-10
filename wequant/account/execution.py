@@ -10,6 +10,7 @@ from functools import cached_property
 import numpy as np
 
 from wequant.rules.rounding import round_half_up
+from wequant.strategy.errors import SpecError
 
 EXECUTION_VERSION = 3  # bump when an execution rule, a default, a reason or a status changes meaning
 PRICES = ("open", "close")
@@ -37,24 +38,26 @@ class Execution:
     failure_recovery: float = 0.0  # in [0, 1]: the share of its last close a written-down holding returns as cash
 
     def __post_init__(self) -> None:
-        """ValueError for a price or delisting outside its choices or a number out of range; numbers, numpy scalars
+        """SpecError for a price or delisting outside its choices or a number out of range; numbers, numpy scalars
         included, are kept as float."""
         if not isinstance(self.price, str) or self.price not in PRICES:
-            raise ValueError(f"price {self.price!r} is not one of {PRICES}")
+            raise SpecError("not_a_choice", ("price",), f"{self.price!r} is not one of {PRICES}")
         if not isinstance(self.delisting, str) or self.delisting not in DELISTING:
-            raise ValueError(f"delisting {self.delisting!r} is not one of {DELISTING}")
+            raise SpecError("not_a_choice", ("delisting",), f"{self.delisting!r} is not one of {DELISTING}")
         for name in ("commission_rate", "min_commission", "slippage_bps", "failure_recovery"):
             object.__setattr__(self, name, finite_number(name, getattr(self, name)))
         if not 0 <= self.commission_rate < 1:
-            raise ValueError(f"commission_rate {self.commission_rate} is not in [0, 1)")
+            raise SpecError("out_of_range", ("commission_rate",), f"{self.commission_rate} is not in [0, 1)")
         if self.min_commission < 0 or (exact(self.min_commission) * LI) % FEN:
-            raise ValueError(f"min_commission {self.min_commission} is not a non-negative whole number of fen")
+            message = f"{self.min_commission} is not a non-negative whole number of fen"
+            raise SpecError("out_of_range", ("min_commission",), message)
         if not 0 <= self.slippage_bps < 10000:
-            raise ValueError(f"slippage_bps {self.slippage_bps} is not in [0, 10000)")
+            raise SpecError("out_of_range", ("slippage_bps",), f"{self.slippage_bps} is not in [0, 10000)")
         if not 0 <= self.failure_recovery <= 1:
-            raise ValueError(f"failure_recovery {self.failure_recovery} is not in [0, 1]")
+            raise SpecError("out_of_range", ("failure_recovery",), f"{self.failure_recovery} is not in [0, 1]")
         if self.failure_recovery and self.delisting not in RECOVERING:
-            raise ValueError(f"failure_recovery applies to delisting {' or '.join(RECOVERING)}, not {self.delisting}")
+            message = f"applies to delisting {' or '.join(RECOVERING)}, not {self.delisting}"
+            raise SpecError("requires", ("failure_recovery",), message)
 
     def to_dict(self) -> dict[str, str | float]:
         """Every field, numbers as float: the form a run archive and a spec store."""
@@ -82,11 +85,11 @@ class Execution:
 
 
 def finite_number(name: str, value) -> float:
-    """value as a float; ValueError unless it is a finite int, float or numpy number other than a bool."""
+    """value as a float; SpecError at name unless it is a finite int, float or numpy number other than a bool."""
     if isinstance(value, bool | np.bool_) or not isinstance(value, int | float | np.integer | np.floating):
-        raise ValueError(f"{name} {value!r} is not a number")
+        raise SpecError("wrong_type", (name,), f"{value!r} is not a number")
     if not math.isfinite(value):
-        raise ValueError(f"{name} {value!r} is not finite")
+        raise SpecError("out_of_range", (name,), f"{value!r} is not finite")
     return float(value) + 0.0  # -0.0 becomes 0.0: an archived form must not tell them apart
 
 
