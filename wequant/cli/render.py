@@ -7,6 +7,9 @@ import json
 from cyclopts import CycloptsError, CycloptsPanel
 from pydantic import BaseModel, ValidationError
 
+from wequant.service import ErrorBody, Exit
+from wequant.service.details import pydantic_details
+
 
 def render(result: BaseModel) -> str:
     """One 'name: value' line per set scalar field, then each list of rows as a table and each multi-line text."""
@@ -49,6 +52,14 @@ def _spread(row: dict) -> dict:
     for key, value in row.items():
         flat.update(value if isinstance(value, dict) else {key: value})
     return flat
+
+
+def refused(error: CycloptsError) -> ErrorBody:
+    """The ErrorBody of a command line the parser refuses: one detail per pydantic error of the request, if any."""
+    cause = error.__cause__
+    details = pydantic_details(cause) if isinstance(cause, ValidationError) else []
+    message = "; ".join(_reason(e) for e in cause.errors()) if details else str(error).strip()
+    return ErrorBody(exit=Exit.USAGE, name=Exit.USAGE.name, message=message, detail=details)
 
 
 def error_panel(error: CycloptsError) -> object:

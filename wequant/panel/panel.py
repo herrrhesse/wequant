@@ -25,6 +25,14 @@ Day = dt.date | str | np.datetime64
 _MISSING = {"status": MISSING, **dict.fromkeys(RAW_FIELDS, np.nan)}  # what an excluded cell of a grid reads as
 
 
+class NotInPanel(KeyError):
+    """A day or code the panel does not have: code not_a_trading_day or unknown_code."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def load_panel(
     start: Day | None = None,
     end: Day | None = None,
@@ -233,11 +241,11 @@ class Panel:
     # ------------------------------------------------------------ dates and indexes
 
     def row(self, day: Day) -> int:
-        """Row of a trading day; KeyError if it is not one of the panel's dates."""
+        """Row of a trading day; NotInPanel if it is not one of the panel's dates."""
         target = np.datetime64(day, "D")
         row = int(np.searchsorted(self.dates, target))
         if row == len(self.dates) or self.dates[row] != target:
-            raise KeyError(f"{target} is not a trading day of this panel")
+            raise NotInPanel("not_a_trading_day", f"{target} is not a trading day of this panel")
         return row
 
     def index_close(self, code: str) -> np.ndarray:
@@ -286,7 +294,7 @@ def _row_range(dates: np.ndarray, start: Day | None, end: Day | None) -> slice:
     lo = 0 if start is None else int(np.searchsorted(dates, np.datetime64(start, "D"), "left"))
     hi = len(dates) if end is None else int(np.searchsorted(dates, np.datetime64(end, "D"), "right"))
     if lo >= hi:
-        raise KeyError(f"no trading day in [{start}, {end}]")
+        raise NotInPanel("not_a_trading_day", f"no trading day in [{start}, {end}]")
     return slice(lo, hi)
 
 
@@ -298,7 +306,7 @@ def _columns(all_codes: np.ndarray, codes: Sequence[str] | None) -> np.ndarray |
         raise ValueError(f"duplicate codes in {list(codes)}")
     cols, found = find_sorted(all_codes, wanted)
     if not found.all():
-        raise KeyError(f"unknown codes: {wanted[~found].tolist()}")
+        raise NotInPanel("unknown_code", f"unknown codes: {wanted[~found].tolist()}")
     return cols
 
 

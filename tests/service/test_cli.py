@@ -1,7 +1,10 @@
+import io
+import json
 from importlib.metadata import entry_points
 
 import pytest
 
+from tests.service.conftest import MOM
 from wequant import service
 from wequant.cli import commands
 from wequant.service import Context
@@ -30,6 +33,22 @@ CASES = [
         "home",
     ),
     (["schema"], "schema", service.SchemaRequest(), "home"),
+    (
+        ["strategy", "validate", "--strategy", "s@1"],
+        "strategy_validate",
+        service.StrategyRequest(saved={"id": "s", "n": 1}),
+        "library_home",
+    ),
+    (
+        ["strategy", "summary", "--strategy", "s"],
+        "strategy_summary",
+        service.StrategyRequest(saved={"id": "s"}),
+        "library_home",
+    ),
+    (["strategy", "schema"], "strategy_schema", service.StrategySchemaRequest(), "library_home"),
+    (["strategy", "list"], "strategy_list", service.StrategyListRequest(), "library_home"),
+    (["strategy", "versions", "s"], "strategy_versions", service.VersionsRequest(id="s"), "library_home"),
+    (["strategy", "show", "s@1"], "strategy_show", service.ShowRequest(id="s", n=1), "library_home"),
 ]
 
 
@@ -112,3 +131,28 @@ def test_a_reader_closing_the_pipe_early_is_not_an_error(monkeypatch, tmp_path):
     monkeypatch.setattr("builtins.print", closed)
     monkeypatch.setattr("sys.stdout", devnull)
     commands._print("rows")  # no traceback, no exception
+
+
+@pytest.mark.parametrize("how", ["file", "stdin", "saved"])
+def test_strategy_takes_a_file_stdin_or_a_saved_version(cli, library_home, monkeypatch, tmp_path, how):
+    path = tmp_path / "mom.json"
+    path.write_text(json.dumps(MOM))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(MOM)))
+    given = {"file": path, "stdin": "-", "saved": "s@1"}[how]
+    code, out, _ = cli("strategy", "validate", "--strategy", given, "--json", "--home", library_home)
+    expected = service.strategy_validate(service.StrategyRequest(saved={"id": "s", "n": 1}), Context(library_home))
+    assert code == 0 and service.StrategyCheck.model_validate_json(out).strategy_hash == expected.strategy_hash
+
+
+def test_save_and_archive_change_the_library(cli, library_home, tmp_path):
+    path = tmp_path / "plain.json"
+    path.write_text("{}")
+    code, out, _ = cli(
+        "strategy", "save", path, "--id", "t", "--name", "T", "--note", "n", "--json", "--home", library_home
+    )
+    saved = service.SavedVersion.model_validate_json(out)
+    assert code == 0 and (saved.id, saved.n, saved.name, saved.created) == ("t", 1, "T", True)
+    code, out, _ = cli("strategy", "archive", "t", "--json", "--home", library_home)
+    assert code == 0 and service.StrategyInfo.model_validate_json(out).archived
+    code, out, _ = cli("strategy", "archive", "t", "--restore", "--json", "--home", library_home)
+    assert code == 0 and not service.StrategyInfo.model_validate_json(out).archived

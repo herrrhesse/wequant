@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from typing import Literal
 
 from wequant.account.ledger import ORDER_REASONS
@@ -25,6 +26,11 @@ class Warning(Model):
     """English, for logs: a fixed template filled from params."""
     params: Params
     """Every number and date of text (dates ISO, shares as 0..1); the frontend renders its own text from these."""
+
+
+def warnings_out(found: Mapping[str, tuple[str, Params]]) -> list[Warning]:
+    """Warnings of a core code -> (text, params) mapping, in its order."""
+    return [Warning(code=code, text=text, params=params) for code, (text, params) in found.items()]
 
 
 class MetricOut(Model):

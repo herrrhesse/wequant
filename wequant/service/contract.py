@@ -74,17 +74,14 @@ def schema(request: SchemaRequest, context: Context = Context()) -> ServiceSchem
     return ServiceSchema.model_validate({"operations": operations, "$defs": document["$defs"]})
 
 
-OPERATIONS = (data_status, data_bars, data_issues, data_check, expr_check, expr_eval, schema)
+OPERATIONS = (
+    *(data_status, data_bars, data_issues, data_check, expr_check, expr_eval),
+    *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),
+    *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
+    schema,
+)
 
 PLANNED = (  # operations whose models are fixed for the frontend; each moves to OPERATIONS when its command lands
-    ("strategy_validate", strategies.StrategyRequest, strategies.StrategyCheck),
-    ("strategy_summary", strategies.StrategyRequest, strategies.StrategySummary),
-    ("strategy_schema", strategies.StrategySchemaRequest, strategies.StrategySchema),
-    ("strategy_save", strategies.SaveRequest, strategies.SavedVersion),
-    ("strategy_list", strategies.StrategyListRequest, strategies.StrategyList),
-    ("strategy_versions", strategies.VersionsRequest, strategies.StrategyVersions),
-    ("strategy_show", strategies.ShowRequest, strategies.SavedStrategy),
-    ("strategy_archive", strategies.ArchiveRequest, strategies.StrategyInfo),
     ("screen", screen.ScreenRequest, screen.ScreenResult),
     ("backtest", backtest.BacktestRequest, backtest.BacktestResult),
     ("runs_list", runs.RunsListRequest, runs.RunsPage),

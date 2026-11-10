@@ -5,7 +5,7 @@ import pytest
 
 from wequant.cli import main
 from wequant.data.store import Store
-from wequant.service import Exit, ServiceError
+from wequant.service import ErrorBody, Exit, ServiceError
 
 README = Path(__file__).resolve().parents[2] / "README.md"
 REF = '["REF","close",-1]'
@@ -39,12 +39,15 @@ CASES = [
     (Exit.NOT_FOUND, ["data", "bars", "--codes", A, "--start", "2024-01-06", "--end", "2024-01-07", "--home", "H"]),
     (Exit.NOT_FOUND, ["expr", "eval", "--form", '"close"', "--codes", A, "--start", "2024-01-12", "--home", "H"]),
     (Exit.NOT_FOUND, ["data", "check", "--home", "E"]),
+    (Exit.USAGE, ["strategy", "show", "s@x", "--home", "S"]),
+    (Exit.USAGE, ["strategy", "validate", "--strategy", "missing.json", "--home", "S"]),
+    (Exit.NOT_FOUND, ["strategy", "show", "s@9", "--home", "S"]),
 ]
 
 
 @pytest.mark.parametrize("code, argv", CASES, ids=[" ".join(argv) for _, argv in CASES])
-def test_exit_codes(cli, home, limits_home, cache, tmp_path, code, argv):
-    roots = {"H": home, "L": limits_home, "E": tmp_path / "empty"}
+def test_exit_codes(cli, home, limits_home, library_home, cache, tmp_path, code, argv):
+    roots = {"H": home, "L": limits_home, "E": tmp_path / "empty", "S": library_home}
     exit, out, err = cli(*[roots.get(arg, arg) for arg in argv], "--cache", cache)
     assert exit == code
     if code >= Exit.USAGE:
@@ -68,6 +71,37 @@ def test_what_an_operation_raises_decides_the_exit(cli, monkeypatch, error, code
     assert (exit, out) == (code, "") and message in err
     if code == Exit.INTERNAL:
         assert "Traceback" in err and "ERROR wequant: internal error" in err
+
+
+FAILURES = [
+    (
+        ["data", "status", "--data-version", "9", "--home", "H"],
+        Exit.NOT_FOUND,
+        [("version_not_kept", ["data_version"])],
+    ),
+    (["data", "bars", "--codes", "600000", "--home", "H"], Exit.USAGE, [("wrong_type", ["codes", 0])]),
+    (["data", "bars", "--home", "H"], Exit.USAGE, []),
+]
+
+
+@pytest.mark.parametrize("argv, code, details", FAILURES, ids=["service", "request", "parser"])
+def test_json_prints_the_error_body_of_a_failure(cli, home, argv, code, details):
+    exit, out, err = cli(*[home if arg == "H" else arg for arg in argv], "--json")
+    body = ErrorBody.model_validate_json(out)
+    assert exit == body.exit == code and body.name == code.name and err
+    assert [(d.code, d.loc) for d in body.detail] == details
+
+
+def test_json_prints_the_error_body_of_an_internal_error(cli, monkeypatch):
+    def fail(request, context):
+        raise ZeroDivisionError("bug")
+
+    monkeypatch.setattr("wequant.service.data_status", fail)
+    exit, out, err = cli("data", "status", "--json")
+    assert exit == Exit.INTERNAL and "Traceback" in err
+    assert ErrorBody.model_validate_json(out) == ErrorBody(
+        exit=Exit.INTERNAL, name="INTERNAL", message="ZeroDivisionError: bug"
+    )
 
 
 def test_a_locked_store(cli, limits_home):

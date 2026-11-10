@@ -9,8 +9,8 @@ import numpy as np
 
 from wequant.expr import Expr, ExprError, evaluate, from_form
 from wequant.panel import Panel
-from wequant.service.base import Context, Model, PanelRequest, open_panel
-from wequant.service.errors import Exit, ServiceError
+from wequant.service.base import Context, ErrorDetail, Model, PanelRequest, not_found, open_panel
+from wequant.service.details import expr_detail, usage
 from wequant.service.rows import Row, rows
 
 Kind = Literal["num", "bool"]
@@ -65,16 +65,16 @@ def parse(text: str) -> Expr:
     try:
         form = json.loads(text)
     except (ValueError, RecursionError) as error:
-        raise ServiceError(Exit.USAGE, f"the form is not JSON: {error}") from None
+        raise usage([ErrorDetail(code="not_json", message=f"the form is not JSON: {error}")]) from None
     try:
         return from_form(form)
     except ExprError as error:
-        raise ServiceError(Exit.USAGE, str(error)) from None
+        raise usage([expr_detail(error)]) from None
 
 
 def _first_row(panel: Panel, request: EvalRequest) -> int:
     """The row of the first trading day on or after start; NOT_FOUND if there is none up to end."""
     first = 0 if request.start is None else int(np.searchsorted(panel.dates, np.datetime64(request.start, "D")))
     if first == len(panel.dates):
-        raise ServiceError(Exit.NOT_FOUND, f"no trading day in [{request.start}, {request.end}]")
+        raise not_found("not_a_trading_day", f"no trading day in [{request.start}, {request.end}]", ["start"])
     return first

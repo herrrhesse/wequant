@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Annotated
 
 from pydantic import Field, JsonValue, model_validator
+from pydantic_core import PydanticCustomError
 
-from wequant.service.base import Model
-from wequant.service.outputs import Params, SavedRef, Warning
-from wequant.service.specs import Name, StrategyRef, StrategySpec
+from wequant.data.store import StoreLocked
+from wequant.service.base import Context, Model, not_found
+from wequant.service.details import Loc, spec_details, to_strategy, usage
+from wequant.service.errors import Exit, ServiceError
+from wequant.service.outputs import Params, SavedRef, Warning, warnings_out
+from wequant.service.specs import ExecutionSpec, Name, StrategyRef, StrategySpec
+from wequant.strategy import SpecError, SpecErrors, Strategy
+from wequant.strategy.library import Entry, Library, NotSaved, read_warnings, strategy_hash
+from wequant.strategy.section import weight_shares
+from wequant.strategy.summary import sentence, summary
 
 Hash = Annotated[str, Field(pattern="^[0-9a-f]{16}$")]  # first 16 hex digits of sha256 of the canonical form
 
@@ -22,7 +32,7 @@ class StrategyInput(Model):
     @model_validator(mode="after")
     def _exactly_one(self) -> StrategyInput:
         if (self.strategy is None) == (self.saved is None):
-            raise ValueError("give exactly one of strategy and saved")
+            raise PydanticCustomError("requires", "give exactly one of strategy and saved")
         return self
 
 
@@ -35,7 +45,7 @@ class StrategyCheck(Model):
 
     strategy_hash: Hash
     form: StrategySpec
-    """The canonical form, defaults left out."""
+    """The strategy as the core reads it, every default filled in; its canonical form leaves defaults out."""
     saved_as: list[SavedRef]
     """Saved versions with this content; empty: an unsaved variant."""
     weight_shares: dict[str, float]
@@ -176,3 +186,124 @@ class ArchiveRequest(Model):
 
     id: Name
     restore: bool = False
+
+
+def strategy_validate(request: StrategyRequest, context: Context = Context()) -> StrategyCheck:
+    """Check a strategy: its hash, canonical form, weight shares and the saved versions with the same content."""
+    library = context.library()
+    strategy, warnings = resolve(request, library)
+    found = strategy_hash(strategy)
+    return StrategyCheck(
+        strategy_hash=found,
+        form=StrategySpec.model_validate(strategy.form),
+        saved_as=saved_as(library, found),
+        weight_shares=weight_shares(strategy),
+        warnings=warnings,
+    )
+
+
+def strategy_summary(request: StrategyRequest, context: Context = Context()) -> StrategySummary:
+    """The strategy in one Chinese sentence, with the fields each fragment describes."""
+    strategy, _ = resolve(request, context.library())
+    parts = summary(strategy)
+    return StrategySummary(
+        strategy_hash=strategy_hash(strategy),
+        text=sentence(parts),
+        parts=[SummaryPart(loc=[list(loc) for loc in p.loc], text=p.text, params=p.params) for p in parts],
+    )
+
+
+def strategy_schema(request: StrategySchemaRequest, context: Context = Context()) -> StrategySchema:
+    """JSON Schemas of the strategy and of the execution block, for editors and for constraining generated strategies."""
+    return StrategySchema(strategy=StrategySpec.model_json_schema(), execution=ExecutionSpec.model_json_schema())
+
+
+def strategy_save(request: SaveRequest, context: Context = Context()) -> SavedVersion:
+    """Save the strategy as the next version of id (a new strategy without one); unchanged content adds no version."""
+    strategy = to_strategy(request.strategy)
+    with located():
+        entry, created = context.library().save(strategy, request.id, request.name, request.note)
+    current = entry.current
+    return SavedVersion(
+        id=entry.id,
+        n=current.n,
+        strategy_hash=current.strategy_hash,
+        created=created,
+        name=entry.name,
+        saved_at=current.saved_at,
+    )
+
+
+def strategy_list(request: StrategyListRequest, context: Context = Context()) -> StrategyList:
+    """The saved strategies by id; archived ones only when asked for."""
+    entries = context.library().entries()
+    return StrategyList(rows=[_info(e) for e in entries if request.archived or not e.archived])
+
+
+def strategy_versions(request: VersionsRequest, context: Context = Context()) -> StrategyVersions:
+    """One strategy's versions, oldest first."""
+    with located():
+        entry = context.library().entry(request.id)
+    rows = [VersionInfo(**vars(v), current=v is entry.current) for v in entry.versions]
+    return StrategyVersions(id=entry.id, name=entry.name, archived=entry.archived, rows=rows)
+
+
+def strategy_show(request: ShowRequest, context: Context = Context()) -> SavedStrategy:
+    """One saved version (the current one without n) with its content and summary."""
+    with located():
+        entry, version, strategy = context.library().load(request.id, request.n)
+    return SavedStrategy(
+        id=entry.id,
+        name=entry.name,
+        **vars(version),
+        strategy=StrategySpec.model_validate(strategy.form),
+        summary=sentence(summary(strategy)),
+        warnings=warnings_out(read_warnings(entry, version)),
+    )
+
+
+def strategy_archive(request: ArchiveRequest, context: Context = Context()) -> StrategyInfo:
+    """Archive a strategy (hidden from the list, its files kept) or restore it."""
+    with located():
+        return _info(context.library().archive(request.id, request.restore))
+
+
+def resolve(request: StrategyInput, library: Library) -> tuple[Strategy, list[Warning]]:
+    """The core strategy of an inline or a saved strategy, with the warnings of reading a saved one."""
+    if request.strategy is not None:
+        return to_strategy(request.strategy), []
+    with located(("saved",)):
+        entry, version, strategy = library.load(request.saved.id, request.saved.n)
+    return strategy, warnings_out(read_warnings(entry, version))
+
+
+def saved_as(library: Library, found: str) -> list[SavedRef]:
+    """The saved versions with this strategy hash."""
+    return [SavedRef(id=id, n=n) for id, n in library.saved_as(found)]
+
+
+@contextmanager
+def located(loc: Loc = ()) -> Iterator[None]:
+    """The library's errors as service errors located under loc: NOT_FOUND, USAGE or LOCKED."""
+    try:
+        yield
+    except NotSaved as error:
+        raise not_found(error.code, str(error), [*loc, "n" if error.code == "unknown_version" else "id"]) from None
+    except (SpecError, SpecErrors) as error:
+        raise usage(spec_details(error, loc)) from None
+    except StoreLocked as error:
+        raise ServiceError(Exit.LOCKED, str(error)) from None
+
+
+def _info(entry: Entry) -> StrategyInfo:
+    current = entry.current
+    return StrategyInfo(
+        id=entry.id,
+        name=entry.name,
+        created_at=entry.created_at,
+        archived=entry.archived,
+        versions=len(entry.versions),
+        current_n=current.n,
+        current_hash=current.strategy_hash,
+        current_saved_at=current.saved_at,
+    )
