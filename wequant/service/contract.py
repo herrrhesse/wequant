@@ -7,12 +7,13 @@ from typing import get_type_hints
 from pydantic import ConfigDict, Field, JsonValue
 from pydantic.json_schema import GenerateJsonSchema, models_json_schema
 
-from wequant.service import explain, runs, strategies
+from wequant.service import runs, strategies
 from wequant.service.backtest import backtest
 from wequant.service.bars import data_bars
 from wequant.service.base import Context, ErrorBody, Model
 from wequant.service.check import data_check
 from wequant.service.delistings import data_delistings
+from wequant.service.explain import explain
 from wequant.service.expr import expr_check, expr_eval
 from wequant.service.index_check import data_index_check
 from wequant.service.issues import data_issues
@@ -86,9 +87,8 @@ OPERATIONS = (
     backtest,
     *(runs.runs_list, runs.runs_show, runs.runs_rerun, runs.runs_diff, runs.runs_orders, runs.runs_day),
     runs.runs_anomalies,
+    explain,
     schema,
 )
 
-PLANNED = (  # operations whose models are fixed for the frontend; each moves to OPERATIONS when its command lands
-    ("explain", explain.ExplainRequest, explain.Explain),
-)
+PLANNED = ()  # (name, request, result) of operations whose models are fixed before their command lands; none now

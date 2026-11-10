@@ -345,6 +345,48 @@ def backtest(
     return run(service.backtest, request, common, human=lambda result: result.report or render(result))
 
 
+@app.command
+def explain(
+    *,
+    strategy: Annotated[str | None, Parameter(name="--strategy", allow_leading_hyphen=True)] = None,
+    run_id: Annotated[str | None, Parameter(name="--run")] = None,
+    code: str,
+    date: str,
+    data_version: int | None = None,
+    anomalies: Literal[ANOMALY_MODES] | None = None,
+    exclude_suspicious: bool = False,
+    common: Common = COMMON,
+) -> int:
+    """Why a stock was or was not chosen on a day; with --run also what the run decided and filled.
+
+    Parameters
+    ----------
+    strategy
+        A JSON file, - for JSON on stdin, or ID[@N]; or give --run.
+    run_id
+        A run id: its strategy, store version and data options; the date may be a decision day or its fill day.
+    code
+        A code such as 600000.SH.
+    date
+        The decision day, YYYY-MM-DD.
+    data_version
+        Store version to read (default: the current one; not with --run).
+    anomalies
+        flag (default) or exclude_day (not with --run).
+    exclude_suspicious
+        Also exclude suspicious-level days (with exclude_day).
+    """
+    data = {"anomalies": anomalies or "flag", "exclude_suspicious": exclude_suspicious}
+    fields = {"run": run_id, "code": code, "date": date, "data_version": data_version}
+    fields["data"] = data if anomalies or exclude_suspicious else None
+
+    def request() -> BaseModel:
+        given = strategy_fields(strategy) if strategy is not None else {}
+        return validated(service.ExplainRequest, {**given, **fields})
+
+    return run(service.explain, request, common)
+
+
 @runs.command(name="list")
 def runs_list(
     *, request: Annotated[service.RunsListRequest, FLAT] = service.RunsListRequest(), common: Common = COMMON
