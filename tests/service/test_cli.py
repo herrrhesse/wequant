@@ -59,6 +59,12 @@ CASES = [
     (["strategy", "show", "s@1"], "strategy_show", service.ShowRequest(id="s", n=1), "library_home"),
     (["screen", "--strategy", "m"], "screen", service.ScreenRequest(saved={"id": "m"}), "market_home"),
     (
+        ["explain", "--strategy", "m", "--code", "600004.SH", "--date", "2024-01-11"],
+        "explain",
+        service.ExplainRequest(saved={"id": "m"}, code="600004.SH", date="2024-01-11"),
+        "market_home",
+    ),
+    (
         ["backtest", "--strategy", "m", "--slippage-bps", "5", "--no-benchmark", "--no-save"],
         "backtest",
         service.BacktestRequest(saved={"id": "m"}, execution={"slippage_bps": 5.0}, benchmark=None, save=False),

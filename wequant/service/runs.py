@@ -320,7 +320,7 @@ def runs_list(request: RunsListRequest, context: Context = Context()) -> RunsPag
 def runs_show(request: RunRequest, context: Context = Context()) -> RunDetail:
     """One archived run: its inputs, metrics, orders, delisted holdings, anomalies, warnings, fee rules, daily rows
     and periods."""
-    archive, run = _load(context, request.id)
+    archive, run = load_run(context, request.id)
     store = context.store()
     row = _run_row(archive.row(request.id), saved_refs(context.library()), set(store.versions()))
     spec = Backtest.from_form(run.description)
@@ -347,7 +347,7 @@ def runs_show(request: RunRequest, context: Context = Context()) -> RunDetail:
 
 def runs_rerun(request: RunRequest, context: Context = Context()) -> RunComparison:
     """Run an archived run again on its store version and compare the bytes."""
-    archive, run = _load(context, request.id)
+    archive, run = load_run(context, request.id)
     store = context.store()
     if run.store_version not in store.versions():
         message = f"run {request.id} read store version {run.store_version}, which is no longer kept"
@@ -366,7 +366,7 @@ def runs_rerun(request: RunRequest, context: Context = Context()) -> RunComparis
 
 def runs_diff(request: RunDiffRequest, context: Context = Context()) -> RunDiff:
     """How two archived runs' inputs and metrics differ."""
-    (_, a), (_, b) = _load(context, request.a, ["a"]), _load(context, request.b, ["b"])
+    (_, a), (_, b) = load_run(context, request.a, ["a"]), load_run(context, request.b, ["b"])
     names = [*a.metrics, *(name for name in b.metrics if name not in a.metrics)]
     metrics = [
         MetricDiff(name=name, unit=(a.metrics.get(name) or b.metrics[name]).unit, a=_value(a, name), b=_value(b, name))
@@ -378,7 +378,7 @@ def runs_diff(request: RunDiffRequest, context: Context = Context()) -> RunDiff:
 
 def runs_orders(request: OrdersRequest, context: Context = Context()) -> OrdersPage:
     """A run's orders in archive order, filtered and paged."""
-    _, run = _load(context, request.id)
+    _, run = load_run(context, request.id)
     orders = run.ledger.orders.filter(
         *[pl.col(name) == getattr(request, name) for name in ("code", "status", "side") if getattr(request, name)],
         *([pl.col("date") >= request.start] if request.start else []),
@@ -391,7 +391,7 @@ def runs_orders(request: OrdersRequest, context: Context = Context()) -> OrdersP
 
 def runs_day(request: RunDayRequest, context: Context = Context()) -> RunDay:
     """One day of a run: its holdings at the close, the decisions taken at that close and the orders filled that day."""
-    _, run = _load(context, request.id)
+    _, run = load_run(context, request.id)
     day = run.ledger.daily.filter(pl.col("date") == request.date)
     if day.is_empty():
         raise not_found("not_a_trading_day", f"{request.date} is not a day of run {request.id}", ["date"])
@@ -416,7 +416,7 @@ def runs_day(request: RunDayRequest, context: Context = Context()) -> RunDay:
 
 def runs_anomalies(request: AnomaliesRequest, context: Context = Context()) -> AnomaliesPage:
     """A run's uses of anomalous data in archive order, filtered and paged."""
-    _, run = _load(context, request.id)
+    _, run = load_run(context, request.id)
     uses = run.anomalies.filter(
         *([pl.col("channel").cast(pl.String) == request.channel] if request.channel else []),
         *([pl.col("code") == request.code] if request.code else []),
@@ -434,7 +434,7 @@ def saved_refs(library: Library) -> dict[str, list[SavedRef]]:
     return found
 
 
-def _load(context: Context, run_id: str, loc: list = ("id",)) -> tuple[Archive, Run]:
+def load_run(context: Context, run_id: str, loc: list = ("id",)) -> tuple[Archive, Run]:
     """The archive and its run run_id; NOT_FOUND unknown_run at loc when there is none."""
     archive = Archive(context.store().home / RUNS)
     if run_id not in archive:

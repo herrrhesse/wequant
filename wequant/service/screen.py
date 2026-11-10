@@ -227,23 +227,10 @@ def funnel_steps(strategy: Strategy, funnel: pl.DataFrame) -> list[FunnelStep]:
 
 def screen_rows(strategy: Strategy, section: Section, choice: Choice, panel: Panel, i: int = 0) -> list[ScreenRow]:
     """Decision row i's scored stocks by rank: role, weights, factor cells, formula and each comparison's value."""
-    shares, pcts = weight_shares(strategy), percentiles(strategy, section)
-    targets = np.flatnonzero(choice.target[i])  # the weights' columns, in order
-    weights = dict(zip(targets.tolist(), zip(choice.weight.tolist(), choice.raw_weight.tolist())))
+    shares, pcts, weights = weight_shares(strategy), percentiles(strategy, section), target_weights(choice, i)
     rows = []
     for col in section.order[i, : section.scored[i].sum()].tolist():
         weight, raw = weights.get(col, (None, None))
-        factors = [
-            FactorCell(
-                name=name,
-                value=section.factors[name][i, col],
-                pct=pcts[name][0][i, col],
-                adjusted_pct=pcts[name][1][i, col],
-                weight_share=share,
-                contribution=share * pcts[name][1][i, col],
-            )
-            for name, share in shares.items()
-        ]
         rows.append(
             ScreenRow(
                 code=panel.codes[col],
@@ -253,12 +240,33 @@ def screen_rows(strategy: Strategy, section: Section, choice: Choice, panel: Pan
                 weight=weight,
                 raw_weight=raw,
                 capped=choice.capped[i, col],
-                factors=factors,
+                factors=factor_cells(shares, pcts, section, i, col),
                 formula=None if section.formula is None else section.formula[i, col],
-                values={name: _finite(value[i, col]) for name, value in section.values.items()},
+                values={name: finite(value[i, col]) for name, value in section.values.items()},
             )
         )
     return rows
+
+
+def target_weights(choice: Choice, i: int) -> dict[int, tuple[float, float]]:
+    """Each target column of decision row i: (weight, raw weight)."""
+    targets = np.flatnonzero(choice.target[i])  # the weights' columns, in order
+    return dict(zip(targets.tolist(), zip(choice.weight.tolist(), choice.raw_weight.tolist())))
+
+
+def factor_cells(shares: dict, pcts: dict, section: Section, i: int, col: int) -> list[FactorCell]:
+    """A scored cell's factor cells from weight_shares and percentiles."""
+    return [
+        FactorCell(
+            name=name,
+            value=section.factors[name][i, col],
+            pct=pcts[name][0][i, col],
+            adjusted_pct=pcts[name][1][i, col],
+            weight_share=share,
+            contribution=share * pcts[name][1][i, col],
+        )
+        for name, share in shares.items()
+    ]
 
 
 def reject_rows(strategy: Strategy, rejects: pl.DataFrame, section: Section, panel: Panel, i: int = 0) -> list[Reject]:
@@ -271,7 +279,7 @@ def reject_rows(strategy: Strategy, rejects: pl.DataFrame, section: Section, pan
         members = None
         if row["kind"] == "group":
             cells = [section.steps[name][i, column[row["code"]]] for name in step.members]
-            members = [MemberResult(name=name, passed=_verdict(v)) for name, v in zip(step.members, cells)]
+            members = [MemberResult(name=name, passed=verdict(v)) for name, v in zip(step.members, cells)]
         found.append(
             Reject(
                 **row,
@@ -288,9 +296,9 @@ def _where(request: ScreenRequest) -> Loc:
     return ("strategy",) if request.strategy is not None else ("saved",)
 
 
-def _finite(value: float) -> float | None:
+def finite(value: float) -> float | None:
     return float(value) if np.isfinite(value) else None
 
 
-def _verdict(value: int) -> bool | None:
+def verdict(value: int) -> bool | None:
     return None if value < 0 else bool(value == 1)
