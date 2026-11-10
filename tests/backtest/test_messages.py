@@ -23,6 +23,8 @@ EXAMPLES = {  # each code's params with the keys its warning carries
     "index_uncovered": {"index": "000852.SH", "days": 9, "first": None, "index_2": "000905.SH", "days_2": 3},
     "list_days_approximate": {"codes_at_calendar_start": 1234, "cells": 56},
     "max_weight_cash": {"days": 12, "mean_share": 0.0625},
+    "delisted_holdings": {"codes": 40, "amount": 1857948.25, "max_share": 0.036, "mergers": 1},
+    "delisting_approximate": {"earlier_codes": 25, "maybe_suspended": 3},
 }
 EXAMPLES["index_uncovered"]["first_2"] = "2007-01-15"
 

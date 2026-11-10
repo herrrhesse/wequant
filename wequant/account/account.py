@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from wequant.account.delisting import WRITE_DOWN, Exits, exits
 from wequant.account.execution import EXECUTION_VERSION, FEN, LI, Execution, exact, finite_number
 from wequant.account.ledger import (
     FILLED,
@@ -16,6 +17,7 @@ from wequant.account.ledger import (
     Fills,
     Ledger,
     daily_frame,
+    delisted_frame,
     fills_from_rows,
     orders_frame,
     positions_frame,
@@ -28,12 +30,15 @@ if TYPE_CHECKING:
 
     from wequant.panel.panel import Day, Panel
 
-NO_POSITION, NO_BAR, LIMIT_UNKNOWN, LIMIT_UP, LIMIT_DOWN, T1, LOT, CASH = range(len(ORDER_REASONS))
+NO_POSITION, NO_BAR, LIMIT_UNKNOWN, LIMIT_UP, LIMIT_DOWN, T1, LOT, CASH, DELIST_WRITE_DOWN, DELIST_EXIT = range(
+    len(ORDER_REASONS)
+)
 NO_COSTS = (0, 0, 0, 0)  # commission, stamp tax, transfer fee, slippage in 厘
 
 
 class Account:
-    """Cash and positions of one run on a panel: begin(t), trade(...) any number of times, end()."""
+    """Cash and positions of one run on a panel: begin(t), trade(...) any number of times, end(); begin(t) also clears
+    the holdings whose delisting day opens at row t, as execution.delisting says."""
 
     def __init__(self, panel: Panel, cash: float, start: Day, execution: Execution = Execution()) -> None:
         """Hold cash yuan and nothing else at the close of trading day start, the base day."""
@@ -51,6 +56,7 @@ class Account:
         self._days = [(self.t, self._equity, self._equity, 0.0, 0.0)]
         self._holdings: list[tuple] = []
         self._batches: list[tuple] = []
+        self._exits, self._forced, self._cleared = exits(panel, execution), [], []
 
     @property
     def panel(self) -> Panel:
@@ -79,7 +85,8 @@ class Account:
 
     @property
     def equity(self) -> float:
-        """Equity at the last close: what the last end() returned, or the initial cash before it; begin and trade leave it unchanged."""
+        """Equity at the last close, what the last end() returned or the initial cash before it, less what today's
+        delistings wrote off at the open; trade leaves it unchanged."""
         return self._equity
 
     @property
@@ -89,7 +96,8 @@ class Account:
         return _frozen(np.where(shares > 0, shares * self._mark(), 0.0))
 
     def begin(self, t: int) -> None:
-        """Open row t, the day after the last: scale holdings by factor[t] / factor[t-1]; all of them become sellable."""
+        """Open row t, the day after the last: scale holdings by factor[t] / factor[t-1], all of them sellable, then clear
+        those whose delisting day it is."""
         if self._open or t != self.t + 1:
             raise RuntimeError(f"cannot open row {t}: " + ("a day is open" if self._open else f"the last is {self.t}"))
         self._held = (self._held + self._bought) * (self._factor[t] / self._factor[t - 1])
@@ -98,6 +106,8 @@ class Account:
         self._day_bought = self._day_sold = 0
         self._rules = {}
         self._row = (self._price[t], self._traded[t], self._known[t], self._up[t], self._down[t])
+        if t in self._exits:
+            self._delist(self._exits[t])
 
     def trade(self, cols: ArrayLike, qty: ArrayLike) -> Fills:
         """Validate and fill one batch at day t's price, every sell before every buy; qty > 0 buys, < 0 sells, -inf asks for the whole position."""
@@ -144,12 +154,35 @@ class Account:
             "cash": self._days[0][2],
             "start": panel.dates[self._days[0][0]].item().isoformat(),
         }
+        batches = sorted(self._forced + self._batches, key=lambda batch: batch[0])  # stable: a day's forced rows first
         return Ledger(
             daily_frame(self._days, panel.dates),
             positions_frame(self._holdings, panel.dates, panel.codes),
-            orders_frame(self._batches, panel.dates, panel.codes, panel.raw("amount")),
+            orders_frame(batches, panel.dates, panel.codes, panel.raw("amount")),
+            delisted_frame(self._cleared, panel.dates, panel.codes),
             meta,
         )
+
+    # ------------------------------------------------------------ delistings
+
+    def _delist(self, due: Exits) -> None:
+        """Clear the held columns of due at their recovery share of the last close, without costs: the cash counts as
+        sold, and what was written off leaves today's equity."""
+        held = self._held[due.cols] > 0
+        cols, recovery, treatment = due.cols[held], due.recovery[held], due.treatment[held]
+        if not cols.size:
+            return
+        shares, marks = self._held[cols].copy(), self._mark()[cols]
+        prices = marks * recovery
+        cash = np.array([_proceeds(q, int(np.rint(p * LI))) for q, p in zip(shares.tolist(), prices.tolist())])
+        self._cash += int(cash.sum())
+        self._day_sold += int(cash.sum())
+        self._equity -= float((shares * marks).sum() - cash.sum() / LI)
+        self._held[cols] = 0.0
+        reasons = np.where(treatment == WRITE_DOWN, DELIST_WRITE_DOWN, DELIST_EXIT)
+        rows = [(q, p, v, *NO_COSTS, FILLED, r) for q, p, v, r in zip(shares, prices, cash.tolist(), reasons.tolist())]
+        self._forced.append((self.t, cols, -shares, fills_from_rows(rows)))
+        self._cleared.append((self.t, cols, treatment, shares, shares * marks, cash / LI))
 
     # ------------------------------------------------------------ one order
 
@@ -176,9 +209,8 @@ class Account:
         got = max_sell(lot, min(q, held), held)
         if got == 0:
             return _rejected(LOT, p)
-        whole = math.floor(got)
-        costs = self._costs("sell", j, whole, li)
-        value = whole * li + math.floor((got - whole) * li / FEN + 0.5) * FEN
+        costs = self._costs("sell", j, math.floor(got), li)
+        value = _proceeds(got, li)
         if self._cash + value - sum(costs) < 0:
             return _rejected(CASH, p)
         self._cash += value - sum(costs)
@@ -259,6 +291,12 @@ class Account:
     def _require_open(self) -> None:
         if not self._open:
             raise RuntimeError("no day is open: call begin(t) first")
+
+
+def _proceeds(shares: float, li: int) -> int:
+    """厘 for shares at li 厘 each: whole shares exactly, a fraction half up to the fen."""
+    whole = math.floor(shares)
+    return whole * li + math.floor((shares - whole) * li / FEN + 0.5) * FEN
 
 
 def _rejected(reason: int, p: float) -> tuple:

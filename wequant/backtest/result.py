@@ -8,6 +8,7 @@ import numpy as np
 import polars as pl
 
 from wequant.account import EXECUTION_VERSION, Ledger
+from wequant.account.ledger import rebalance_orders
 from wequant.analytics import METRICS_VERSION, compute_metrics
 from wequant.backtest.backtest import Backtest
 from wequant.backtest.warnings import run_warnings
@@ -54,7 +55,8 @@ def assemble(
         ledger = replace(ledger, daily=ledger.daily.with_columns(pl.Series("benchmark", closes).fill_nan(None)))
     calendar = pl.Series("date", panel.dates)
     spec, strategy = backtest.metrics, backtest.strategy
-    metrics = compute_metrics(ledger.daily, calendar, spec, positions=ledger.positions, orders=ledger.orders)
+    orders = rebalance_orders(ledger.orders)
+    metrics = compute_metrics(ledger.daily, calendar, spec, positions=ledger.positions, orders=orders)
     return Run(
         engine,
         backtest.form,

@@ -15,7 +15,8 @@ from wequant.analytics import Metric, MetricSpec, metrics_json
 from wequant.data.files import parquet_bytes
 from wequant.runs.run import FORMAT, Run
 
-FRAMES = ("daily", "positions", "orders", "picks", "funnel", "detail")
+LEDGER = ("daily", "positions", "orders", "delisted")
+FRAMES = (*LEDGER, "picks", "funnel", "detail")
 FILES = ("run.json", "metrics.json", "warnings.json", *(f"{name}.parquet" for name in FRAMES))  # compared on rerun
 PROVENANCE = "provenance.json"  # code version, library versions, creation time: never compared
 LIBRARIES = ("numpy", "polars", "numba")
@@ -43,8 +44,7 @@ def run_json(run: Run) -> bytes:
 
 def run_files(run: Run) -> dict[str, bytes]:
     """The compared files in FILES order: equal runs give equal bytes."""
-    ledger = run.ledger
-    frames = (ledger.daily, ledger.positions, ledger.orders, run.picks, run.funnel, run.detail)
+    frames = (*(getattr(run.ledger, name) for name in LEDGER), run.picks, run.funnel, run.detail)
     return {
         "run.json": run_json(run),
         "metrics.json": metrics_json(run.metrics, run.spec),
@@ -71,7 +71,7 @@ def read_run(directory: Path) -> Run:
     inputs = doc["inputs"]
     if inputs["format"] != FORMAT:
         raise ValueError(f"{directory} holds a run of format {inputs['format']}, not {FORMAT}")
-    daily, positions, orders, picks, funnel, detail = (pl.read_parquet(directory / f"{n}.parquet") for n in FRAMES)
+    *ledger, picks, funnel, detail = (pl.read_parquet(directory / f"{name}.parquet") for name in FRAMES)
     meta = doc["ledger"] | {"code_version": read_json(directory / PROVENANCE)["code_version"]}
     scored = read_json(directory / "metrics.json")
     run = Run(
@@ -80,7 +80,7 @@ def read_run(directory: Path) -> Run:
         versions=inputs["versions"],
         panel_key=doc["panel_key"],
         anchor=dt.date.fromisoformat(doc["anchor"]),
-        ledger=Ledger(daily, positions, orders, meta),
+        ledger=Ledger(*ledger, meta),
         metrics={key: _metric(**metric) for key, metric in scored["metrics"].items()},
         spec=MetricSpec(**scored["spec"]),
         picks=picks,

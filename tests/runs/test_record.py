@@ -59,7 +59,14 @@ def test_run_json_golden():
     ledger = {
         "cash": 100000.0,
         "data_key": "fake",
-        "execution": {"commission_rate": 0.0003, "min_commission": 5.0, "price": "open", "slippage_bps": 0.0},
+        "execution": {
+            "commission_rate": 0.0003,
+            "delisting": "auto",
+            "failure_recovery": 0.0,
+            "min_commission": 5.0,
+            "price": "open",
+            "slippage_bps": 0.0,
+        },
         "execution_version": EXECUTION_VERSION,
         "rules_key": "fake-r1",
         "start": "2024-01-02",
@@ -83,6 +90,7 @@ def test_files_come_in_files_order():
         "daily.parquet",
         "positions.parquet",
         "orders.parquet",
+        "delisted.parquet",
         "picks.parquet",
         "funnel.parquet",
         "detail.parquet",

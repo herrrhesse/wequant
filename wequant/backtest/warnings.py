@@ -46,6 +46,10 @@ def run_warnings(
         found["list_days_approximate"] = {"codes_at_calendar_start": codes, "cells": cells}
     if (kept := choice.cash[choice.cash > 0]).size:
         found["max_weight_cash"] = {"days": kept.size, "mean_share": float(kept.mean())}
+    if (cleared := delisted_holdings(panel, ledger))["codes"]:
+        found["delisted_holdings"] = cleared
+    if (guessed := delisting_approximate(panel, ledger))["earlier_codes"]:
+        found["delisting_approximate"] = guessed
     return {code: warning(code, params) for code, params in found.items()}
 
 
@@ -105,6 +109,30 @@ def _stale(panel: Panel, positions: pl.DataFrame) -> np.ndarray:
     bars[1:] = np.cumsum(panel.traded[lo : rows.max() + 1][:, cols], axis=0)
     first = np.maximum(rows - STALE_DAYS, lo)
     return bars[rows + 1 - lo, local] == bars[first - lo, local]
+
+
+def delisted_holdings(panel: Panel, ledger: Ledger) -> Params:
+    """The holdings cleared at their delisting day: codes, their worth at the last close, the largest as a share of the
+    previous close's equity, and how many the classification calls mergers."""
+    cleared = ledger.delisted.join(panel.delistings.select("code", "kind"), on="code", how="left")
+    previous = ledger.daily.select("date", previous=pl.col("equity").shift(1))
+    share = cleared.join(previous, on="date").select(pl.col("value") / pl.col("previous")).to_series()
+    return {
+        "codes": cleared["code"].n_unique(),
+        "amount": float(cleared["value"].sum()),
+        "max_share": float(share.max()) if share.len() else 0.0,
+        "mergers": cleared.filter(pl.col("kind") == "merger")["code"].n_unique(),
+    }
+
+
+def delisting_approximate(panel: Panel, ledger: Ledger) -> Params:
+    """The holdings written down on a day approximated from last_date, and how many of them were not evidently forced
+    delistings (mergers, long suspensions or unknown)."""
+    guessed = ledger.delisted.join(panel.delistings.filter("approximate").select("code", "kind"), on="code")
+    return {
+        "earlier_codes": guessed["code"].n_unique(),
+        "maybe_suspended": guessed.filter(pl.col("kind") != "forced")["code"].n_unique(),
+    }
 
 
 def st_band_fills(panel: Panel, orders: pl.DataFrame) -> tuple[int, int]:

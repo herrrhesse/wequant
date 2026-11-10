@@ -8,10 +8,13 @@ from typing import NamedTuple
 import numpy as np
 import polars as pl
 
+from wequant.account.delisting import TREATMENTS
 from wequant.analytics import inputs
 
 FILLED, PARTIAL, REJECTED = 0, 1, 2  # indexes into wequant.analytics.inputs.ORDER_STATUSES
 ORDER_REASONS = ("no_position", "no_bar", "limit_unknown", "limit_up", "limit_down", "t1", "lot", "cash")
+FORCED = ("delist_write_down", "delist_exit")  # rows of holdings cleared at their delisting day, not rebalance orders
+ORDER_REASONS += FORCED
 DAILY = {**inputs.RUN_DAILY, "cash": pl.Float64, **inputs.TRADES}
 POSITIONS = {**inputs.POSITIONS, "value": pl.Float64}
 ORDERS = {
@@ -26,6 +29,14 @@ ORDERS = {
     "transfer_fee": pl.Float64,
     "slippage": pl.Float64,
     "reason": pl.String,
+}
+DELISTED = {
+    "date": pl.Date,
+    "code": pl.String,
+    "treatment": pl.String,  # write_down or exit
+    "shares": pl.Float64,
+    "value": pl.Float64,  # yuan: the shares at their last close in the day's adjustment, what the holding was worth
+    "cash": pl.Float64,  # yuan it returned, to the fen
 }
 _COSTS = ("commission", "stamp_tax", "transfer_fee", "slippage")
 
@@ -50,7 +61,8 @@ class Ledger:
 
     daily: pl.DataFrame  # DAILY: the base day, then one row per closed day
     positions: pl.DataFrame  # POSITIONS: one row per (closed day, held code), shares > 0
-    orders: pl.DataFrame  # ORDERS: one row per order; batches in call order, rows in submission order
+    orders: pl.DataFrame  # ORDERS: one row per order; batches in call order, a day's FORCED rows first
+    delisted: pl.DataFrame  # DELISTED: one row per holding cleared at its delisting day, as its FORCED order row
     meta: dict  # store_version, data_key, rules_key, code_version, execution, execution_version, cash, start
 
 
@@ -100,6 +112,23 @@ def orders_frame(batches: list[tuple], dates: np.ndarray, codes: np.ndarray, amo
         "reason": _names(got.reason, ORDER_REASONS),
     }
     return pl.DataFrame(columns, schema=ORDERS)
+
+
+def delisted_frame(cleared: list[tuple], dates: np.ndarray, codes: np.ndarray) -> pl.DataFrame:
+    """DELISTED from one (row, columns, treatments, shares, values, cash) per day that cleared holdings."""
+    if not cleared:
+        return pl.DataFrame(schema=DELISTED)
+    rows = np.concatenate([np.full(len(cols), row) for row, cols, *_ in cleared])
+    cols, treatments, shares, values, cash = (np.concatenate(part) for part in list(zip(*cleared))[1:])
+    treatment = _names(treatments, TREATMENTS)
+    return pl.DataFrame(
+        dict(zip(DELISTED, [dates[rows], codes[cols], treatment, shares, values, cash])), schema=DELISTED
+    )
+
+
+def rebalance_orders(orders: pl.DataFrame) -> pl.DataFrame:
+    """The orders without the FORCED rows: what the rebalance metrics read."""
+    return orders.filter(~pl.col("reason").is_in(FORCED).fill_null(False))
 
 
 def _names(index: np.ndarray, names: tuple[str, ...]) -> pl.Series:

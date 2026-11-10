@@ -45,6 +45,16 @@ TEXTS: dict[str, Callable[[Params], str]] = {
         f"{p['days']} decision days kept {p['mean_share']:.1%} of equity in cash on average: max_weight capped every "
         "target"
     ),
+    "delisted_holdings": lambda p: (
+        f"{p['codes']} delisted holdings were cleared at the open of their delisting day, worth {p['amount']:,.2f} "
+        f"yuan at their last close, the largest {p['max_share']:.1%} of the previous close's equity; {p['mergers']} "
+        "of them were classified as mergers or privatisations"
+    ),
+    "delisting_approximate": lambda p: (
+        f"delisting days come from securities.last_date, not official dates: {p['earlier_codes']} holdings were "
+        "written down to zero on the first trading day after it, possibly before their official delisting or while "
+        f"only suspended; {p['maybe_suspended']} of them were not evidently forced delistings"
+    ),
 }
 
 

@@ -32,7 +32,10 @@ from wequant.strategy import (
 ADJ, CLOSE, OPEN, ST, VOLUME = Field("adj_close"), Field("close"), Field("open"), Field("st"), Field("volume")
 EX0 = Execution(slippage_bps=0.0)
 MOM = Strategy(factors=(Factor("mom", ADJ / REF(ADJ, 1)),), top_n=2)
-EXECUTION = '{"commission_rate":0.0003,"min_commission":5.0,"price":"open","slippage_bps":0.0}'
+EXECUTION = (
+    '{"commission_rate":0.0003,"delisting":"auto","failure_recovery":0.0,"min_commission":5.0,"price":"open",'
+    '"slippage_bps":0.0}'
+)
 METRICS = '{"periods_per_year":242,"risk_free_rate":0.0,"tail_fraction":0.05}'
 MOM_KEY = '{"factors":[{"expr":["DIV","adj_close",["REF","adj_close",1]],"name":"mom"}],"top_n":2}'
 
