@@ -4,7 +4,6 @@ import pytest
 
 from wequant.expr import CS_PCT, CS_RANK, CS_ZSCORE, IF, MA, Field
 from wequant.strategy import (
-    POOL_BOARDS,
     SH_SZ,
     Condition,
     Factor,
@@ -22,31 +21,16 @@ CLOSE, OPEN, AMOUNT = Field("close"), Field("open"), Field("amount")
 POOL = SH_SZ & ~Field("st")
 
 
-@pytest.mark.parametrize(
-    "pool, items",
-    [
-        (Pool(index="000300.SH"), {"index": "member@000300.SH"}),
-        (Pool(boards=("main",)), {"boards": "board@main"}),
-        (Pool(boards=("star", "main")), {"boards": ["OR", "board@main", "board@star"]}),
-        (Pool(boards=POOL_BOARDS), {"boards": ["OR", ["OR", "board@main", "board@chinext"], "board@star"]}),
-        (Pool(exclude_st=True), {"exclude_st": ["NOT", "st"]}),
-        (Pool(min_list_days=250), {"min_list_days": ["GE", "list_days", 250.0]}),
-    ],
-)
-def test_each_pool_item_alone(pool, items):
-    strategy = Strategy(pool=pool)
-    assert {name: e.form for name, e in pool_items(strategy).items()} == items
-    assert pool_expr(strategy).form == ["AND", SH_SZ.form, *items.values()]
-
-
-def test_the_items_join_the_universe_in_their_order_and_none_leaves_the_universe_itself():
-    strategy = Strategy(pool=Pool(index="000905.SH", boards=("main",), exclude_st=True, min_list_days=60))
-    assert list(pool_items(strategy)) == ["index", "boards", "exclude_st", "min_list_days"]
-    assert pool_expr(strategy).form == [
-        "AND",
-        ["AND", ["AND", ["AND", SH_SZ.form, "member@000905.SH"], "board@main"], ["NOT", "st"]],
-        ["GE", "list_days", 60.0],
-    ]
+def test_each_pool_item_is_its_condition_and_no_item_leaves_the_universe_itself():
+    """Design: index -> a member of it, boards -> on one of them, exclude_st -> not ST, min_list_days -> listed at least
+    that many days; items come in that order, and the default pool is the universe (same root, same cache key)."""
+    strategy = Strategy(pool=Pool(index="000905.SH", boards=("star", "main"), exclude_st=True, min_list_days=60))
+    assert pool_items(strategy) == {
+        "index": Field("member@000905.SH"),
+        "boards": Field("board@main") | Field("board@star"),
+        "exclude_st": ~Field("st"),
+        "min_list_days": Field("list_days") >= 60,
+    }
     assert pool_expr(Strategy()) is SH_SZ and pool_items(Strategy()) == {}
 
 

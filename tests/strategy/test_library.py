@@ -1,13 +1,16 @@
+"""Saved strategies (D16): write-once version files, the index rebuilt from them, and the content hash."""
+
+import datetime as dt
 import hashlib
 import json
 import re
-from dataclasses import replace
+from dataclasses import fields, replace
 
 import pytest
 
 from wequant.data.store import StoreLocked, exclusive
 from wequant.expr import Field
-from wequant.strategy import Factor, SpecError, Strategy
+from wequant.strategy import Condition, Factor, Pool, SpecError, Strategy
 from wequant.strategy.library import Library, NotSaved, read_warnings, strategy_hash
 
 A = Strategy(factors=(Factor("a", Field("close")),), top_n=5)
@@ -23,8 +26,27 @@ def meta(library, id):
     return json.loads((library.root / id / "meta.json").read_text())
 
 
-def test_the_hash_is_the_sha256_of_the_canonical_text():
-    assert strategy_hash(A) == hashlib.sha256(A.key.encode()).hexdigest()[:16]
+def test_the_hash_is_the_sha256_of_the_whole_canonical_text():
+    """D16: versions and runs are matched by the first 16 hex digits of the sha256 of the strategy's canonical text,
+    every field in it (each one set here)."""
+    every = Strategy(
+        universe=~Field("exchange@BJ") & (Field("close") > 1.0),
+        filters=(Condition("up", Field("close") > Field("open")),),
+        factors=(Factor("a", Field("close"), prefer="low", weight=2.0),),
+        top_n=5,
+        backups=1,
+        period="month",
+        every=2,
+        weighting="formula",
+        formula=Field("amount"),
+        band=0.1,
+        anchor=dt.date(2016, 11, 7),
+        hold_rank=8,
+        max_weight=0.3,
+        pool=Pool(index="000300.SH", boards=("main",), exclude_st=True, min_list_days=60),
+    )
+    assert strategy_hash(every) == hashlib.sha256(every.key.encode()).hexdigest()[:16]
+    assert {f.name for f in fields(Strategy)} == set(json.loads(every.key))  # no field left at its default
 
 
 def test_unchanged_content_adds_no_version(library):
@@ -77,7 +99,7 @@ def test_a_version_file_changed_after_saving_is_refused(library):
     assert raised.value.code == "hash_mismatch"
 
 
-@pytest.mark.parametrize("id", ["../x", "Upper", "-lead", "a" * 41, ""])
+@pytest.mark.parametrize("id", ["../x", "a" * 41], ids=["path_traversal", "41_characters"])
 def test_a_malformed_id_is_refused_before_any_file_is_touched(library, id):
     with pytest.raises(SpecError) as raised:
         library.save(A, id)

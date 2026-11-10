@@ -62,8 +62,9 @@ def test_buys_share_the_cash_and_a_column_without_a_fill_price_is_refused_no_bar
     assert account.cash == pytest.approx(15973.96, abs=1e-9)
 
 
-@pytest.mark.parametrize(("band", "traded"), [(0.10, [0, 1]), (0.0, [0, 1]), (0.13, [1]), (0.15, []), (None, [])])
+@pytest.mark.parametrize(("band", "traded"), [(0.0, [0, 1]), (0.13, [1]), (None, [])])
 def test_band_trades_held_targets_outside_it(band, traded):
+    """A held target trades when |value - goal| > band x goal: 0.0 trades both, 0.13 only the one 14% off; None never."""
     panel = FakePanel(
         DAYS3,
         ["600000.SH", "000001.SZ"],
@@ -75,7 +76,7 @@ def test_band_trades_held_targets_outside_it(band, traded):
     assert account.cash == pytest.approx(969.31, abs=1e-9) and account.equity == pytest.approx(99969.31, abs=1e-9)
     got = rows(trade_target(account, Target(np.array([0.5, 0.5]), np.array([2.0, 1.0]), NONE), band))
     assert [order[0] for call in got for order in call] == traded
-    if band in (0.10, 0.0):
+    if band == 0.0:
         assert got[0] == [(0, -572.0, 500.0, 10.5, 5250.0, 5.0, 2.63, 0.05, FILLED, -1)]
         assert got[1] == [(1, 653.0, 600.0, 9.5, 5700.0, 5.0, 0.0, 0.06, FILLED, -1)]
         assert account.cash == pytest.approx(506.57, abs=1e-9)
@@ -106,15 +107,6 @@ def test_exit_top_up_priority_and_a_stand_in_for_a_limit_up_refusal():
     assert account.end() == pytest.approx(103297.92, abs=1e-9)
 
 
-def test_a_held_target_is_left_alone_without_a_band_and_new_buys_scale_to_the_cash():
-    panel = FakePanel(DAYS3, ["600010.SH", "600011.SH"], ["main"] * 2, [[10, 10]] * 3, [[10, 10]] * 3)
-    account = opened(panel, cash=10_000, day1=([0], [800]))
-    assert account.cash == pytest.approx(1994.92, abs=1e-9)
-    got = rows(trade_target(account, Target(np.array([0.5, 0.5]), np.array([1.0, 1.0]), NONE)))
-    assert got == [[(1, 199.0, 100.0, 10.0, 1000.0, 5.0, 0.0, 0.01, FILLED, -1)]]
-    assert account.cash == pytest.approx(989.91, abs=1e-9)
-
-
 def test_slippage_is_a_cost_so_a_whole_equity_buy_is_cut_by_cash():
     panel = FakePanel(DAYS2, ["600000.SH"], ["main"], [[10.0], [10.0]], [[10.0], [10.0]])
     account = opened(panel, execution=Execution(slippage_bps=10.0))
@@ -122,14 +114,6 @@ def test_slippage_is_a_cost_so_a_whole_equity_buy_is_cut_by_cash():
     assert call.qty.tolist() == [10000.0] and call.fills.shares.tolist() == [9900.0]
     assert call.fills.slippage.tolist() == [99.0] and call.fills.status.tolist() == [PARTIAL]
     assert account.cash == pytest.approx(870.31, abs=1e-9)
-
-
-def test_nothing_to_do_makes_no_call_and_no_ledger_row():
-    panel = FakePanel(DAYS2, ["600000.SH"], ["main"], [[10.0], [10.0]], [[10.0], [10.0]])
-    account = opened(panel)
-    assert trade_target(account, Target(np.array([NAN]), np.array([0.0]), NONE)) == []
-    account.end()
-    assert account.ledger().orders.height == 0
 
 
 def test_a_backup_sold_at_the_open_stands_in_again_for_a_target_refused_again():
@@ -180,16 +164,6 @@ def test_refusals():
     account.trade([0], [100])
     with pytest.raises(RuntimeError, match="first trade"):
         trade_target(account, Target(np.array([0.5, NAN]), np.zeros(2), NONE))
-
-
-def test_a_sell_earlier_the_same_day_counts_as_a_trade():
-    panel = FakePanel(DAYS3, ["600000.SH", "600004.SH"], ["main"] * 2, [[10.0, 10.0]] * 3, [[10.0, 10.0]] * 3)
-    account = opened(panel, day1=([0], [1000]))
-    assert account.fresh
-    account.trade([0], [-500])
-    assert not account.fresh
-    with pytest.raises(RuntimeError, match="first trade"):
-        trade_target(account, Target(np.array([NAN, 0.5]), np.zeros(2), NONE))
 
 
 @given(

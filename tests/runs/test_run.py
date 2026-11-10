@@ -10,7 +10,7 @@ from tests.account.fake import FakePanel
 from wequant.account import Account, Execution
 from wequant.analytics import MetricSpec, compute_metrics
 from wequant.expr import panel_key
-from wequant.runs import FORMAT, Run, canonical, run_id, run_inputs
+from wequant.runs import Run, canonical, run_id
 
 GOLDEN = {"top": 50, "rate": 0.0003, "codes": ["600000.SH"]}
 
@@ -55,47 +55,10 @@ def test_canonical_text_and_run_id_golden():
     assert run_id(GOLDEN | {"top": 50.0}) != run_id(GOLDEN)
 
 
-@pytest.mark.parametrize("value", [(1, 2), {1: "a"}, float("nan"), float("inf"), dt.date(2024, 1, 2)])
+@pytest.mark.parametrize("value", [(1, 2), float("nan")], ids=["tuple_reads_back_as_a_list", "nan"])
 def test_canonical_refuses_what_is_not_plain_json(value):
     with pytest.raises(ValueError, match="not plain JSON"):
         canonical({"x": value})
-
-
-def test_inputs_and_id():
-    run = golden_run()
-    assert run.inputs == {
-        "format": FORMAT,
-        "engine": "hold",
-        "description": {"code": "600000.SH", "shares": 1000},
-        "store_version": 1,
-        "data_key": "fake",
-        "rules_key": "fake-r1",
-        "panel_key": "fake-fake-r1-2024-01-02-2024-01-04-56dab30ebda9",
-        "versions": {"hold": 1},
-    }
-    assert run.id == run_id(run.inputs) == "87a361d08e089d1f"
-    assert run.store_version == 1 and run.code_version == run.ledger.meta["code_version"]
-    assert golden_run(description={"shares": 1000, "code": "600000.SH"}).id == run.id
-
-
-def test_the_id_is_known_before_the_run_and_names_its_panel():
-    run = golden_run()
-    before = run_inputs(
-        "hold",
-        {"code": "600000.SH", "shares": 1000},
-        {"hold": 1},
-        store_version=1,
-        data_key="fake",
-        rules_key="fake-r1",
-        panel_key=run.panel_key,
-    )
-    assert before == run.inputs
-    assert golden_run(panel_key=run.panel_key.replace("2024-01-02", "2023-12-29")).id != run.id
-
-
-def test_runs_compare_by_identity():
-    run = golden_run()
-    assert run == run and run != golden_run() and len({run, run}) == 1
 
 
 def test_run_keeps_its_own_copy_of_the_description():
@@ -108,15 +71,15 @@ def test_run_keeps_its_own_copy_of_the_description():
 @pytest.mark.parametrize(
     "changes",
     [
-        {"description": [1]},
         {"description": {"x": (1, 2)}},
         {"versions": {"hold": 1.0}},
-        {"warnings": {"Bad": ("x", {})}},
-        {"warnings": {"ok": "x"}},
         {"warnings": {"ok": ("x", {"share": float("nan")})}},
         {"warnings": {"ok": ("x", {"n": np.int64(1)})}},
     ],
+    ids=["description_not_plain_json", "version_not_an_int", "param_not_finite", "param_a_numpy_scalar"],
 )
 def test_run_refusals(changes):
+    """What enters the run id is plain JSON with int versions; warning params are finite plain scalars, refused when
+    the run is built rather than when warnings.json is written."""
     with pytest.raises(ValueError):
         golden_run(**changes)

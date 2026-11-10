@@ -12,7 +12,7 @@ CLOSE, OPEN = Field("close"), Field("open")
     ("expr", "bars"),
     [
         (CLOSE, 0),  # a field reads its own bar
-        (REF(CLOSE, 3), 3),  # n bars back
+        (REF(MA(CLOSE, 3), 3), 5),  # n bars back, on top of its argument's reach
         (MA(REF(CLOSE, 1), 5), 5),  # a window of n spans n - 1 bars, on top of its argument's reach
         (CROSS(CLOSE, MA(OPEN, 3)), 3),  # a cross compares with the bar before
         (CS_RANK(CLOSE / REF(OPEN, 2)), 2),  # cross-sectional and element-wise operators add nothing
