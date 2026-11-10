@@ -65,22 +65,32 @@ def select(
     return cross_section(strategy, kept, rows, panel.listed[rows], panel.traded[rows], sides)
 
 
-def screen(strategy: Strategy, panel: Panel, day: Day | None = None, cache: Cache | None = None) -> Screen:
+def screen(
+    strategy: Strategy,
+    panel: Panel,
+    day: Day | None = None,
+    cache: Cache | None = None,
+    mark: Callable[[str], None] | None = None,
+) -> Screen:
     """The decision at day's close (default the panel's last day) without holdings: exactly what a backtest on this
-    panel records for that day when it holds nothing."""
+    panel records for that day when it holds nothing; mark(stage) as each stage ends: evaluate:<root>, cross_section,
+    choose, frames."""
+    mark = mark or (lambda stage: None)
     check_anchor(strategy, panel)
     row = len(panel.dates) - 1 if day is None else panel.row(day)
-    section = select(strategy, panel, [row], cache, values=True)
+    section = select(strategy, panel, [row], cache, on_root=lambda root: mark(f"evaluate:{root}"), values=True)
+    mark("cross_section")
     choice = stack([choose(strategy, section, 0, np.zeros(len(panel.codes), dtype=bool))])
-    return Screen(
+    mark("choose")
+    frames = (
         picks_frame(section, choice, panel),
         funnel_frame(strategy, section, choice, panel),
         detail_frame(strategy, section, choice, panel),
         stocks_frame(strategy, section, choice, panel),
         rejects_frame(strategy, section, panel),
-        section,
-        choice,
     )
+    mark("frames")
+    return Screen(*frames, section, choice)
 
 
 def check_anchor(strategy: Strategy, panel: Panel) -> None:

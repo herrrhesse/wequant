@@ -31,14 +31,22 @@ def run(
     cache: Cache | None = None,
     progress: Callable[[Progress], None] | None = None,
     cancel: Callable[[], bool] | None = None,
+    mark: Callable[[str], None] | None = None,
 ) -> Run:
-    """The backtest on panel: one Account, orders only on the day after a decision, metrics from wequant.analytics."""
-    strategy = backtest.strategy
+    """The backtest on panel: one Account, orders only on the day after a decision, metrics from wequant.analytics;
+    mark(stage) as each stage ends: evaluate:<root>, cross_section, day_loop, then assemble's."""
+    strategy, mark = backtest.strategy, mark or (lambda stage: None)
     base, last = span(backtest, panel)
     closes = benchmark_closes(backtest, panel, base, last)
     check_cancel(cancel)
     rows = decision_rows(panel.dates, base, last, strategy.period, strategy.every)
-    section = select(strategy, panel, rows, cache, on_root=lambda _: check_cancel(cancel))
+
+    def evaluated(root: str) -> None:
+        check_cancel(cancel)
+        mark(f"evaluate:{root}")
+
+    section = select(strategy, panel, rows, cache, on_root=evaluated)
+    mark("cross_section")
     account = Account(panel, backtest.cash, panel.dates[base], backtest.execution)
     checkpoint(progress, cancel, Progress(0, last - base, panel.dates[base].item(), account.equity))
     plans, choices = {int(row) + 1: i for i, row in enumerate(rows)}, []
@@ -50,7 +58,9 @@ def run(
         equity = account.end()
         if (t - base) % PROGRESS_DAYS == 0 or t == last:
             checkpoint(progress, cancel, Progress(t - base, last - base, panel.dates[t].item(), equity))
-    return assemble(backtest, panel, account.ledger(), section, stack(choices), closes, ENGINE, REBALANCE_VERSION)
+    mark("day_loop")
+    ledger, choice = account.ledger(), stack(choices)
+    return assemble(backtest, panel, ledger, section, choice, closes, ENGINE, REBALANCE_VERSION, mark)
 
 
 def run_form(

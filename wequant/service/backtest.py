@@ -91,16 +91,21 @@ def backtest(request: BacktestRequest, context: Context = Context()) -> Backtest
     strategy, warnings = resolve(request, library)
     with located_run(where):
         spec = Backtest.from_form(_form(request, strategy))
+    context.stage("compile")
     store = context.store()
     manifest(store, request.data_version)
+    context.stage("open_store")
     try:
         panel = panel_for(spec, store=store, version=request.data_version, cache_dir=context.cache)
     except NotInPanel as error:
         raise not_found(error.code, error.args[0], ["end"]) from None
+    context.stage("open_panel")
     with located_run(where):
-        run = engine_run(spec, panel, cache=context.expr_cache, progress=context.progress, cancel=context.cancel)
+        callbacks = {"progress": context.progress, "cancel": context.cancel, "mark": context.mark}
+        run = engine_run(spec, panel, cache=context.expr_cache, **callbacks)
     if request.save:
         Archive(store.home / RUNS).save(run)
+        context.stage("archive_save")
     found = strategy_hash(strategy)
     result = BacktestResult(
         run_id=run.id,
@@ -119,7 +124,10 @@ def backtest(request: BacktestRequest, context: Context = Context()) -> Backtest
         warnings=warnings + warnings_out(run.warnings),
         report=None,
     )
-    return result.model_copy(update={"report": report(result, strategy)}) if request.report else result
+    if request.report:
+        result = result.model_copy(update={"report": report(result, strategy)})
+    context.stage("result")
+    return result
 
 
 @contextmanager

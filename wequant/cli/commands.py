@@ -18,10 +18,11 @@ from pydantic import BaseModel
 from wequant import service
 from wequant.account.execution import DELISTING, PRICES
 from wequant.backtest import ANOMALY_MODES, Progress
-from wequant.cli.render import error_panel, refused, render, render_schema
+from wequant.cli.render import error_panel, refused, render, render_schema, table
 from wequant.service import Check, Context, ErrorBody, ErrorDetail, Exit, ServiceError
 from wequant.service.base import error_body
 from wequant.service.details import validated
+from wequant.service.profile import ProfileReport, Timer
 from wequant.version import code_version
 
 log = logging.getLogger("wequant")
@@ -57,6 +58,8 @@ class Common:
     """Data root (default: $WEQUANT_HOME, else ~/.wequant)."""
     cache: Path | None = None
     """Panel cache root; panels go under CACHE/panel/ (default: HOME/cache)."""
+    profile: bool = False
+    """Time each stage; the timings go to stderr (one ProfileReport JSON line with --json)."""
 
 
 COMMON = Common()
@@ -323,9 +326,13 @@ def run(
         try:
             request = request() if callable(request) else request
             log.debug("%s %s", operation.__name__, request.model_dump_json())
-            context = Context(common.home, common.cache, progress=_progress if common.verbose else None)
-            result = operation(request, context)
+            timer = Timer(operation.__name__) if common.profile else None
+            hooks = {"progress": _progress if common.verbose else None, "mark": timer and timer.mark}
+            result = operation(request, Context(common.home, common.cache, **hooks))
             text = result.model_dump_json() if common.json else human(result)
+            if timer is not None:
+                timer.mark("render")
+                _profile(timer.report(), common.json)
         except ServiceError as error:
             log.error("%s", error)
             for detail in error.detail if len(error.detail) > 1 else ():
@@ -378,6 +385,13 @@ def saved_ref(text: str) -> dict:
         detail = ErrorDetail(code="bad_ref", message=f"{text!r} is not ID or ID@N", loc=["saved"])
         raise ServiceError(Exit.USAGE, detail.message, [detail])
     return {"id": id, "n": int(n) if at else None}
+
+
+def _profile(report: ProfileReport, as_json: bool) -> None:
+    """The stage timings on stderr: one JSON line, or a table."""
+    rows = [{"stage": s.name, "seconds": round(s.seconds, 4), "calls": s.calls} for s in report.stages]
+    text = report.model_dump_json() if as_json else f"{report.operation}: {report.seconds:.3f} s\n{table(rows)}"
+    print(text, file=sys.stderr, flush=True)
 
 
 def _progress(at: Progress) -> None:
