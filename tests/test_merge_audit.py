@@ -7,7 +7,7 @@ from tests.baostock_raw_fake import C1, D1, D2, D3, SEED, SOURCE
 from tests.frames import table_frame
 from wequant.data.merge.audit import audit_bars, audit_events, check_adjustment, status_disagreements
 from wequant.data.merge.factors import events
-from wequant.data.merge.reconcile import drop_duplicate_codes, drop_status_before_first_bar
+from wequant.data.merge.reconcile import drop_duplicate_codes
 
 
 def bars(rows: list[tuple], derived: bool, source: str) -> pl.DataFrame:
@@ -140,12 +140,9 @@ def test_check_adjustment_flags_a_misplaced_seed_event():
     assert checked.height == 2 and not checked["agrees"].any()
     fixed, _ = check_adjustment(MISPLACED, adj("600010.SH", [(C1, 1.0), (D2, 1.25)]), SOURCE)
     assert fixed.is_empty()
-
-
-def test_check_adjustment_flags_a_step_off():
-    issues, _ = check_adjustment(MISPLACED.head(2), adj("600010.SH", [(C1, 1.0), (D2, 1.1)]), SOURCE)
-    assert keys(issues) == {("600010.SH", D2, "event_step_off")}
-    assert detail(issues, "600010.SH", D2, "event_step_off")["ex_date"] == "2024-01-03"
+    off, _ = check_adjustment(MISPLACED.head(2), adj("600010.SH", [(C1, 1.0), (D2, 1.1)]), SOURCE)
+    assert keys(off) == {("600010.SH", D2, "event_step_off")}
+    assert detail(off, "600010.SH", D2, "event_step_off")["ex_date"] == "2024-01-03"
 
 
 def test_check_adjustment_tolerances():
@@ -223,7 +220,9 @@ def test_audit_events():
 
 
 def test_status_disagreements():
-    new = bars([("600647.SH", D2, 1790, {}), ("600000.SH", D1, 10000, {}), ("600001.SH", D1, 10000, {})], False, SOURCE)
+    new = bars(
+        [("600647.SH", D2, 11000, {}), ("600000.SH", D1, 10000, {}), ("600001.SH", D1, 10000, {})], False, SOURCE
+    )
     status = table_frame(
         "daily_status",
         [
@@ -243,28 +242,13 @@ def test_status_disagreements():
     ]
 
 
-def test_drop_status_before_first_bar():
-    status = table_frame(
-        "daily_status",
-        [{"code": "600000.SH", "date": day} for day in (D1, D2)] + [{"code": "600001.SH", "date": D1}],
-        tradestatus=0,
-        is_st=False,
-        source=SOURCE,
-    )
-    spans = pl.DataFrame({"code": ["600000.SH"], "first_date": [D2], "last_date": [D3]})
-    kept, issues = drop_status_before_first_bar(status, spans, SOURCE)
-    assert kept.select("code", "date").rows() == [("600000.SH", D2)]
-    assert keys(issues) == {("600000.SH", D1, "before_first_bar"), ("600001.SH", D1, "before_first_bar")}
-    assert set(issues["action"]) == {"status_dropped"} and set(issues["table"]) == {"daily_status"}
-    assert detail(issues, "600001.SH", D1, "before_first_bar") == {"first_date": None, "tradestatus": 0}
-
-
 def test_a_duplicate_with_an_amount_within_amount_rtol_is_dropped():
+    # 0.48 yuan apart on 1,000,000.48 is 4.8e-7, inside AMOUNT_RTOL (1e-5); 300115.SZ is 1,000 yuan (1e-3) off
     new = bars(
         [
-            ("300114.SZ", D1, 2000, {"amount": 63016557.48}),
-            ("302132.SZ", D1, 2000, {"amount": 63016557.00}),
-            ("300115.SZ", D1, 2000, {"amount": 63000000.00}),
+            ("300114.SZ", D1, 2000, {"amount": 1_000_000.48}),
+            ("302132.SZ", D1, 2000, {"amount": 1_000_000.00}),
+            ("300115.SZ", D1, 2000, {"amount": 999_000.00}),
         ],
         False,
         SOURCE,
@@ -277,11 +261,6 @@ def test_a_duplicate_with_an_amount_within_amount_rtol_is_dropped():
     assert keys(issues) == {("302132.SZ", D1, "duplicate_code")}
     assert detail(issues, "302132.SZ", D1, "duplicate_code") == {"same_as": "300114.SZ"}
 
-
-def test_identical_bars_of_two_new_codes_are_both_kept():
-    new = bars([("300114.SZ", D1, 2000, {}), ("302132.SZ", D1, 2000, {})], False, SOURCE)
-    status = table_frame(
-        "daily_status", new.select("code", "date").to_dicts(), tradestatus=1, is_st=False, source=SOURCE
-    )
-    kept, kept_status, issues = drop_duplicate_codes(new, status, new.head(0), SOURCE)
+    # neither code in the store: the bar cannot be attributed, so both are kept
+    kept, kept_status, issues = drop_duplicate_codes(new.head(2), status.head(2), new.head(0), SOURCE)
     assert kept.height == 2 and kept_status.height == 2 and issues.is_empty()

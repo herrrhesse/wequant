@@ -33,6 +33,23 @@ SCHEMA = {
     "evidence": pl.String,
     "status": pl.String,
 }
+HEADER = """\
+# Decisions on the BaoStock merge conflicts the merge cannot settle by itself.
+#
+# One [[resolution]] table per conflict, sorted by (date, code, kind); (code, date, kind) is unique.
+#   code      "600000.SH"
+#   date      2024-01-02
+#   kind      "price_mismatch": BaoStock's open, high, low or close differ from the store's bar
+#             "average_price": BaoStock's amount / volume lies outside [low, high] of the bar as its price entry
+#             leaves it
+#   fields    the bars fields the entry decides: ["open", "high", "low", "close"], ["amount"] or ["volume", "amount"]
+#   take      "baostock", "seed" (the store's values) or "null" (amount only: unknown, the bar kept)
+#   evidence  one sentence with the concrete numbers
+#   status    "proposed" or "approved"; only the user approves
+#
+# The merge applies approved entries only, each recorded as one data_issues row. Any other conflict of these kinds
+# stops the merge before anything is written. `python -m tools.baostock_merge propose` adds proposed entries.
+"""  # the comment a new resolutions file starts with
 _BLOCK = re.compile(r"(?m)^(?=\[\[resolution\]\])")
 
 
@@ -55,8 +72,8 @@ def frame(entries: list[dict]) -> pl.DataFrame:
 
 def add(path: Path, proposals: list[dict]) -> int:
     """Insert the proposals whose (code, date, kind) the file lacks in sorted place; existing entries keep their text.
-    A new file starts with the packaged file's header. Returns how many were added."""
-    header, blocks = _split(path.read_text("utf-8") if path.exists() else _header(PACKAGED))
+    A new file starts with HEADER. Returns how many were added."""
+    header, blocks = _split(path.read_text("utf-8") if path.exists() else HEADER)
     present = {_sort_key(entry) for _, entry in blocks}
     new = [(render(p), _checked(p)) for p in proposals if _sort_key(p) not in present]
     ordered = sorted([*blocks, *new], key=lambda block: _sort_key(block[1]))
@@ -69,11 +86,6 @@ def render(entry: dict) -> str:
     """One entry as a [[resolution]] table."""
     values = [f"{name} = {_toml(entry[name])}" for name in ENTRY]
     return "\n".join(["[[resolution]]", *values]) + "\n"
-
-
-def _header(path: Path) -> str:
-    """The comment header of a resolutions file."""
-    return _BLOCK.split(path.read_text("utf-8"), maxsplit=1)[0]
 
 
 def _split(text: str) -> tuple[str, list[tuple[str, dict]]]:

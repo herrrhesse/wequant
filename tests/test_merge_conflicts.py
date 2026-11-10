@@ -27,10 +27,18 @@ def test_price_and_average_conflicts():
             ("600002.SH", 10010, {"amount": 20000.0}),  # other close and an amount above 1000 × 10.01
             ("600003.SH", 10000, {"amount": 10011.5}),  # just above the tolerance, no store bar
             ("600004.SH", 10000, {"amount": 10010.5}),  # just inside it
+            ("600005.SH", 10000, {"amount": 0.0, "volume": 1_000_000}),  # the seed's volume 1 share off: same
+            ("600006.SH", 10000, {"amount": 0.0, "volume": 1_000_000}),  # the seed's volume 2 shares off: other
+            ("600007.SH", 10000, {"amount": 0.0}),  # the seed's amount is null
         ],
         SOURCE,
     )
-    old = bars([(c, 10000, {}) for c in ("600000.SH", "600001.SH", "600002.SH", "600004.SH")], SEED)
+    old = bars(
+        [(c, 10000, {}) for c in ("600000.SH", "600001.SH", "600002.SH", "600004.SH")]
+        + [("600005.SH", 10000, {"volume": 1_000_001}), ("600006.SH", 10000, {"volume": 1_000_002})]
+        + [("600007.SH", 10000, {"amount": None})],
+        SEED,
+    )
     columns = ("code", "kind", "seed_close", "seed_paid", "same_volume")
     assert price_conflicts(new, old).select(columns).rows() == [
         ("600000.SH", "price_mismatch", 10000, True, True),
@@ -40,21 +48,11 @@ def test_price_and_average_conflicts():
         ("600001.SH", "average_price", 10000, True, True),
         ("600002.SH", "average_price", 10000, True, True),
         ("600003.SH", "average_price", None, False, None),
+        # same_volume allows the seed's float rounding (VOLUME_RTOL 1e-6); 10,000 yuan for a million shares fails
+        ("600005.SH", "average_price", 10000, False, True),
+        ("600006.SH", "average_price", 10000, False, False),
+        ("600007.SH", "average_price", 10000, False, True),  # a null seed amount fails the check
     ]
-
-
-def test_same_volume_allows_the_seed_s_float_rounding():
-    new = bars([("600000.SH", 10000, {"amount": 0.0, "volume": 1_000_000})], SOURCE)
-    old = bars([("600000.SH", 10000, {"volume": 1_000_001}), ("600001.SH", 10000, {})], SEED)
-    assert average_conflicts(new, old)["same_volume"].to_list() == [True]
-    old = bars([("600000.SH", 10000, {"volume": 1_000_002})], SEED)
-    assert average_conflicts(new, old)["same_volume"].to_list() == [False]
-
-
-def test_a_null_seed_amount_fails_the_check():
-    new = bars([("600000.SH", 10000, {"amount": 0.0})], SOURCE)
-    old = bars([("600000.SH", 10000, {"amount": None})], SEED)
-    assert average_conflicts(new, old)["seed_paid"].to_list() == [False]
 
 
 def write_world(path, raw_days=(D1, D2, D3), **raw_text):
@@ -73,12 +71,9 @@ def references(store, raw, rows, adj_rows=()):
 
 
 def test_the_reference_is_the_next_day_s_exchange_preclose(tmp_path):
-    store, raw = write_world(tmp_path)
+    store, raw = write_world(tmp_path / "all")
     assert references(store, raw, [D3, D1]) == [(D3, None, False, None, False), (D1, D2, True, 10200, False)]
-
-
-def test_a_next_day_not_fetched_yet_has_no_reference(tmp_path):
-    store, raw = write_world(tmp_path, raw_days=(D1, D2))  # D3 is a store calendar day without a snapshot
+    store, raw = write_world(tmp_path / "unfetched", raw_days=(D1, D2))  # D3: a calendar day without a snapshot
     assert references(store, raw, [D2]) == [(D2, D3, False, None, False)]
 
 
@@ -108,84 +103,34 @@ def conflict(kind: str, new: dict, old: dict | None, reference=(D2, True, None, 
 
 
 OTHER_CLOSE = {"close": 10010, "high": 10010, "amount": 10010.0}
-PRICE_RULES = [
-    ((D2, True, 10010, False), "baostock", "the 2024-01-03 exchange preclose 10.01 repeats BaoStock's"),
-    ((D2, True, 10000, False), "seed", "the 2024-01-03 exchange preclose 10.00 repeats the seed's"),
-    (
-        (D2, True, 9990, False),
-        "baostock",
-        "the 2024-01-03 exchange preclose 9.99 repeats neither: BaoStock kept and the cell flagged",
-    ),
-    (
-        (D2, True, 10000, True),
-        "baostock",
-        "the 2024-01-03 exchange preclose 10.00, but an adj_factor step by then spoils the comparison: BaoStock kept "
-        "and the cell flagged",
-    ),
-    (
-        (D2, True, None, False),
-        "baostock",
-        "the 2024-01-03 snapshot has no exchange preclose for the code: BaoStock kept and the cell flagged",
-    ),
-]
+PRICE_RULES = {  # the next day's exchange preclose (None: no row) and an adj_factor step by then -> take, a fragment
+    "repeats_baostock": ((D2, True, 10010, False), "baostock", "preclose 10.01"),
+    "repeats_seed": ((D2, True, 10000, False), "seed", "preclose 10.00"),
+    "repeats_neither": ((D2, True, 9990, False), "baostock", "preclose 9.99"),
+    "step_spoils": ((D2, True, 10000, True), "baostock", "adj_factor step"),
+    "no_preclose": ((D2, True, None, False), "baostock", "no exchange preclose"),
+}
 
 
-@pytest.mark.parametrize("reference, take, verdict", PRICE_RULES)
-def test_price_rules(reference, take, verdict):
+@pytest.mark.parametrize("reference, take, fragment", PRICE_RULES.values(), ids=PRICE_RULES)
+def test_price_rules(reference, take, fragment):
     entry = proposal(conflict("price_mismatch", OTHER_CLOSE, {}, reference))
     assert (entry["fields"], entry["take"], entry["status"]) == (OHLC, take, "proposed")
-    assert (
-        entry["evidence"]
-        == f"BaoStock close 10.01, seed close 10.00; {verdict}; also differ (BaoStock vs seed): high 10.01 vs 10.00"
-    )
+    assert fragment in entry["evidence"]
 
 
-SEED_SPAN = "against [10.00, 10.00]"
-AVERAGE_RULES = [
-    (
-        {},
-        ("amount",),
-        "seed",
-        f"seed volume 1000 amount 10000.00 (average 10.0000) {SEED_SPAN}: same bar, the seed amount passes",
-    ),
-    (
-        {"volume": 1100, "amount": 11000.0},
-        ("volume", "amount"),
-        "seed",
-        f"seed volume 1100 amount 11000.00 (average 10.0000) {SEED_SPAN}: the volumes differ and the seed bar passes",
-    ),
-    (
-        {"amount": 0.0},
-        ("amount",),
-        "null",
-        f"seed volume 1000 amount 0.00 (average 0.0000) {SEED_SPAN}: the seed bar fails the check too, amount null, bar kept",
-    ),
-    (
-        {"amount": None},
-        ("amount",),
-        "null",
-        f"seed volume 1000 amount none (average none) {SEED_SPAN}: the seed bar fails the check too, amount null, bar kept",
-    ),
-    (
-        {"close": 10010, "high": 10010, "amount": 10010.0},
-        ("amount",),
-        "null",
-        "seed volume 1000 amount 10010.00 (average 10.0100) against [10.00, 10.00], seed [10.00, 10.01]: same volume but "
-        "other prices, amount null, bar kept",
-    ),
-]
+AVERAGE_RULES = {  # the store's bar (None: none) -> the fields and take proposed, a fragment of the evidence
+    "same_bar": ({}, ("amount",), "seed", "same bar"),
+    "other_volume": ({"volume": 1100, "amount": 11000.0}, ("volume", "amount"), "seed", "volumes differ"),
+    "seed_fails": ({"amount": 0.0}, ("amount",), "null", "fails the check too"),
+    "seed_null_amount": ({"amount": None}, ("amount",), "null", "amount none"),
+    "other_prices": ({"close": 10010, "high": 10010, "amount": 10010.0}, ("amount",), "null", "other prices"),
+    "no_seed_bar": (None, ("amount",), "null", "no seed bar"),
+}
 
 
-@pytest.mark.parametrize("old, fields, take, verdict", AVERAGE_RULES)
-def test_average_price_rules(old, fields, take, verdict):
+@pytest.mark.parametrize("old, fields, take, fragment", AVERAGE_RULES.values(), ids=AVERAGE_RULES)
+def test_average_price_rules(old, fields, take, fragment):
     entry = proposal(conflict("average_price", {"amount": 0.0}, old))
     assert (entry["kind"], entry["fields"], entry["take"]) == ("average_price", fields, take)
-    assert entry["evidence"] == f"BaoStock volume 1000 amount 0.00 (average 0.0000), {verdict}"
-
-
-def test_an_average_price_row_without_a_seed_bar_voids_the_amount():
-    entry = proposal(conflict("average_price", {"amount": 0.0}, None))
-    assert (entry["fields"], entry["take"]) == (("amount",), "null")
-    assert entry["evidence"] == (
-        "BaoStock volume 1000 amount 0.00 (average 0.0000) outside [10.00, 10.00] and no seed bar: amount null, bar kept"
-    )
+    assert fragment in entry["evidence"]

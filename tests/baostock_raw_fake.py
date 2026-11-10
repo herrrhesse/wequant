@@ -177,10 +177,10 @@ def duplicates(w: World) -> None:
 
 def conflicts(w: World) -> None:
     """600647.SH trades on D2 while listed as suspended; 600766.SH is listed as trading on D3 without volume."""
-    w.stock("600647.SH", {C1: 1640, C2: 1640, D1: 1640, D2: 1790, D3: 1790}, raw=(D1, D3))
-    w.day(D2, day_row("600647.SH", D2, 1790, preclose=1640, tradestatus="0"))
-    w.stock("600766.SH", {C1: 370, C2: 370, D1: 380, D2: 390}, raw=(D1, D2))
-    w.day(D3, day_row("600766.SH", D3, 390, volume="0", amount="0.0000"))
+    w.stock("600647.SH", {C1: 10000, C2: 10000, D1: 10000, D2: 11000, D3: 11000}, raw=(D1, D3))
+    w.day(D2, day_row("600647.SH", D2, 11000, preclose=10000, tradestatus="0"))
+    w.stock("600766.SH", {C1: 5000, C2: 5000, D1: 5100, D2: 5200}, raw=(D1, D2))
+    w.day(D3, day_row("600766.SH", D3, 5200, volume="0", amount="0.0000"))
 
 
 def conflict_world() -> World:

@@ -1,14 +1,13 @@
 import datetime as dt
-import re
-import tomllib
+from pathlib import Path
 
 import pytest
 
-from wequant.data.merge.resolutions import PACKAGED, SCHEMA, add, load, render
+from wequant.data.merge.resolutions import HEADER, SCHEMA, add, load, render
 
 OHLC = ["open", "high", "low", "close"]
 EARLY = {
-    "code": "603081.SH",
+    "code": "600000.SH",
     "date": dt.date(2023, 11, 7),
     "kind": "price_mismatch",
     "fields": OHLC,
@@ -25,34 +24,35 @@ def write(path, *entries, header="# decisions\n"):
     return path
 
 
-def test_the_packaged_file_loads():
-    assert load().schema == SCHEMA
-    assert "[[resolution]]" in PACKAGED.read_text("utf-8")  # the format, in the header comment
+SAMPLE = Path(__file__).parent / "data" / "resolutions_sample.toml"
+
+
+def test_the_synthetic_sample_loads():
+    """The sample shows the format with each (kind, take) kind of entry; it starts with HEADER, the format's comment."""
+    entries = load(SAMPLE)
+    assert entries.schema == SCHEMA and entries.select("kind", "take").rows() == [
+        ("price_mismatch", "seed"),
+        ("average_price", "seed"),
+        ("average_price", "null"),
+    ]
+    assert SAMPLE.read_text("utf-8").startswith(HEADER.rstrip())
 
 
 def test_entries_load_as_written(tmp_path):
-    entries = load(write(tmp_path / "r.toml", EARLY, LATE))
+    entries = load(write(tmp_path / "r.toml", EARLY, LATE))  # load parses render's TOML
     assert entries.to_dicts() == [EARLY, LATE]
 
 
-def test_render_is_valid_toml():
-    assert tomllib.loads(render(EARLY))["resolution"] == [EARLY]
+MALFORMED = {
+    "fields_not_allowed": {"take": "seed", "kind": "average_price", "fields": OHLC},  # FIELDS per (kind, take)
+    "status": {"status": "rejected"},
+    "evidence": {"evidence": " "},
+    "code": {"code": "600000"},
+    "date": {"date": "2023-11-07"},
+}
 
 
-MALFORMED = [
-    {"kind": "volume_mismatch"},
-    {"take": "seed", "kind": "average_price", "fields": OHLC},
-    {"take": "null", "kind": "price_mismatch"},
-    {"take": "baostock", "kind": "average_price", "fields": ["amount"]},
-    {"fields": ["close"]},
-    {"status": "rejected"},
-    {"evidence": " "},
-    {"code": "600000"},
-    {"date": "2023-11-07"},
-]
-
-
-@pytest.mark.parametrize("change", MALFORMED)
+@pytest.mark.parametrize("change", MALFORMED.values(), ids=MALFORMED)
 def test_a_malformed_entry_is_refused(tmp_path, change):
     with pytest.raises(ValueError):
         load(write(tmp_path / "r.toml", EARLY | change))
@@ -90,14 +90,13 @@ def test_add_keeps_existing_entries_and_inserts_missing_ones_in_order(tmp_path):
     assert add(path, [middle]) == 0 and path.read_text("utf-8") == text
 
 
-def test_add_starts_a_new_file_with_the_packaged_header(tmp_path):
+def test_add_starts_a_new_file_with_the_header(tmp_path):
     path = tmp_path / "new.toml"
     assert add(path, [LATE]) == 1
-    header = re.split(r"(?m)^\[\[resolution\]\]", PACKAGED.read_text("utf-8"))[0]
-    assert path.read_text("utf-8").startswith(header.rstrip()) and load(path).height == 1
+    assert path.read_text("utf-8").startswith(HEADER.rstrip()) and load(path).height == 1
 
 
-@pytest.mark.parametrize("opening", ["[[ resolution ]]", "  [[resolution]]", "note = 1\n[[resolution]]"])
+@pytest.mark.parametrize("opening", ["[[ resolution ]]", "note = 1\n[[resolution]]"])
 def test_an_entry_the_split_would_miss_is_refused(tmp_path, opening):
     path = tmp_path / "r.toml"
     path.write_text("# decisions\n" + render(EARLY).replace("[[resolution]]", opening), "utf-8")

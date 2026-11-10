@@ -1,0 +1,42 @@
+# Decisions on the BaoStock merge conflicts the merge cannot settle by itself.
+#
+# One [[resolution]] table per conflict, sorted by (date, code, kind); (code, date, kind) is unique.
+#   code      "600000.SH"
+#   date      2024-01-02
+#   kind      "price_mismatch": BaoStock's open, high, low or close differ from the store's bar
+#             "average_price": BaoStock's amount / volume lies outside [low, high] of the bar as its price entry
+#             leaves it
+#   fields    the bars fields the entry decides: ["open", "high", "low", "close"], ["amount"] or ["volume", "amount"]
+#   take      "baostock", "seed" (the store's values) or "null" (amount only: unknown, the bar kept)
+#   evidence  one sentence with the concrete numbers
+#   status    "proposed" or "approved"; only the user approves
+#
+# The merge applies approved entries only, each recorded as one data_issues row. Any other conflict of these kinds
+# stops the merge before anything is written. `python -m tools.baostock_merge propose` adds proposed entries.
+
+[[resolution]]
+code = "600000.SH"
+date = 2024-01-02
+kind = "price_mismatch"
+fields = ["open", "high", "low", "close"]
+take = "seed"
+evidence = "BaoStock close 10.21, seed close 10.20; the 2024-01-03 exchange preclose 10.20 repeats the seed's"
+status = "approved"
+
+[[resolution]]
+code = "000001.SZ"
+date = 2024-01-03
+kind = "average_price"
+fields = ["volume", "amount"]
+take = "seed"
+evidence = "BaoStock volume 1100 amount 10300.00 (average 9.3636), seed volume 1000 amount 10300.00 (average 10.3000) against [10.30, 10.30]: the volumes differ and the seed bar passes"
+status = "proposed"
+
+[[resolution]]
+code = "600001.SH"
+date = 2024-01-04
+kind = "average_price"
+fields = ["amount"]
+take = "null"
+evidence = "BaoStock volume 1000 amount 0.00 (average 0.0000) outside [5.20, 5.20] and no seed bar: amount null, bar kept"
+status = "proposed"
