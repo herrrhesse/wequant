@@ -13,7 +13,7 @@ from wequant.analytics import MetricSpec
 from wequant.backtest import Backtest, panel_for, planned_id, run, run_form, span
 from wequant.expr import Field
 from wequant.panel import load_panel
-from wequant.strategy import Factor, Strategy
+from wequant.strategy import Factor, SpecError, Strategy
 
 EX0 = Execution(slippage_bps=0.0)
 CHEAP = Strategy(factors=(Factor("cheap", Field("close"), prefer="low"),), top_n=1, period="day")
@@ -71,18 +71,19 @@ def test_span_snaps_to_trading_days(start, end, rows):
 
 
 @pytest.mark.parametrize(
-    "backtest, message",
+    "backtest, code, loc",
     [
-        (Backtest(CHEAP, start=dt.date(2024, 1, 1)), "^start: "),
-        (Backtest(Strategy(anchor=JAN[3])), "^anchor: "),
-        (Backtest(CHEAP, start=JAN[15]), "^no run day"),
-        (Backtest(CHEAP, start=JAN[20]), "^no run day"),
-        (Backtest(CHEAP, start=JAN[13], end=JAN[14]), "^no run day"),
+        (Backtest(CHEAP, start=dt.date(2024, 1, 1)), "out_of_range", ("start",)),
+        (Backtest(Strategy(anchor=JAN[3])), "not_a_trading_day", ("anchor",)),
+        (Backtest(CHEAP, start=JAN[15]), "out_of_range", ("end",)),
+        (Backtest(CHEAP, start=JAN[20]), "out_of_range", ("end",)),
+        (Backtest(CHEAP, start=JAN[13], end=JAN[14]), "out_of_range", ("end",)),
     ],
 )
-def test_span_refusals(backtest, message):
-    with pytest.raises(ValueError, match=message):
+def test_span_refusals(backtest, code, loc):
+    with pytest.raises(SpecError, match=f"^{loc[0]}: ") as raised:
         span(backtest, TEN)
+    assert (raised.value.code, raised.value.loc) == (code, loc)
 
 
 @pytest.fixture(scope="module")

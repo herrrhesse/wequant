@@ -11,6 +11,7 @@ import polars as pl
 from wequant.expr import Cache, Expr, evaluate, evaluate_all
 from wequant.strategy.choose import choose, stack
 from wequant.strategy.compile import comparison, expressions, pool_items
+from wequant.strategy.errors import SpecError
 from wequant.strategy.frames import detail_frame, funnel_frame, picks_frame, rejects_frame, stocks_frame
 from wequant.strategy.section import Section, cross_section, verdicts
 from wequant.strategy.strategy import Strategy
@@ -42,7 +43,8 @@ def select(
 ) -> Section:
     """Each root of expressions(strategy) evaluated on the whole panel and kept on rows, on_root(name) after each: the
     pool and its parts together, then every other root seeded with the pool's grid, so it is computed once; values
-    keeps each simple comparison's value side too. ValueError when the pool admits a Beijing code on one of the rows."""
+    keeps each simple comparison's value side too. SpecError admits_beijing when the pool admits a Beijing code on one
+    of the rows."""
     rows, roots, report = np.asarray(rows, dtype=np.int64), expressions(strategy), on_root or (lambda name: None)
     family = {name: roots[name] for name in ("universe", *pool_items(strategy), "pool")}
     grids = evaluate_all(family, panel, cache)
@@ -79,9 +81,10 @@ def screen(strategy: Strategy, panel: Panel, day: Day | None = None, cache: Cach
 
 
 def check_anchor(strategy: Strategy, panel: Panel) -> None:
-    """ValueError when the strategy declares an anchor and the panel starts on another day."""
+    """SpecError not_a_trading_day when the strategy declares an anchor and the panel starts on another day."""
     if strategy.anchor is not None and panel.dates[0] != np.datetime64(strategy.anchor, "D"):
-        raise ValueError(f"anchor: the strategy counts from {strategy.anchor}, the panel from {panel.dates[0]}")
+        message = f"the strategy counts from {strategy.anchor}, the panel from {panel.dates[0]}"
+        raise SpecError("not_a_trading_day", ("anchor",), message)
 
 
 def _evaluate(
@@ -100,4 +103,5 @@ def _check_beijing(panel: Panel, rows: np.ndarray, pool: np.ndarray, name: str) 
     i, j = np.nonzero(pool[:, beijing] == 1)
     if i.size:
         code, day = panel.codes[beijing][j[0]], panel.dates[rows[i[0]]]
-        raise ValueError(f"{name} admits {code} on {day}: the rule book has no Beijing rules; add ~exchange@BJ")
+        message = f"admits {code} on {day}: the rule book has no Beijing rules; add ~exchange@BJ"
+        raise SpecError("admits_beijing", (name,), message)

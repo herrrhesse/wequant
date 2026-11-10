@@ -25,7 +25,7 @@ from wequant.backtest import Backtest, Cancelled, planned_id, run, versions
 from wequant.backtest.warnings import WARNINGS
 from wequant.expr import EXPR_VERSION, REF, Cache, Field, panel_key
 from wequant.panel import load_panel
-from wequant.strategy import Condition, Factor, Strategy
+from wequant.strategy import Condition, Factor, SpecError, Strategy
 
 INF = math.inf
 EX0 = Execution(slippage_bps=0.0)
@@ -241,8 +241,9 @@ def test_a_holding_without_a_bar_on_a_decision_day_is_left_alone(tmp_path):
 
 def test_an_unknown_benchmark_raises_before_any_day_runs(rotation):
     calls = []
-    with pytest.raises(ValueError, match="^benchmark: 000905.SH has no close"):
+    with pytest.raises(SpecError, match="^benchmark: 000905.SH has no close") as raised:
         run(Backtest(RET1, benchmark="000905.SH", execution=EX0), rotation, progress=calls.append)
+    assert (raised.value.code, raised.value.loc) == ("no_data", ("benchmark",))
     assert calls == []
 
 
@@ -334,7 +335,7 @@ def poison(bar):
 
 def test_a_universe_admitting_beijing_raises_from_select(mixed):
     panel = mixed[-1]
-    with pytest.raises(ValueError, match="^universe admits 830799.BJ"):
+    with pytest.raises(ValueError, match="^universe: admits 830799.BJ"):
         run(Backtest(replace(MOMENTUM, universe=CLOSE > 0.0), execution=EX0, benchmark=None), panel)
 
 

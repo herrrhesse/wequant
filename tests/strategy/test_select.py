@@ -20,6 +20,7 @@ from wequant.strategy import (
     Factor,
     Group,
     Pool,
+    SpecError,
     Strategy,
     check_anchor,
     cross_section,
@@ -126,8 +127,9 @@ def test_screen_reports_targets_and_backups(panel):
 
 def test_check_anchor(panel):
     check_anchor(replace(STRATEGY, anchor=dt.date(2024, 3, 1)), panel)
-    with pytest.raises(ValueError, match="^anchor: "):
+    with pytest.raises(SpecError, match="^anchor: ") as raised:
         check_anchor(replace(STRATEGY, anchor=dt.date(2024, 3, 4)), panel)
+    assert (raised.value.code, raised.value.loc) == ("not_a_trading_day", ("anchor",))
     with pytest.raises(ValueError, match="^anchor: "):
         screen(replace(STRATEGY, anchor=dt.date(2024, 3, 4)), panel)
 
@@ -138,9 +140,10 @@ def test_a_universe_admitting_a_beijing_code_raises(tmp_path):
     store = build_store(tmp_path / "home", days, bars, boards={"830799.BJ": "bse"})
     panel = load_panel(store=store, cache_dir=tmp_path / "cache")
     factors = (Factor("c", CLOSE),)
-    with pytest.raises(ValueError, match="^universe admits 830799.BJ on 2024-01-02"):
+    with pytest.raises(SpecError, match="^universe: admits 830799.BJ on 2024-01-02") as raised:
         select(Strategy(universe=CLOSE > 0.0, factors=factors, top_n=1), panel, [0, 1])
-    with pytest.raises(ValueError, match="^pool admits 830799.BJ on 2024-01-03"):
+    assert (raised.value.code, raised.value.loc) == ("admits_beijing", ("universe",))
+    with pytest.raises(SpecError, match="^pool: admits 830799.BJ on 2024-01-03"):
         select(Strategy(universe=CLOSE > 0.0, factors=factors, top_n=1, pool=Pool(min_list_days=2)), panel, [1])
     assert select(Strategy(factors=factors, top_n=1), panel, [0, 1]).scored.tolist() == [[True, False]] * 2
     assert select(Strategy(universe=CLOSE > 0.0, pool=Pool(boards=("main",))), panel, [1]).scored.tolist() == [
