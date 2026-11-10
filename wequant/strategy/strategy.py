@@ -25,7 +25,7 @@ from wequant.strategy.checks import (
     wrong_type,
 )
 from wequant.strategy.compile import pool_expr, wrap
-from wequant.strategy.errors import Loc, SpecError
+from wequant.strategy.errors import Loc, SpecError, SpecErrors
 from wequant.strategy.form import parse_form, to_form
 
 STRATEGY_VERSION = 2  # bump when a field's meaning, a default, the calendar or how a cross-section is picked changes
@@ -171,9 +171,9 @@ class Strategy(Checked):
     }
 
     def check(self) -> None:
-        _check_unique(self)
-        _check_selection(self)
-        _check_compiled(self)
+        """SpecErrors of every rule across fields that is broken."""
+        if errors := [*_duplicates(self), *_selection(self), *_compiled(self)]:
+            raise SpecErrors(errors)
 
     def steps(self) -> tuple[Step, ...]:
         """The enabled filter steps in funnel order: a condition, or a group's enabled conditions then the group."""
@@ -228,40 +228,41 @@ def _wrapped(strategy: Strategy) -> Iterator[tuple[Expr, Loc]]:
         yield strategy.formula, ("formula",)
 
 
-def _check_unique(strategy: Strategy) -> None:
+def _duplicates(strategy: Strategy) -> Iterator[SpecError]:
     seen = set()
     for name, loc in _names(strategy):
         if name in seen:
-            raise SpecError("duplicate_name", loc, f"{name!r} names more than one condition, group or factor")
+            yield SpecError("duplicate_name", loc, f"{name!r} names more than one condition, group or factor")
         seen.add(name)
 
 
-def _check_selection(strategy: Strategy) -> None:
+def _selection(strategy: Strategy) -> Iterator[SpecError]:
     """How top_n, backups, weighting, formula and hold_rank depend on each other and on the factors."""
     ranked = any(f.enabled for f in strategy.factors)
     top_n = strategy.top_n
     if top_n is not None and not ranked:
-        raise SpecError("requires", ("top_n",), "an int top_n needs an enabled factor")
+        yield SpecError("requires", ("top_n",), "an int top_n needs an enabled factor")
     if strategy.backups and top_n is None:
-        raise SpecError("requires", ("backups",), "backups need an int top_n")
+        yield SpecError("requires", ("backups",), "backups need an int top_n")
     if strategy.weighting == "score" and not ranked:
-        raise SpecError("requires", ("weighting",), "score weighting needs an enabled factor")
+        yield SpecError("requires", ("weighting",), "score weighting needs an enabled factor")
     if (strategy.weighting == "formula") != (strategy.formula is not None):
-        raise SpecError("requires", ("formula",), "a formula is given exactly when weighting is 'formula'")
+        yield SpecError("requires", ("formula",), "a formula is given exactly when weighting is 'formula'")
     if strategy.hold_rank is not None and top_n is None:
-        raise SpecError("requires", ("hold_rank",), "hold_rank needs an int top_n")
-    if strategy.hold_rank is not None and strategy.hold_rank <= top_n:
-        raise SpecError("out_of_range", ("hold_rank",), f"{strategy.hold_rank} is not above top_n {top_n}")
+        yield SpecError("requires", ("hold_rank",), "hold_rank needs an int top_n")
+    elif strategy.hold_rank is not None and strategy.hold_rank <= top_n:
+        yield SpecError("out_of_range", ("hold_rank",), f"{strategy.hold_rank} is not above top_n {top_n}")
 
 
-def _check_compiled(strategy: Strategy) -> None:
+def _compiled(strategy: Strategy) -> Iterator[SpecError]:
     """too_large where the pool, copied into each cross-sectional operator, makes an expression exceed MAX_NODES."""
     try:
         pool = pool_expr(strategy)
     except ExprError as error:
-        raise SpecError(error.code, ("pool",), str(error)) from None
+        yield SpecError(error.code, ("pool",), str(error))
+        return
     for expr, loc in _wrapped(strategy):
         try:
             wrap(expr, pool)
         except ExprError as error:
-            raise SpecError(error.code, loc, str(error)) from None
+            yield SpecError(error.code, loc, str(error))

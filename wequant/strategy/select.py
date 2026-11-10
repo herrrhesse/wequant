@@ -9,7 +9,7 @@ import numpy as np
 import polars as pl
 
 from wequant.expr import Cache, Expr, evaluate, evaluate_all
-from wequant.strategy.choose import choose, stack
+from wequant.strategy.choose import Choice, choose, stack
 from wequant.strategy.compile import comparison, contains, expressions, pool_items
 from wequant.strategy.errors import SpecError
 from wequant.strategy.frames import detail_frame, funnel_frame, picks_frame, rejects_frame, stocks_frame
@@ -24,13 +24,15 @@ if TYPE_CHECKING:
 
 class Screen(NamedTuple):
     """One day's decision without holdings: the picks, funnel and detail a backtest records for it when nothing is
-    held, every stock's full row, and the stocks each funnel level rejects."""
+    held, every stock's full row, the stocks each funnel level rejects, and the section and choice they come from."""
 
     picks: pl.DataFrame
     funnel: pl.DataFrame
     detail: pl.DataFrame
     stocks: pl.DataFrame
     rejects: pl.DataFrame
+    section: Section
+    choice: Choice
 
 
 def select(
@@ -76,6 +78,8 @@ def screen(strategy: Strategy, panel: Panel, day: Day | None = None, cache: Cach
         detail_frame(strategy, section, choice, panel),
         stocks_frame(strategy, section, choice, panel),
         rejects_frame(strategy, section, panel),
+        section,
+        choice,
     )
 
 

@@ -19,8 +19,9 @@ class Exit(IntEnum):
 
 
 class ServiceError(Exception):
-    """A failure the caller can act on: exit is the code the command ends with, detail its located ErrorDetails."""
+    """A failure the caller can act on: exit is the code the command ends with, detail its located ErrorDetails,
+    complete False when checks that relate fields to each other did not run."""
 
-    def __init__(self, exit: Exit, message: str, detail: tuple = ()) -> None:
+    def __init__(self, exit: Exit, message: str, detail: tuple = (), complete: bool = True) -> None:
         super().__init__(message)
-        self.exit, self.detail = exit, tuple(detail)
+        self.exit, self.detail, self.complete = exit, tuple(detail), complete

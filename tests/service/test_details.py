@@ -42,6 +42,18 @@ def test_a_refused_request_has_one_located_detail_per_fault(data, code, loc):
     assert [(d.code, d.loc) for d in raised.value.detail] == [(code, loc)]
 
 
+def test_one_pass_reports_the_requests_errors_and_the_strategys_together():
+    data = {"strategy": {"filters": [{"name": "a", "expr": ["GT", "amout", 1.0]}], "top_n": 0}}
+    with pytest.raises(ServiceError) as raised:
+        validated(StrategyRequest, data)
+    got = [(d.code, d.loc, d.path) for d in raised.value.detail]
+    assert got == [
+        ("out_of_range", ["strategy", "top_n"], []),
+        ("unknown_field", ["strategy", "filters", 0, "expr"], [1]),
+    ]
+    assert not raised.value.complete
+
+
 def test_the_cores_errors_keep_their_codes_locations_and_expression_paths():
     spec = StrategySpec.model_validate(
         {"filters": [{"name": "score", "expr": [">", "close", 1]}], "factors": [{**FACTOR, "expr": ["MA", "close", 0]}]}

@@ -22,7 +22,7 @@ from wequant.strategy.frames import (
     stocks_frame,
 )
 from wequant.strategy.schedule import decision_rows
-from wequant.strategy.section import Section, cross_section, verdicts
+from wequant.strategy.section import Section, cross_section, percentiles, verdicts, weight_shares
 from wequant.strategy.select import Screen, check_anchor, screen, select
 from wequant.strategy.strategy import (
     MODES,
@@ -85,6 +85,7 @@ __all__ = [
     "parse_form",
     "picks_frame",
     "pool_expr",
+    "percentiles",
     "pool_items",
     "rejects_frame",
     "screen",
@@ -93,5 +94,6 @@ __all__ = [
     "stocks_frame",
     "to_form",
     "verdicts",
+    "weight_shares",
     "wrap",
 ]

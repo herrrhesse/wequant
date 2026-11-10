@@ -49,6 +49,7 @@ CASES = [
     (["strategy", "list"], "strategy_list", service.StrategyListRequest(), "library_home"),
     (["strategy", "versions", "s"], "strategy_versions", service.VersionsRequest(id="s"), "library_home"),
     (["strategy", "show", "s@1"], "strategy_show", service.ShowRequest(id="s", n=1), "library_home"),
+    (["screen", "--strategy", "m"], "screen", service.ScreenRequest(saved={"id": "m"}), "market_home"),
 ]
 
 

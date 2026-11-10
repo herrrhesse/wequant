@@ -8,6 +8,7 @@ from wequant.service.errors import Exit, ServiceError
 from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest, expr_check, expr_eval
 from wequant.service.issues import IssueCount, IssueRow, Issues, IssuesRequest, data_issues
 from wequant.service.rows import Row
+from wequant.service.screen import ScreenRequest, ScreenResult, screen
 from wequant.service.status import DataStatus, StatusRequest, TableStatus, data_status
 from wequant.service.strategies import (
     ArchiveRequest,
@@ -36,6 +37,9 @@ from wequant.service.strategies import (
 )
 
 __all__ = [
+    "ScreenRequest",
+    "ScreenResult",
+    "screen",
     "ArchiveRequest",
     "SavedStrategy",
     "SavedVersion",
