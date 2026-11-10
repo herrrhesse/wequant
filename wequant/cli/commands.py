@@ -16,7 +16,8 @@ from cyclopts import App, CycloptsError, Group, Parameter
 from pydantic import BaseModel
 
 from wequant import service
-from wequant.backtest import ANOMALY_MODES
+from wequant.account.execution import DELISTING, PRICES
+from wequant.backtest import ANOMALY_MODES, Progress
 from wequant.cli.render import error_panel, refused, render, render_schema
 from wequant.service import Check, Context, ErrorBody, ErrorDetail, Exit, ServiceError
 from wequant.service.base import error_body
@@ -230,6 +231,82 @@ def screen(
 
 
 @app.command
+def backtest(
+    *,
+    strategy: StrategyArg,
+    start: str | None = None,
+    end: str | None = None,
+    cash: float = 1_000_000.0,
+    benchmark: str = "000300.SH",
+    no_benchmark: bool = False,
+    price: Literal[PRICES] | None = None,
+    commission_rate: float | None = None,
+    min_commission: float | None = None,
+    slippage_bps: float | None = None,
+    delisting: Literal[DELISTING] | None = None,
+    failure_recovery: float | None = None,
+    anomalies: Literal[ANOMALY_MODES] = "flag",
+    exclude_suspicious: bool = False,
+    data_version: int | None = None,
+    no_save: bool = False,
+    report: bool = False,
+    common: Common = COMMON,
+) -> int:
+    """Run a strategy over a date range, archive the run and print its metrics (with --report, a Markdown report).
+
+    Parameters
+    ----------
+    start
+        Base day, YYYY-MM-DD: the first trading day on or after it (default: the panel's first day).
+    end
+        Last day, YYYY-MM-DD: the last trading day on or before it (default: the store's last day).
+    cash
+        Yuan, a whole number of fen.
+    benchmark
+        An index code of index_bars.
+    no_benchmark
+        Run without a benchmark.
+    price
+        Fill at the fill day's raw open (default) or close.
+    commission_rate
+        Of the trade value, both sides (default 0.0003).
+    min_commission
+        Yuan per order (default 5).
+    slippage_bps
+        Per side, a cost on the trade value (default 10).
+    delisting
+        auto (default), write_down, sell_at_last_close or hold.
+    failure_recovery
+        Share of its last close a written-down holding returns as cash (default 0).
+    anomalies
+        flag: use anomalous data and report it; exclude_day: read error-level anomalous days as missing.
+    exclude_suspicious
+        Also exclude suspicious-level days (with exclude_day).
+    data_version
+        Store version to read (default: the current one).
+    no_save
+        Do not archive the run.
+    report
+        Attach a Markdown report.
+    """
+    given = {"price": price, "commission_rate": commission_rate, "min_commission": min_commission}
+    given |= {"slippage_bps": slippage_bps, "delisting": delisting, "failure_recovery": failure_recovery}
+    fields = {
+        "start": start,
+        "end": end,
+        "cash": cash,
+        "benchmark": None if no_benchmark else benchmark,
+        "execution": {name: value for name, value in given.items() if value is not None},
+        "data": {"anomalies": anomalies, "exclude_suspicious": exclude_suspicious},
+        "data_version": data_version,
+        "save": not no_save,
+        "report": report,
+    }
+    request = lambda: validated(service.BacktestRequest, {**strategy_fields(strategy), **fields})  # noqa: E731
+    return run(service.backtest, request, common, human=lambda result: result.report or render(result))
+
+
+@app.command
 def schema(
     *, request: Annotated[service.SchemaRequest, FLAT] = service.SchemaRequest(), common: Common = COMMON
 ) -> int:
@@ -246,7 +323,8 @@ def run(
         try:
             request = request() if callable(request) else request
             log.debug("%s %s", operation.__name__, request.model_dump_json())
-            result = operation(request, Context(common.home, common.cache))
+            context = Context(common.home, common.cache, progress=_progress if common.verbose else None)
+            result = operation(request, context)
             text = result.model_dump_json() if common.json else human(result)
         except ServiceError as error:
             log.error("%s", error)
@@ -300,6 +378,11 @@ def saved_ref(text: str) -> dict:
         detail = ErrorDetail(code="bad_ref", message=f"{text!r} is not ID or ID@N", loc=["saved"])
         raise ServiceError(Exit.USAGE, detail.message, [detail])
     return {"id": id, "n": int(n) if at else None}
+
+
+def _progress(at: Progress) -> None:
+    """A long run's progress as an info line on stderr (-v)."""
+    log.info("day %d of %d: %s, equity %.2f", at.done, at.total, at.day, at.equity)
 
 
 def _failed(body: ErrorBody, common: Common) -> int:
