@@ -8,7 +8,8 @@ import typing
 from dataclasses import MISSING, Field, fields, is_dataclass
 from typing import get_args, get_origin, get_type_hints
 
-from wequant.expr import Expr, from_form
+from wequant.expr import Expr, ExprError, from_form
+from wequant.strategy.errors import Collector, SpecError, SpecErrors
 
 
 def to_form(value: object) -> object:
@@ -31,67 +32,100 @@ def to_form(value: object) -> object:
 
 
 def parse_form[T](cls: type[T], form: object) -> T:
-    """The cls a form describes, each field read by its annotation and checked by cls; ValueError for an unknown field
-    or a wrong type."""
+    """The cls a form describes, each field read by its annotation and checked by cls.check_field when cls has one.
+
+    Unknown keys and field errors in the form's order, then missing keys, are raised at once as SpecErrors, each located
+    in the form; a SpecError of the rules across fields follows, at the first one broken, also as SpecErrors.
+    """
     if not isinstance(form, dict):
-        raise ValueError(f"{cls.__name__}: the form is a {type(form).__name__}, not an object")
-    declared = {f.name: f for f in fields(cls)}
-    if unknown := [key for key in form if key not in declared]:
-        raise ValueError(f"{cls.__name__}: unknown fields {unknown}")
-    if missing := [name for name, f in declared.items() if name not in form and _required(f)]:
-        raise ValueError(f"{cls.__name__}: missing fields {missing}")
-    hints = get_type_hints(cls)
-    return cls(**{key: _read(f"{cls.__name__}.{key}", hints[key], value) for key, value in form.items()})
+        raise SpecError("wrong_type", (), f"{cls.__name__}: the form is a {type(form).__name__}, not an object")
+    declared, found, values = {f.name: f for f in fields(cls)}, Collector(), {}
+    for key, value in form.items():
+        with found.at(key):
+            values[key] = _field(cls, declared, key, value)
+    for name in (name for name, f in declared.items() if name not in form and _required(f)):
+        found.errors.append(SpecError("missing_key", (name,), f"{cls.__name__} needs {name!r}"))
+    found.check()
+    try:
+        return cls(**values)
+    except SpecError as error:
+        raise SpecErrors([error]) from None
 
 
-def _read(field: str, hint: object, value: object) -> object:
+def _field(cls: type, declared: dict[str, Field], name: str, value: object) -> object:
+    """value of field name read by its annotation, then checked by cls.check_field when cls has one."""
+    if name not in declared:
+        raise SpecError("unknown_key", (), f"{cls.__name__} has no field {name!r}")
+    value = _read(get_type_hints(cls)[name], value)
+    check = getattr(cls, "check_field", None)
+    return value if check is None else check(name, value)
+
+
+def _read(hint: object, value: object) -> object:
     """value read as hint: an Expr from its form, a union option, a tuple, a dataclass, a date or a plain value."""
     if hint is Expr:
-        return from_form(value)
+        return _expr(value)
     if get_origin(hint) in (types.UnionType, typing.Union):
-        return _option(field, get_args(hint), value)
+        return _option(get_args(hint), value)
     if get_origin(hint) is tuple:
-        if not isinstance(value, list):
-            raise ValueError(f"{field}: {value!r} is not a list")
-        return tuple(_read(field, get_args(hint)[0], item) for item in value)
+        return _tuple(get_args(hint)[0], value)
     if is_dataclass(hint):
         return parse_form(hint, value)
     if hint is dt.date:
-        return _date(field, value)
+        return _date(value)
     if hint is float and isinstance(value, int | float) and not isinstance(value, bool):
-        return _float(field, value)
+        return _float(value)
     if type(value) is hint:
         return value
-    raise ValueError(f"{field}: {value!r} is not a {getattr(hint, '__name__', hint)}")
+    raise SpecError("wrong_type", (), f"{value!r} is not of type {getattr(hint, '__name__', hint)}")
 
 
-def _option(field: str, options: tuple, value: object) -> object:
-    """value read as one option of a union: None, the one other type, or the first dataclass whose fields hold every key."""
+def _expr(form: object) -> Expr:
+    """The expression of a form; its ExprError becomes a SpecError with the same code and path."""
+    try:
+        return from_form(form)
+    except ExprError as error:
+        raise SpecError(error.code, (), str(error), error.path) from None
+
+
+def _option(options: tuple, value: object) -> object:
+    """value read as one option of a union: None, the one other type, or the dataclass with fewest unknown keys."""
     if value is None and type(None) in options:
         return None
     kinds = [option for option in options if option is not type(None)]
     if len(kinds) == 1:
-        return _read(field, kinds[0], value)
-    for kind in kinds:  # Condition | Group: an object with a "conditions" key is a Group
-        if isinstance(value, dict) and value.keys() <= {f.name for f in fields(kind)}:
-            return parse_form(kind, value)
-    raise ValueError(f"{field}: {value!r} is none of {[kind.__name__ for kind in kinds]}")
+        return _read(kinds[0], value)
+    if not isinstance(value, dict):
+        raise SpecError("wrong_type", (), f"{value!r} is none of {[kind.__name__ for kind in kinds]}")
+    return parse_form(min(kinds, key=lambda kind: len(value.keys() - {f.name for f in fields(kind)})), value)
 
 
-def _date(field: str, value: object) -> dt.date:
+def _tuple(kind: object, value: object) -> tuple:
+    """A list read item by item as kind; every item's errors raised at once."""
+    if not isinstance(value, list):
+        raise SpecError("wrong_type", (), f"{value!r} is not a list")
+    found, read = Collector(), []
+    for i, item in enumerate(value):
+        with found.at(i):
+            read.append(_read(kind, item))
+    found.check()
+    return tuple(read)
+
+
+def _date(value: object) -> dt.date:
     if isinstance(value, str):
         try:
             return dt.date.fromisoformat(value)
         except ValueError:
             pass
-    raise ValueError(f"{field}: {value!r} is not an ISO date")
+    raise SpecError("wrong_type", (), f"{value!r} is not an ISO date")
 
 
-def _float(field: str, value: int | float) -> float:
+def _float(value: int | float) -> float:
     try:
         return float(value)
     except OverflowError:
-        raise ValueError(f"{field}: {value!r} is too large for a float") from None
+        raise SpecError("out_of_range", (), f"{value!r} is too large for a float") from None
 
 
 def _pinned(value: object) -> bool:

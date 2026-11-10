@@ -11,8 +11,23 @@ from wequant.account import Execution
 from wequant.analytics import MetricSpec
 from wequant.backtest import Backtest
 from wequant.canonical import canonical
-from wequant.expr import REF, STD, ExprError, Field, LookAheadError
-from wequant.strategy import MODES, PERIODS, PREFERS, SH_SZ, Condition, Factor, Group, Strategy, parse_form, to_form
+from wequant.expr import INDEXES, REF, STD, Field
+from wequant.strategy import (
+    MODES,
+    PERIODS,
+    POOL_BOARDS,
+    PREFERS,
+    SH_SZ,
+    Condition,
+    Factor,
+    Group,
+    Pool,
+    SpecError,
+    SpecErrors,
+    Strategy,
+    parse_form,
+    to_form,
+)
 
 ADJ, CLOSE, OPEN, ST, VOLUME = Field("adj_close"), Field("close"), Field("open"), Field("st"), Field("volume")
 EX0 = Execution(slippage_bps=0.0)
@@ -36,6 +51,18 @@ def test_golden_strategy_keys():
         '"filters":[{"conditions":[{"expr":["GT","close",5.0],"name":"a"},{"enabled":false,"expr":["NOT","st"],'
         '"name":"b"}],"mode":"any","name":"g"}],"top_n":10}'
     )
+
+
+def test_the_new_fields_stay_out_of_the_form_at_their_defaults_and_have_golden_keys():
+    assert Strategy(pool=Pool(), hold_rank=None, max_weight=None).key == Strategy().key == "{}"
+    assert Strategy(factors=MOM.factors, top_n=2, pool=Pool(exclude_st=False)).key == MOM_KEY
+    pool = Pool(index="000905.SH", boards=("star", "main"), exclude_st=True, min_list_days=250)
+    strategy = Strategy(factors=MOM.factors, top_n=2, hold_rank=4, max_weight=0.3, pool=pool)
+    assert strategy.key == (
+        '{"factors":[{"expr":["DIV","adj_close",["REF","adj_close",1]],"name":"mom"}],"hold_rank":4,"max_weight":0.3,'
+        '"pool":{"boards":["main","star"],"exclude_st":true,"index":"000905.SH","min_list_days":250},"top_n":2}'
+    )
+    assert Strategy(pool=Pool(boards=("chinext",))).key == '{"pool":{"boards":["chinext"]}}'
 
 
 def test_golden_backtest_keys_write_execution_and_metrics_in_full():
@@ -90,6 +117,13 @@ def strategies(draw) -> Strategy:
     ranked = any(f.enabled for f in factors)
     top_n = draw(st.none() | st.integers(1, 60)) if ranked else None
     weighting = draw(st.sampled_from(["equal", "formula", *(["score"] if ranked else [])]))
+    boards = st.lists(st.sampled_from(POOL_BOARDS), min_size=1, max_size=3, unique=True)
+    pool = Pool(
+        index=draw(st.none() | st.sampled_from(INDEXES)),
+        boards=draw(st.none() | boards),
+        exclude_st=draw(flag),
+        min_list_days=draw(st.none() | st.integers(2, 500)),
+    )
     return Strategy(
         universe=draw(st.sampled_from([SH_SZ, SH_SZ & (CLOSE > 1.0)])),
         filters=draw(st.permutations(conditions + groups)),
@@ -102,6 +136,9 @@ def strategies(draw) -> Strategy:
         formula=draw(st.sampled_from(NUMS)) if weighting == "formula" else None,
         band=draw(st.none() | NUMBERS | st.just(0)),
         anchor=draw(st.none() | DAYS),
+        hold_rank=draw(st.none() | st.integers(top_n + 1, top_n + 30)) if top_n else None,
+        max_weight=draw(st.none() | st.floats(1e-6, 1 - 1e-6) | st.just(0.5)),
+        pool=pool,
     )
 
 
@@ -187,8 +224,75 @@ def test_bad_forms_raise_value_error_never_type_error(form):
         Backtest.from_form(form)
 
 
-def test_expression_errors_pass_through():
-    with pytest.raises(LookAheadError):
-        Backtest.from_form(mom_form(strategy__factors__0__expr=["REF", "adj_close", -1]))
-    with pytest.raises(ExprError, match="unknown operator"):
-        Backtest.from_form(mom_form(strategy__factors__0__expr=["ZAP", "adj_close"]))
+def test_an_expression_error_keeps_its_code_and_path_at_its_location():
+    with pytest.raises(SpecErrors) as raised:
+        Backtest.from_form(mom_form(strategy__factors__0__expr=["GT", ["MA", "adj_close", 0], 10]))
+    [error] = raised.value.errors
+    assert (error.code, error.loc, error.path) == ("out_of_range", ("strategy", "factors", 0, "expr"), (1, 2))
+    with pytest.raises(SpecErrors, match="unknown operator") as raised:
+        Strategy.from_form({"universe": ["ZAP", "close"]})
+    assert [(e.code, e.loc, e.path) for e in raised.value.errors] == [("unknown_operator", ("universe",), ())]
+    with pytest.raises(SpecErrors) as raised:
+        Strategy.from_form({"filters": [{"name": "a", "expr": ["REF", "close", -1]}]})
+    assert raised.value.errors[0].code == "negative_window"
+
+
+def test_every_field_error_of_a_form_is_raised_at_once_in_the_forms_order():
+    form = {
+        "top_n": "5",
+        "pool": {"exclud_st": True, "boards": ["main", "bse", "main"]},
+        "filters": [{"name": "a"}, {"name": "", "expr": ["GT", "close", 1]}, {"name": "g", "conditions": []}],
+        "periodd": "week",
+        "max_weight": 1,
+    }
+    with pytest.raises(SpecErrors) as raised:
+        Strategy.from_form(form)
+    assert [(e.code, e.loc) for e in raised.value.errors] == [
+        ("wrong_type", ("top_n",)),
+        ("unknown_key", ("pool", "exclud_st")),
+        ("not_a_choice", ("pool", "boards", 1)),
+        ("missing_key", ("filters", 0, "expr")),
+        ("out_of_range", ("filters", 1, "name")),
+        ("out_of_range", ("filters", 2, "conditions")),
+        ("unknown_key", ("periodd",)),
+        ("out_of_range", ("max_weight",)),
+    ]
+    assert str(raised.value).startswith("top_n: '5' is not of type int; pool.exclud_st: Pool has no field")
+
+
+def test_rules_across_fields_follow_once_every_field_reads_and_stop_at_the_first():
+    with pytest.raises(SpecErrors) as raised:
+        Strategy.from_form({"top_n": 2, "backups": 1, "hold_rank": 2})
+    assert [(e.code, e.loc) for e in raised.value.errors] == [("requires", ("top_n",))]
+    form = {"factors": [{"name": "a", "expr": "close"}, {"name": "a", "expr": "open"}], "top_n": 2, "hold_rank": 2}
+    with pytest.raises(SpecErrors) as raised:
+        Strategy.from_form(form)
+    assert [(e.code, e.loc) for e in raised.value.errors] == [("duplicate_name", ("factors", 1, "name"))]
+
+
+@pytest.mark.parametrize(
+    "form, code, loc",
+    [
+        ({"filters": [5]}, "wrong_type", ("filters", 0)),
+        ({"filters": {"name": "a"}}, "wrong_type", ("filters",)),
+        ({"anchor": "2024-13-01"}, "wrong_type", ("anchor",)),
+        ({"band": 10**400}, "out_of_range", ("band",)),
+        ({"pool": []}, "wrong_type", ("pool",)),
+        ({"pool": {"index": "000300.SZ"}}, "not_a_choice", ("pool", "index")),
+        ({"pool": {"boards": []}}, "out_of_range", ("pool", "boards")),
+        ({"pool": {"boards": ["main", "main"]}}, "duplicate_value", ("pool", "boards", 1)),
+        ({"pool": {"min_list_days": 1}}, "out_of_range", ("pool", "min_list_days")),
+        ({"filters": [{"name": "a", "expr": "close"}]}, "needs_condition", ("filters", 0, "expr")),
+        (
+            {"filters": [{"name": "g", "conditions": [{"name": "c"}]}]},
+            "missing_key",
+            ("filters", 0, "conditions", 0, "expr"),
+        ),
+        ({"filters": [{"name": "a", "expr": "st", "mode": "all"}]}, "unknown_key", ("filters", 0, "mode")),
+        (5, "wrong_type", ()),
+    ],
+)
+def test_a_form_error_has_its_code_and_location(form, code, loc):
+    with pytest.raises((SpecError, SpecErrors)) as raised:
+        Strategy.from_form(form)
+    assert [(e.code, e.loc) for e in raised.value.errors] == [(code, loc)]

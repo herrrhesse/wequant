@@ -1,5 +1,6 @@
 """Strategy descriptions and their cross-section on a day: universe, filters, ranked factors, top N and weights."""
 
+from wequant.strategy.errors import SpecError, SpecErrors
 from wequant.strategy.form import parse_form, to_form
 from wequant.strategy.schedule import decision_rows
 from wequant.strategy.section import Section, cross_section, verdicts
@@ -19,6 +20,8 @@ from wequant.strategy.select import (
 from wequant.strategy.strategy import (
     MODES,
     PERIODS,
+    POOL_BOARDS,
+    POOL_ITEMS,
     PREFERS,
     RESERVED,
     SH_SZ,
@@ -27,6 +30,7 @@ from wequant.strategy.strategy import (
     Condition,
     Factor,
     Group,
+    Pool,
     Step,
     Strategy,
 )
@@ -36,6 +40,8 @@ __all__ = [
     "MODES",
     "PERIODS",
     "PICKS",
+    "POOL_BOARDS",
+    "POOL_ITEMS",
     "PREFERS",
     "RESERVED",
     "SH_SZ",
@@ -44,8 +50,11 @@ __all__ = [
     "Condition",
     "Factor",
     "Group",
+    "Pool",
     "Screen",
     "Section",
+    "SpecError",
+    "SpecErrors",
     "Step",
     "Strategy",
     "check_anchor",
