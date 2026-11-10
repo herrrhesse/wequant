@@ -25,6 +25,7 @@ def test_each_decision_is_what_screen_shows_for_that_day(market_home):
     """Without hold_rank the targets, weights and backups do not depend on the holdings (design 11.3)."""
     result = run(market_home)
     picks = Archive(market_home / "runs").load(result.run_id).picks
+    assert picks.height > 0
     for day, rows in picks.group_by("date", maintain_order=True):
         shown = screen(ScreenRequest(strategy=DAILY, date=day[0]), Context(market_home)).rows
         expected = [(r.code, r.role, r.weight) for r in shown if r.role != "none"]
