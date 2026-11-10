@@ -42,6 +42,7 @@ def golden_run(**changes) -> Run:
         "picks": pl.DataFrame(),
         "funnel": pl.DataFrame(),
         "detail": pl.DataFrame(),
+        "anomalies": pl.DataFrame(),
         "warnings": {},
     }
     return Run(**(fields | changes))

@@ -24,6 +24,18 @@ EXAMPLES = {  # each code's params with the keys its warning carries
     "max_weight_cash": {"days": 12, "mean_share": 0.0625},
     "delisted_holdings": {"codes": 40, "amount": 1857948.25, "max_share": 0.036, "mergers": 1},
     "delisting_approximate": {"earlier_codes": 25, "maybe_suspended": 3},
+    "data_anomaly": {
+        "codes": 2,
+        "cells": 5,
+        "error_cells": 1,
+        "suspicious_cells": 3,
+        "notice_cells": 1,
+        "decisions": 6,
+        "fills": 7,
+        "max_share": 0.4375,
+        "max_share_day": "2024-01-16",
+        "unavoidable": 8,
+    },
 }
 EXAMPLES["index_uncovered"]["first_2"] = "2007-01-15"
 

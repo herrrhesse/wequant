@@ -64,6 +64,7 @@ class Run:
     picks: pl.DataFrame  # each decision day's picks: the engine's fixed schema and row order
     funnel: pl.DataFrame  # each decision day's funnel counts: the engine's fixed schema and row order
     detail: pl.DataFrame  # each decision day's per-stock selection: the engine's columns and row order
+    anomalies: pl.DataFrame  # every use of an anomalous cell: the engine's schema and total row order
     warnings: dict[str, tuple[str, dict]]  # snake_case code -> (text, params), in the engine's order
 
     def __post_init__(self) -> None:

@@ -94,6 +94,7 @@ def test_files_come_in_files_order():
         "picks.parquet",
         "funnel.parquet",
         "detail.parquet",
+        "anomalies.parquet",
     )
     assert tuple(run_files(hold(DESC, 1))) == FILES and PROVENANCE not in FILES
 

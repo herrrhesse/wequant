@@ -19,6 +19,22 @@ def _uncovered(index: str, days: int, first: str | None) -> str:
     return f"member@{index}: {days} decision days outside its index_members span{span}"
 
 
+def _data_anomaly(p: Params) -> str:
+    """Cells by level, decisions, fills, the largest holding on them and, when levels are excluded, what stays used."""
+    used = (
+        f"{p['codes']} codes, {p['cells']} anomalous cells used ({p['error_cells']} error, {p['suspicious_cells']} "
+        f"suspicious, {p['notice_cells']} notice): {p['decisions']} decisions read them in signal windows, {p['fills']} "
+        "orders on them, "
+    )
+    held = (
+        "no holding valued on them"
+        if p["max_share_day"] is None
+        else (f"holdings on them peaked at {p['max_share']:.1%} of equity on {p['max_share_day']}")
+    )
+    kept = "" if p["unavoidable"] is None else f"; {p['unavoidable']} uses of excluded levels no missing day removes"
+    return used + held + kept
+
+
 TEXTS: dict[str, Callable[[Params], str]] = {
     "limits_unchecked": lambda p: (
         "the store's price limits are not checked against its bars; run tools.check_limits --commit"
@@ -55,6 +71,7 @@ TEXTS: dict[str, Callable[[Params], str]] = {
         "written down to zero on the first trading day after it, possibly before their official delisting or while "
         f"only suspended; {p['maybe_suspended']} of them were not evidently forced delistings"
     ),
+    "data_anomaly": _data_anomaly,
 }
 
 

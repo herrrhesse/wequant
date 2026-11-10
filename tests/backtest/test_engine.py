@@ -23,6 +23,7 @@ from wequant.account import EXECUTION_VERSION, Execution
 from wequant.analytics import METRICS_VERSION, compute_metrics
 from wequant.backtest import Backtest, Cancelled, planned_id, run, versions
 from wequant.backtest.warnings import WARNINGS
+from wequant.data.schema import ANOMALY_VERSION
 from wequant.expr import EXPR_VERSION, REF, Cache, Field, panel_key
 from wequant.panel import load_panel
 from wequant.strategy import Condition, Factor, SpecError, Strategy
@@ -127,6 +128,7 @@ def test_rotation_identities_progress_and_warnings(rotated, rotation):
         "expr": EXPR_VERSION,
         "execution": EXECUTION_VERSION,
         "metrics": METRICS_VERSION,
+        "anomaly": ANOMALY_VERSION,
     }
     assert result.panel_key == panel_key(rotation) and result.anchor == JAN[2]
     ledger = result.ledger

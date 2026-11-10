@@ -98,7 +98,7 @@ def detail_frame(strategy: Strategy, section: Section, choice: Choice, panel: Pa
     cells = np.flatnonzero((section.steps["universe"] == 1) | choice.held)  # flat (row, column) indices, in order
     i, j = np.divmod(cells, len(panel.codes))
     verdicts = ["universe", *pool_items(strategy), *(step.name for step in strategy.steps())]
-    action = _actions(*(np.take(mask, cells) for mask in (choice.target, choice.held, section.traded)))
+    action = actions(*(np.take(mask, cells) for mask in (choice.target, choice.held, section.traded)))
     sold = np.flatnonzero(action == SELL)
     columns = {
         "date": pl.Series(panel.dates[section.rows], dtype=pl.Date).gather(i),
@@ -180,7 +180,7 @@ def _funnel(strategy: Strategy, section: Section, choice: Choice) -> Iterator[tu
         yield name, mask.sum(axis=1), mask.sum(axis=1)
 
 
-def _actions(target: np.ndarray, held: np.ndarray, traded: np.ndarray) -> np.ndarray:
+def actions(target: np.ndarray, held: np.ndarray, traded: np.ndarray) -> np.ndarray:
     """ACTIONS index of each cell: a target is kept or bought; a held other one is sold, or waits without a bar."""
     return np.select([target & held, target, held & traded, held], [KEEP, BUY, SELL, WAIT], NONE).astype(np.int8)
 

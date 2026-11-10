@@ -16,7 +16,7 @@ from wequant.data.files import parquet_bytes
 from wequant.runs.run import FORMAT, Run
 
 LEDGER = ("daily", "positions", "orders", "delisted")
-FRAMES = (*LEDGER, "picks", "funnel", "detail")
+FRAMES = (*LEDGER, "picks", "funnel", "detail", "anomalies")
 FILES = ("run.json", "metrics.json", "warnings.json", *(f"{name}.parquet" for name in FRAMES))  # compared on rerun
 PROVENANCE = "provenance.json"  # code version, library versions, creation time: never compared
 LIBRARIES = ("numpy", "polars", "numba")
@@ -44,7 +44,7 @@ def run_json(run: Run) -> bytes:
 
 def run_files(run: Run) -> dict[str, bytes]:
     """The compared files in FILES order: equal runs give equal bytes."""
-    frames = (*(getattr(run.ledger, name) for name in LEDGER), run.picks, run.funnel, run.detail)
+    frames = (*(getattr(run.ledger, name) for name in LEDGER), run.picks, run.funnel, run.detail, run.anomalies)
     return {
         "run.json": run_json(run),
         "metrics.json": metrics_json(run.metrics, run.spec),
@@ -71,7 +71,7 @@ def read_run(directory: Path) -> Run:
     inputs = doc["inputs"]
     if inputs["format"] != FORMAT:
         raise ValueError(f"{directory} holds a run of format {inputs['format']}, not {FORMAT}")
-    *ledger, picks, funnel, detail = (pl.read_parquet(directory / f"{name}.parquet") for name in FRAMES)
+    *ledger, picks, funnel, detail, anomalies = (pl.read_parquet(directory / f"{name}.parquet") for name in FRAMES)
     meta = doc["ledger"] | {"code_version": read_json(directory / PROVENANCE)["code_version"]}
     scored = read_json(directory / "metrics.json")
     run = Run(
@@ -86,6 +86,7 @@ def read_run(directory: Path) -> Run:
         picks=picks,
         funnel=funnel,
         detail=detail,
+        anomalies=anomalies,
         warnings={code: (text, params) for code, text, params in read_json(directory / "warnings.json")},
     )
     if not run.id == doc["id"] == directory.name:

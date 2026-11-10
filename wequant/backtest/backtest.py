@@ -13,6 +13,7 @@ import numpy as np
 from wequant.account import Execution
 from wequant.account.execution import FEN, LI, exact, finite_number
 from wequant.analytics import MetricSpec
+from wequant.backtest.data import DataOptions
 from wequant.canonical import canonical
 from wequant.panel import Panel, load_panel
 from wequant.strategy import SpecError, Strategy, check_anchor, parse_form, to_form
@@ -23,7 +24,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class Backtest:
-    """A strategy traded from the close of start to end with cash, costs, a benchmark and metric conventions."""
+    """A strategy traded from the close of start to end with cash, costs, data options, a benchmark and metric
+    conventions."""
 
     strategy: Strategy
     start: dt.date | None = None  # base day: the first trading day on or after it; None: the panel's first day
@@ -32,9 +34,11 @@ class Backtest:
     execution: Execution = Execution()
     benchmark: str | None = "000300.SH"  # an index_bars code; None: no benchmark column
     metrics: MetricSpec = MetricSpec()
+    data: DataOptions = DataOptions()
 
     def __post_init__(self) -> None:
-        for name, kind in (("strategy", Strategy), ("execution", Execution), ("metrics", MetricSpec)):
+        kinds = (("strategy", Strategy), ("execution", Execution), ("metrics", MetricSpec), ("data", DataOptions))
+        for name, kind in kinds:
             if not isinstance(getattr(self, name), kind):
                 raise ValueError(f"{name}: {getattr(self, name)!r} is not a {kind.__name__}")
         _check_window(self.start, self.end, self.strategy.anchor)
@@ -61,13 +65,24 @@ class Backtest:
 def panel_for(
     backtest: Backtest, *, store: Store | None = None, version: int | None = None, cache_dir: Path | None = None
 ) -> Panel:
-    """The full panel run expects: every code from the strategy's anchor (the calendar's first day by default) to end."""
-    return load_panel(backtest.strategy.anchor, backtest.end, version=version, store=store, cache_dir=cache_dir)
+    """The full panel run expects: every code from the strategy's anchor (the calendar's first day by default) to end,
+    the anomalous days the data options exclude read as missing."""
+    return load_panel(
+        backtest.strategy.anchor,
+        backtest.end,
+        version=version,
+        store=store,
+        cache_dir=cache_dir,
+        exclude=backtest.data.excluded,
+    )
 
 
 def span(backtest: Backtest, panel: Panel) -> tuple[int, int]:
-    """Base row and last row on panel; SpecError for an anchor mismatch, a start before the panel or no run day."""
+    """Base row and last row on panel; SpecError for an anchor mismatch, a start before the panel or no run day,
+    ValueError for a panel that excludes other anomaly levels than the data options do."""
     check_anchor(backtest.strategy, panel)
+    if panel.excluded != backtest.data.excluded:
+        raise ValueError(f"the panel excludes {panel.excluded}, the data options {backtest.data.excluded}")
     dates, start, end = panel.dates, backtest.start, backtest.end
     if start is not None and np.datetime64(start, "D") < dates[0]:
         raise SpecError("out_of_range", ("start",), f"{start} is before the panel's first day {dates[0]}")

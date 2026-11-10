@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 
+from wequant.backtest.anomalies import anomaly_params
 from wequant.backtest.messages import TEXTS, Params, warning
-from wequant.expr import STORED_AS, Expr, Field
+from wequant.expr import STORED_AS
+from wequant.expr.lookback import fields as read_fields
 from wequant.rules import default_book, limit_check_current
 from wequant.rules.limits import down_price, up_price
 from wequant.strategy import Choice, Section, Strategy, expressions
@@ -24,10 +25,10 @@ STALE_DAYS = 20  # trading days without a bar after which a holding's last-close
 
 
 def run_warnings(
-    strategy: Strategy, panel: Panel, section: Section, choice: Choice, ledger: Ledger
+    strategy: Strategy, panel: Panel, section: Section, choice: Choice, ledger: Ledger, uses: pl.DataFrame
 ) -> dict[str, tuple[str, Params]]:
-    """Each warning that applies, code -> (text, params), in WARNINGS order."""
-    found, fields = {}, _fields(expressions(strategy).values())
+    """Each warning that applies, code -> (text, params), in WARNINGS order; uses are the run's anomaly uses."""
+    found, fields = {}, frozenset().union(*map(read_fields, expressions(strategy).values()))
     if not limit_check_current(panel.manifest):
         found["limits_unchecked"] = {}
     if (known := _st_known_share(fields, panel, section)) < 1:
@@ -50,6 +51,8 @@ def run_warnings(
         found["delisted_holdings"] = cleared
     if (guessed := delisting_approximate(panel, ledger))["earlier_codes"]:
         found["delisting_approximate"] = guessed
+    if uses.height:
+        found["data_anomaly"] = anomaly_params(uses, panel.excluded)
     return {code: warning(code, params) for code, params in found.items()}
 
 
@@ -172,17 +175,6 @@ def _st_known_share(fields: set[str], panel: Panel, section: Section) -> float:
     if not fields & {"st", "st_known"} or not cells.any():
         return 1.0
     return float(panel.st_known[section.rows][cells].mean())
-
-
-def _fields(roots: Iterable[Expr]) -> set[str]:
-    """The names of the fields the expressions among roots read."""
-    found, stack = set(), list(roots)
-    while stack:
-        node = stack.pop()
-        if isinstance(node, Field):
-            found.add(node.name)
-        stack.extend(a for a in getattr(node, "args", ()) if isinstance(a, Expr))
-    return found
 
 
 def _columns(panel: Panel, codes: pl.Series) -> np.ndarray:
