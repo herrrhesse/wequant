@@ -220,7 +220,9 @@ def test_audit_events():
 
 
 def test_status_disagreements():
-    new = bars([("600647.SH", D2, 1790, {}), ("600000.SH", D1, 10000, {}), ("600001.SH", D1, 10000, {})], False, SOURCE)
+    new = bars(
+        [("600647.SH", D2, 11000, {}), ("600000.SH", D1, 10000, {}), ("600001.SH", D1, 10000, {})], False, SOURCE
+    )
     status = table_frame(
         "daily_status",
         [

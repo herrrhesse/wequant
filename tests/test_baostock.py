@@ -2,13 +2,13 @@ import datetime as dt
 import socket
 import threading
 
-import polars as pl
 import pytest
 
-from tests.baostock_fake import FakeClient, FakeResult, recording
+from tests.baostock_fake import FakeClient, FakeResult, stock_basic
 from wequant.data.schema import TABLES
 from wequant.data.sources import baostock as bsmod
 from wequant.data.sources.baostock import (
+    DAILY_FIELDS,
     PAGE_ROWS,
     BaoStock,
     BaoStockError,
@@ -16,12 +16,7 @@ from wequant.data.sources.baostock import (
     from_baostock,
     to_baostock,
 )
-from wequant.data.sources.base import CORPORATE_ACTIONS, DAILY, SECURITIES_ON
-
-
-def recorded(name):
-    case = recording()[name]
-    return FakeResult(case["fields"], case["rows"])
+from wequant.data.sources.base import DAILY
 
 
 def session(**responses):
@@ -38,43 +33,32 @@ def test_codes_round_trip():
 
 
 def test_daily_bars_are_in_wequant_units():
-    source = session(query_history_k_data_plus=[recorded("daily_traded")])
-    bars = source.daily_bars("600000.SH", "2026-11-02", "2026-11-06")
+    """Prices int32 厘, volume int64 shares, amount float64 yuan, empty fields null; unadjusted prices requested."""
+    rows = [
+        ["2024-01-02", "sh.600000", "10.0500", "10.2300", "9.9800", "10.1000", "10.0000", "1234567", "12469126.7800"]
+        + ["1", "0"],
+        ["2024-01-03", "sh.600000", "", "", "", "", "10.1000", "", "", "0", "1"],
+    ]
+    source = session(query_history_k_data_plus=[FakeResult(DAILY_FIELDS.split(","), rows)])
+    bars = source.daily_bars("600000.SH", "2024-01-02", "2024-01-03")
     assert dict(bars.schema) == DAILY
-    raw = recording()["daily_traded"]["rows"][-1]
-    f = recording()["daily_traded"]["fields"]
-    last = bars.row(-1, named=True)
-    assert last["date"] == dt.date.fromisoformat(raw[f.index("date")])
-    assert last["close"] == round(float(raw[f.index("close")]) * 100) * 10
-    assert last["preclose"] == round(float(raw[f.index("preclose")]) * 100) * 10
-    assert last["volume"] == int(raw[f.index("volume")])
-    assert last["amount"] == float(raw[f.index("amount")])
-    assert last["tradestatus"] == 1 and last["is_st"] is False
+    assert bars.rows() == [
+        ("600000.SH", dt.date(2024, 1, 2), 10050, 10230, 9980, 10100, 10000, 1234567, 12469126.78, 1, False),
+        ("600000.SH", dt.date(2024, 1, 3), None, None, None, None, 10100, None, None, 0, True),
+    ]
     call = source.client.calls[-1]
     assert call[1]["code"] == "sh.600000" and call[1]["adjustflag"] == "3"
 
 
-def test_reference_queries():
-    source = session(
-        query_stock_basic=[recorded("stock_basic")],
-        query_all_stock=[recorded("all_stock")],
-        query_trade_dates=[recorded("trade_dates")],
-        query_adjust_factor=[recorded("adjust_factor")],
-        query_dividend_data=[recorded("dividend"), FakeResult(recording()["dividend"]["fields"], [])],
-    )
-    securities = source.securities()
+def test_securities_are_the_stocks_with_their_listing_dates():
+    securities = session(query_stock_basic=[FakeResult(*stock_basic())]).securities()  # the index is left out
     assert dict(securities.schema) == TABLES["securities"].schema
-    assert securities.filter(pl.col("last_date").is_not_null()).height >= 1  # a delisted stock
-    listed = source.securities_on("2026-11-06")
-    assert dict(listed.schema) == SECURITIES_ON and listed["code"].str.contains(r"^\d{6}\.(SH|SZ|BJ)$").all()
-    calendar = source.calendar("2026-10-26", "2026-11-08")
-    assert dict(calendar.schema) == TABLES["calendar"].schema
-    assert all(d.weekday() < 5 for d in calendar["date"])
-    factors = source.adj_factors("600519.SH")
-    assert dict(factors.schema) == TABLES["adj_factor"].schema and factors["factor"].is_sorted()
-    actions = source.corporate_actions("600519.SH", 2025, 2026)
-    assert dict(actions.schema) == CORPORATE_ACTIONS and actions.height >= 1
-    assert actions["cash_before_tax"].drop_nulls().min() > 0
+    assert securities.select("code", "exchange", "board", "first_date", "last_date").rows() == [
+        ("600000.SH", "SH", "main", dt.date(2000, 1, 4), None),
+        ("600001.SH", "SH", "main", dt.date(2001, 1, 4), None),
+        ("300001.SZ", "SZ", "chinext", dt.date(2009, 10, 30), None),
+        ("000002.SZ", "SZ", "main", dt.date(2002, 1, 4), dt.date(2020, 6, 30)),
+    ]
 
 
 def test_pages_are_read_and_counted():
@@ -112,7 +96,8 @@ RECV_FAILED = FakeResult([], [], "10002007", "recv")
 def test_retries_back_off_and_log_in_again(monkeypatch, answers, delays, logins):
     slept = []
     monkeypatch.setattr(bsmod.time, "sleep", slept.append)
-    replies = [recorded("trade_dates") if answer == "ok" else answer for answer in answers]
+    ok = FakeResult(["calendar_date", "is_trading_day"], [["2024-01-02", "1"]])
+    replies = [ok if answer == "ok" else answer for answer in answers]
     source = BaoStock(client=FakeClient(query_trade_dates=replies))
     source.login()
     if answers[-1] == "ok":

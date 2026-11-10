@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import polars as pl
 import pytest
 
-from tests.baostock_fake import FakeResult, recording
+from tests.baostock_fake import FakeResult, adjust_factor, daily_snapshot, stock_basic
 from tools import baostock_backfill as bf
 from wequant.data.raw import META_COLUMNS, BaoStockRaw
 from wequant.data.sources.baostock import BaoStock
@@ -41,7 +41,7 @@ class Server:
 
     def query_stock_basic(self, **params):
         self.calls.append(("stock_basic", None))
-        return FakeResult(recording()["stock_basic"]["fields"], recording()["stock_basic"]["rows"])
+        return FakeResult(*stock_basic())
 
     def query_trade_dates(self, start_date, end_date):
         self.calls.append(("trade_dates", None))
@@ -54,7 +54,7 @@ class Server:
         self.calls.append(("stock_industry", None))
         return FakeResult(
             ["updateDate", "code", "code_name", "industry", "industryClassification"],
-            [["2026-11-02", "sh.600000", "浦发银行", "J66货币金融服务", "证监会行业分类"]],
+            [["2026-11-02", "sh.600000", "股票甲", "行业甲", "行业分类甲"]],
         )
 
     def query_daily_history_k_AStock(self, date):
@@ -74,14 +74,13 @@ class Server:
         if self.fail_days.get(day, 0) > 0:
             self.fail_days[day] -= 1
             return FakeResult([], [], "10002007", "网络接收错误")
-        fields = recording()["daily_snapshot"]["fields"]
+        fields, rows = daily_snapshot(date)
         stamp = "2000-01-01" if day in self.bad_days else date
-        return FakeResult(fields, [[stamp, *row[1:]] for row in recording()["daily_snapshot"]["rows"]])
+        return FakeResult(fields, [[stamp, *row[1:]] for row in rows])
 
     def query_adjust_factor(self, code, start_date, end_date):
         self.calls.append(("adjust_factor", code))
-        fields = recording()["adjust_factor"]["fields"]
-        return FakeResult(fields, [[code, *row[1:]] for row in recording()["adjust_factor"]["rows"][:3]])
+        return FakeResult(*adjust_factor(code))
 
     def snapshots(self):
         return [item for name, item in self.calls if name == "snapshot"]
@@ -108,7 +107,7 @@ def test_a_full_run_writes_every_file_newest_first(home):
     raw = BaoStockRaw.at(home)
     assert raw.daily_days() == set(DAYS)
     assert server.snapshots() == sorted(DAYS, reverse=True)
-    assert len(raw.adjust_factor_codes()) == len(bf.stock_codes(raw)) == 11
+    assert len(raw.adjust_factor_codes()) == len(bf.stock_codes(raw)) == 4  # stock_basic's four stocks, one delisted
     snapshot = pl.read_parquet(raw.daily(DAYS[0]))
     assert all(dtype == pl.String for dtype in snapshot.schema.values())
     assert set(META_COLUMNS) <= set(snapshot.columns)
@@ -157,9 +156,9 @@ def test_failures_are_listed_and_retried_once_at_the_end(home):
     ],
 )
 def test_snapshot_checks(change, problem):
-    case = recording()["daily_snapshot"]
-    frame = pl.DataFrame(case["rows"], schema={c: pl.String for c in case["fields"]}, orient="row")
-    day = dt.date.fromisoformat(case["params"]["date"])
+    day = DAYS[0]
+    fields, rows = daily_snapshot(day.isoformat())
+    frame = pl.DataFrame(rows, schema={c: pl.String for c in fields}, orient="row")
     assert bf.snapshot_problem(frame, day) is None
     assert problem in bf.snapshot_problem(change(frame), day)
 
@@ -254,8 +253,8 @@ def test_a_run_refuses_to_start_while_another_run_holds_the_lock(home, monkeypat
 
 def test_an_adjust_factor_answer_without_rows_is_still_written(home):
     server = Server()
-    server.query_adjust_factor = lambda **params: FakeResult(recording()["adjust_factor"]["fields"], [])
+    server.query_adjust_factor = lambda **params: FakeResult(adjust_factor("sh.600000")[0], [])
     backfill(home, server).run([0, 2])
     raw = BaoStockRaw.at(home)
-    assert len(raw.adjust_factor_codes()) == 11  # a stock without factors is done, not fetched again next run
+    assert len(raw.adjust_factor_codes()) == 4  # a stock without factors is done, not fetched again next run
     assert pl.read_parquet(raw.adjust_factor(bf.stock_codes(raw)[0])).height == 0

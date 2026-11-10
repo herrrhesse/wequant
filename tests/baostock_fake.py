@@ -1,8 +1,5 @@
-"""A fake baostock client that mimics its paging; responses come from recorded data."""
+"""A fake baostock client that mimics its paging, and synthetic replies in BaoStock's field formats."""
 
-import functools
-import json
-from pathlib import Path
 from types import SimpleNamespace
 
 from wequant.data.sources.baostock import PAGE_ROWS
@@ -55,7 +52,41 @@ class FakeClient:
         return query
 
 
-@functools.cache
-def recording() -> dict:
-    """tests/data/baostock.json, read on first use rather than at import."""
-    return json.loads((Path(__file__).parent / "data" / "baostock.json").read_text("utf-8"))
+STOCK_BASIC = ["code", "code_name", "ipoDate", "outDate", "type", "status"]
+SNAPSHOT = ["date", "code", "open", "high", "low", "close", "preclose", "volume", "amount", "adjustflag", "turn"]
+SNAPSHOT += ["tradestatus", "pctChg", "peTTM", "pbMRQ", "psTTM", "pcfNcfTTM", "isST"]
+ADJUST_FACTOR = ["code", "dividOperateDate", "foreAdjustFactor", "backAdjustFactor", "adjustFactor"]
+
+
+def stock_basic() -> tuple[list[str], list[list[str]]]:
+    """(fields, rows): four stocks (one delisted) and an index, as query_stock_basic lists them."""
+    rows = [
+        ["sh.600000", "股票甲", "2000-01-04", "", "1", "1"],
+        ["sh.600001", "股票乙", "2001-01-04", "", "1", "1"],
+        ["sz.300001", "股票丙", "2009-10-30", "", "1", "1"],
+        ["sz.000002", "股票丁", "2002-01-04", "2020-06-30", "1", "0"],
+        ["sh.000001", "指数甲", "1991-07-15", "", "2", "1"],
+    ]
+    return STOCK_BASIC, rows
+
+
+def daily_snapshot(day: str) -> tuple[list[str], list[list[str]]]:
+    """(fields, rows): three stocks on one day as query_daily_history_k_AStock returns them, the last suspended."""
+    rows = [
+        [day, "sh.600000", "10.0000", "10.2000", "9.9000", "10.1000", "10.0000", "100000", "1010000.0000", "3"]
+        + ["0.100000", "1", "1.000000", "10.000000", "1.000000", "1.000000", "10.000000", "0"],
+        [day, "sh.600001", "5.0000", "5.0500", "4.9500", "5.0000", "5.0000", "200000", "1000000.0000", "3"]
+        + ["0.200000", "1", "0.000000", "20.000000", "2.000000", "2.000000", "20.000000", "1"],
+        [day, "sz.300001", "", "", "", "", "20.0000", "", "", "3", "", "0", "", "", "", "", "", "0"],
+    ]
+    return SNAPSHOT, rows
+
+
+def adjust_factor(code: str) -> tuple[list[str], list[list[str]]]:
+    """(fields, rows): three adjustment events of one code, as query_adjust_factor returns them."""
+    rows = [
+        [code, "2001-06-01", "0.500000", "1.000000", "1.000000"],
+        [code, "2002-06-03", "0.625000", "1.250000", "1.250000"],
+        [code, "2003-06-02", "0.750000", "1.500000", "1.500000"],
+    ]
+    return ADJUST_FACTOR, rows
