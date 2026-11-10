@@ -14,7 +14,7 @@ from tests.account.golden import build_store
 from tests.frames import table_frame
 from tests.runs.engines import DESC, buggy, hold, store_engine
 from wequant.data.store import Store
-from wequant.runs import PROVENANCE, Archive, document, json_differences
+from wequant.runs import Archive, json_differences
 from wequant.runs.record import run_json
 
 ID = "019ec00a79bf60a2"
@@ -62,9 +62,6 @@ def test_rerun_finds_a_bug(archive):
 
 
 def test_another_or_dirty_code_version_is_noted_never_refused(archive):
-    path = archive.path(ID) / PROVENANCE
-    path.write_bytes(document(json.loads(path.read_bytes()) | {"code_version": "0.1.0+gaaaaaaaaaaaa"}))
-
     def dirty(description: dict, version: int):
         run = hold(description, version)
         meta = run.ledger.meta | {"code_version": "0.1.0+gbbbbbbbbbbbb.dirty"}

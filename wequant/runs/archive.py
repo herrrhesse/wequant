@@ -78,7 +78,7 @@ class Archive:
 
     def __contains__(self, run_id: object) -> bool:
         """True for the id of an archived run; never raises."""
-        return isinstance(run_id, str) and ID.fullmatch(run_id) is not None and (self.root / run_id).is_dir()
+        return isinstance(run_id, str) and ID.fullmatch(run_id) is not None and os.path.isdir(self.root / run_id)
 
     def index(self) -> pl.DataFrame:
         """One INDEX row per archived run, by created_at then id."""
@@ -116,11 +116,22 @@ class Archive:
             for name, data in files.items():
                 atomic_write(tmp / name, data)
             os.rename(tmp, directory)
+            _sync(self.root)
         except OSError:
             if not directory.is_dir():
                 raise
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _sync(directory: Path) -> None:
+    """Make a rename inside directory survive a power loss (POSIX; Windows cannot open directories)."""
+    if os.name != "nt":
+        fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
 
 def _archived(directory: Path) -> dict[str, bytes]:

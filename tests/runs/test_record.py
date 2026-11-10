@@ -149,9 +149,9 @@ def test_read_run_refuses_another_format(tmp_path):
     Archive(tmp_path).save(run)
     path = tmp_path / run.id / "run.json"
     doc = json.loads(path.read_bytes())
-    doc["inputs"]["format"] = 2
+    doc["inputs"]["format"] = FORMAT + 1
     path.write_bytes(document(doc))
-    with pytest.raises(ValueError, match=f"format 2, not {FORMAT}"):
+    with pytest.raises(ValueError, match=f"format {FORMAT + 1}, not {FORMAT}"):
         read_run(tmp_path / run.id)
 
 
