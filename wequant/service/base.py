@@ -28,6 +28,13 @@ class Check(Model):
     """True when the check found nothing to act on."""
 
 
+class Failure(Model):
+    """A failed operation: the exit code its command ends with and why; the error body of the HTTP API."""
+
+    exit: Exit
+    message: str
+
+
 def _code(code: str) -> str:
     split_code(code)
     return code

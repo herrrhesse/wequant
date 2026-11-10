@@ -7,6 +7,7 @@ import numpy as np
 from tests.backtest.market import build_store, business_days
 from tools import backtest_report
 from tools.tests.test_account_report import listing
+from tools.tests.test_summary import summary_rows
 
 CODES = ("000001.SZ", "000002.SZ", "600000.SH", "600004.SH")
 HEADINGS = ("## 1. No signal", "## 2. Buy-and-hold", "## 3. Speed", "## 4. Typical strategies")
@@ -32,6 +33,9 @@ def test_report_passes_every_check_and_writes_nothing_under_the_home(tmp_path):
     assert backtest_report.main([*argv, "--out", str(out)]) == 0
     text = out.read_text("utf-8")
     assert text.startswith("# Backtest report: store v1") and all(heading in text for heading in HEADINGS)
+    rows = summary_rows(text[: text.index("## Setup")])
+    assert len(rows) == 1 + len(CODES) + 1 + 2 + 3 + 3 + 1 and {verdict for _, verdict, _ in rows} == {"PASS"}
+    assert re.fullmatch(r"[\d.]+ s, best of 3", rows[len(CODES) + 2][2]), rows[len(CODES) + 2]
     assert "FAIL" not in text and re.search(r"Peak RSS:\*\* [\d,]+ MB: PASS", text)
     typical = text[text.index("## 4.") : text.index("## 5.")]
     orders = [int(n.replace(",", "")) for n in re.findall(r"\*\*Orders:\*\* ([\d,]+)", typical)]

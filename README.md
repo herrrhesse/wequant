@@ -47,6 +47,7 @@ wequant data issues [--table T] [--kind K] [--codes C...] [--start D] [--end D] 
 wequant data check [--commit]
 wequant expr check --form JSON
 wequant expr eval --form JSON --codes C... [--start D] [--end D] [--data-version N]
+wequant schema
 ```
 
 ```bash
@@ -69,6 +70,15 @@ Every command also takes `--json`, `-v`/`--verbose` (`-vv` for debug), `--home P
   `CS_*` operators rank among the given codes only.
 - **`data check`** is read-only. `--commit` records the breaches and the check in a new store version under the writer
   lock and writes its report to `reports/check_limits_<last trade date>_v<version>.md`.
+- **`schema`** gives one JSON Schema (2020-12) document of every operation's request and result model and of `Failure`
+  (exit code and message), the error body of the HTTP API. `$defs` holds each model by name in alphabetical order and
+  `operations` names each operation's request and result; requests are described as the operations accept them,
+  results as they print them. The text form lists the operations, then each model with its description's first line.
+- **Contract snapshot:** `frontend/contract/service-models.schema.json` is the output of `wequant schema --json` and the
+  only file the backend writes under `frontend/`; the frontend generates its TypeScript types from it. Whenever a
+  service model changes, regenerate it in the same commit:
+  `uv run wequant schema --json > frontend/contract/service-models.schema.json`. `tests/service/test_contract.py` fails
+  until it matches.
 
 Exit codes (`wequant.service.Exit`):
 
@@ -153,6 +163,10 @@ uv run python -m tools.account_report --cache /tmp/wequant-cache     # buy-and-h
 uv run python -m tools.backtest_report --cache /tmp/wequant-cache    # no signal, buy-and-hold, speed, typical strategies
 uv run python -m tools.runs_report --cache /tmp/wequant-cache        # one run saved, loaded, re-run byte for byte, indexed
 ```
+
+The backtest and run archive reports open with the store version, the code version, the start time (ISO 8601 with
+its UTC offset) and a summary table of every check: PASS or FAIL and what it measured, such as seconds, bytes or
+whether a re-run was byte-identical. The sections below give the details.
 
 Run `wequant data check --commit` again after every import: the panel applies the voids it records. Panels are cached
 by store version under `$WEQUANT_HOME/cache/panel/`. The cache is derived data and can be deleted at any time.
