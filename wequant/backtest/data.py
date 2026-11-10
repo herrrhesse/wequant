@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from wequant.strategy.errors import SpecError
+
 ANOMALY_MODES = ("flag", "exclude_day")
 
 
@@ -21,11 +23,11 @@ class DataOptions:
 
     def __post_init__(self) -> None:
         if not isinstance(self.anomalies, str) or self.anomalies not in ANOMALY_MODES:
-            raise ValueError(f"anomalies {self.anomalies!r} is not one of {ANOMALY_MODES}")
+            raise SpecError("not_a_choice", ("anomalies",), f"{self.anomalies!r} is not one of {ANOMALY_MODES}")
         if not isinstance(self.exclude_suspicious, bool):
-            raise ValueError(f"exclude_suspicious {self.exclude_suspicious!r} is not a bool")
+            raise SpecError("wrong_type", ("exclude_suspicious",), f"{self.exclude_suspicious!r} is not a bool")
         if self.exclude_suspicious and self.anomalies != "exclude_day":
-            raise ValueError("exclude_suspicious applies to anomalies exclude_day only")
+            raise SpecError("requires", ("exclude_suspicious",), "applies to anomalies exclude_day only")
 
     def to_dict(self) -> dict[str, str | bool]:
         """Every field: the form a run archive and a spec store."""

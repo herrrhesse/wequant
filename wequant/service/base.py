@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -10,6 +11,7 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
 
+from wequant.backtest.progress import Progress
 from wequant.data.codes import split as split_code
 from wequant.data.store import Store
 from wequant.expr import Cache
@@ -112,12 +114,14 @@ class PanelRequest(DataRequest):
 
 @dataclass(frozen=True)
 class Context:
-    """The caller's settings for one call, never part of a request: the data root, the panel cache root and a
-    resident process's expression cache."""
+    """The caller's settings for one call, never part of a request: the data root, the panel cache root, a resident
+    process's expression cache, and a long run's progress and cancel callbacks."""
 
     home: Path | None = None  # None: $WEQUANT_HOME, else ~/.wequant
     cache: Path | None = None  # panels go under <cache>/panel/; None: <home>/cache
     expr_cache: Cache | None = None  # a resident process's expression results; None: computed afresh
+    progress: Callable[[Progress], None] | None = None  # told where a long run is
+    cancel: Callable[[], bool] | None = None  # asked whether to stop a long run
 
     def store(self) -> Store:
         return Store(self.home)

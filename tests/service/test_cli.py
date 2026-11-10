@@ -50,6 +50,12 @@ CASES = [
     (["strategy", "versions", "s"], "strategy_versions", service.VersionsRequest(id="s"), "library_home"),
     (["strategy", "show", "s@1"], "strategy_show", service.ShowRequest(id="s", n=1), "library_home"),
     (["screen", "--strategy", "m"], "screen", service.ScreenRequest(saved={"id": "m"}), "market_home"),
+    (
+        ["backtest", "--strategy", "m", "--slippage-bps", "5", "--no-benchmark", "--no-save"],
+        "backtest",
+        service.BacktestRequest(saved={"id": "m"}, execution={"slippage_bps": 5.0}, benchmark=None, save=False),
+        "market_home",
+    ),
 ]
 
 

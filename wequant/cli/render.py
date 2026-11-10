@@ -12,10 +12,13 @@ from wequant.service.details import pydantic_details
 
 
 def render(result: BaseModel) -> str:
-    """One 'name: value' line per set scalar field, then each list of rows as a table and each multi-line text."""
+    """One 'name: value' line per set scalar field, then each list of rows or dict of rows as a table and each multi-line
+    text."""
     lines, blocks = [], []
     for name, value in result.model_dump(mode="json").items():
-        if isinstance(value, list) and value and isinstance(value[0], dict):
+        if isinstance(value, dict) and value and all(isinstance(v, dict) for v in value.values()):
+            blocks.append(table([{name: key, **v} for key, v in value.items()]))  # e.g. metrics by name
+        elif isinstance(value, list) and value and isinstance(value[0], dict):
             blocks.append(table(value))
         elif isinstance(value, str) and "\n" in value:
             blocks.append(value.rstrip())

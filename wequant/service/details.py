@@ -79,8 +79,8 @@ def to_strategy(spec: BaseModel, loc: Loc = ("strategy",)) -> Strategy:
 
 
 def to_data(spec: BaseModel, loc: Loc = ("data",)) -> DataOptions:
-    """The core data options of a DataSpec; USAGE requires when exclude_suspicious comes without exclude_day."""
+    """The core data options of a DataSpec; USAGE located under loc otherwise (exclude_suspicious without exclude_day)."""
     try:
         return DataOptions(**spec.model_dump())
-    except ValueError as error:
-        raise usage([ErrorDetail(code="requires", message=str(error), loc=[*loc, "exclude_suspicious"])]) from None
+    except SpecError as error:
+        raise usage(spec_details(error, loc)) from None

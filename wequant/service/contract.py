@@ -7,7 +7,8 @@ from typing import get_type_hints
 from pydantic import ConfigDict, Field, JsonValue
 from pydantic.json_schema import GenerateJsonSchema, models_json_schema
 
-from wequant.service import backtest, delistings, explain, index_check, runs, strategies
+from wequant.service import delistings, explain, index_check, runs, strategies
+from wequant.service.backtest import backtest
 from wequant.service.bars import data_bars
 from wequant.service.base import Context, ErrorBody, Model
 from wequant.service.check import data_check
@@ -80,11 +81,11 @@ OPERATIONS = (
     *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),
     *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
     screen,
+    backtest,
     schema,
 )
 
 PLANNED = (  # operations whose models are fixed for the frontend; each moves to OPERATIONS when its command lands
-    ("backtest", backtest.BacktestRequest, backtest.BacktestResult),
     ("runs_list", runs.RunsListRequest, runs.RunsPage),
     ("runs_show", runs.RunRequest, runs.RunDetail),
     ("runs_rerun", runs.RunRequest, runs.RunComparison),
