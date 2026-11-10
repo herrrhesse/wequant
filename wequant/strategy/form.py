@@ -6,6 +6,7 @@ import datetime as dt
 import types
 import typing
 from dataclasses import MISSING, Field, fields, is_dataclass
+from functools import cache
 from typing import get_args, get_origin, get_type_hints
 
 from wequant.expr import Expr, ExprError, from_form
@@ -56,9 +57,14 @@ def _field(cls: type, declared: dict[str, Field], name: str, value: object) -> o
     """value of field name read by its annotation, then checked by cls.check_field when cls has one."""
     if name not in declared:
         raise SpecError("unknown_key", (), f"{cls.__name__} has no field {name!r}")
-    value = _read(get_type_hints(cls)[name], value)
+    value = _read(_hints(cls)[name], value)
     check = getattr(cls, "check_field", None)
     return value if check is None else check(name, value)
+
+
+@cache
+def _hints(cls: type) -> dict[str, object]:
+    return get_type_hints(cls)
 
 
 def _read(hint: object, value: object) -> object:

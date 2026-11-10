@@ -200,15 +200,21 @@ def _sell_columns(
 def _sell_reasons(
     strategy: Strategy, section: Section, choice: Choice, i: np.ndarray, j: np.ndarray
 ) -> Iterator[tuple[str, str | None, int | None, int | None]]:
-    """(kind, step, rank, limit) of each sold cell, by the first that applies: universe, filter, no_score, rank, slots."""
-    parts = ["universe", *pool_items(strategy)]
-    names = parts + [step.name for step in strategy.steps() if step.chain]
+    """(kind, step, rank, limit) of each sold cell, by the first that applies: universe (step: the first pool item
+    failed, None when only the universe failed), filter, no_score, rank, slots."""
+    items = list(pool_items(strategy))
+    names = ["universe", *items, *(step.name for step in strategy.steps() if step.chain)]
     first = _first_false([section.steps[name][i, j] == 1 for name in names]).tolist()
-    missing = _missing(strategy, section, i, j)
-    cells = zip(first, missing, section.scored[i, j].tolist(), choice.slots[i, j].tolist(), section.rank[i, j].tolist())
-    for k, gone, scored, slots, rank in cells:
-        if k < len(parts):
-            yield "universe", names[k] if k else None, None, None
+    item = _first_false([section.steps[name][i, j] == 1 for name in items]).tolist() if items else [0] * len(i)
+    cells = zip(
+        first,
+        item,
+        _missing(strategy, section, i, j),
+        *(a[i, j].tolist() for a in (section.scored, choice.slots, section.rank)),
+    )
+    for k, failed, gone, scored, slots, rank in cells:
+        if k <= len(items):
+            yield "universe", items[failed] if failed < len(items) else None, None, None
         elif k < len(names):
             yield "filter", names[k], None, None
         elif not scored:
