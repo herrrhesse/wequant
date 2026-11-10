@@ -1,4 +1,5 @@
-"""Run archive report on real data: one run saved, loaded, re-run here and in a fresh process, changed and indexed.
+"""Run archive report on real data: one rebalance run saved, loaded, re-run here and in a fresh process, changed and
+indexed.
 
 Reads the store without the lock; writes only the panel cache (--cache, a fresh temporary directory by default), the
 archive (--runs, a fresh temporary directory by default, never inside the store home) and the report.
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import functools
 import os
 import resource
 import subprocess
@@ -23,72 +25,20 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from wequant.account import EXECUTION_VERSION, Account, Execution, Ledger, Target, trade_target
-from wequant.analytics import METRICS_VERSION, MetricSpec, compute_metrics
+from wequant.account import Execution
+from wequant.backtest import Backtest, run_form
 from wequant.canonical import canonical
 from wequant.data.store import Store, wequant_home
-from wequant.expr import EXPR_VERSION, IF, NOT, REF, Field, evaluate, panel_key
-from wequant.panel import Panel, load_panel
+from wequant.expr import REF, Field
+from wequant.panel import load_panel
 from wequant.runs import FILES, HEADLINE, Archive, Engine, Run, RunConflict, run_files
+from wequant.strategy import Factor, Strategy
 from wequant.version import code_version
 
 REPO = Path(__file__).resolve().parent.parent
 CASH = 10_000_000.0
-EVERY = 5  # rows from one decision to the next
 MEMORY_LIMIT = 5 * 1024  # MB of peak RSS
 RERUN_ENV = {"PYTHONHASHSEED": "123", "NUMBA_NUM_THREADS": "1", "POLARS_MAX_THREADS": "1"}
-PICKS = {"date": pl.Date, "code": pl.String, "rank": pl.Int64}
-FUNNEL = {"date": pl.Date, "step": pl.String, "passed": pl.Int64, "left": pl.Int64}
-DETAIL = {"date": pl.Date, "code": pl.String}
-
-
-def standin(store: Store, cache_dir: Path) -> Engine:
-    """Weekly top-N momentum through trade_target: the report's engine until the rebalance engine replaces it."""
-
-    def engine(description: dict, version: int) -> Run:
-        panel = load_panel(description["start"], version=version, store=store, cache_dir=cache_dir)
-        close, top = Field("adj_close"), description["top"]
-        score = evaluate(IF(NOT(Field("exchange@BJ")), close / REF(close, description["window"]), None), panel)
-        account = Account(panel, description["cash"], panel.dates[0], Execution(**description["execution"]))
-        decisions = []
-        for t in range(1, len(panel.dates)):
-            account.begin(t)
-            if (t - 1) % EVERY == 0:
-                targets = best(score[t - 1], top)
-                weights = np.where(account.shares > 0, 0.0, np.nan)
-                weights[targets] = 1 / top
-                trade_target(account, Target(weights, score[t - 1], np.array([], dtype=np.int64)))
-                decisions.append((t - 1, targets))
-            account.end()
-        return standin_run(description, panel, account.ledger(), decisions)
-
-    return engine
-
-
-def standin_run(description: dict, panel: Panel, ledger: Ledger, decisions: list[tuple[int, np.ndarray]]) -> Run:
-    """The stand-in's Run: its versions, metrics and picks; an empty funnel and detail, no warnings."""
-    calendar = pl.Series("date", panel.dates)
-    metrics = compute_metrics(ledger.daily, calendar, positions=ledger.positions, orders=ledger.orders)
-    versions = {"standin": 1, "expr": EXPR_VERSION, "execution": EXECUTION_VERSION, "metrics": METRICS_VERSION}
-    frames = (picks_frame(panel, decisions), pl.DataFrame(schema=FUNNEL), pl.DataFrame(schema=DETAIL))
-    key, anchor = panel_key(panel), panel.dates[0].item()
-    return Run("standin", description, versions, key, anchor, ledger, metrics, MetricSpec(), *frames, {})
-
-
-def best(scores: np.ndarray, n: int) -> np.ndarray:
-    """The n columns with the highest finite scores, ties by column."""
-    finite = np.flatnonzero(np.isfinite(scores))
-    return finite[np.argsort(-scores[finite], kind="stable")][:n]
-
-
-def picks_frame(panel: Panel, decisions: list[tuple[int, np.ndarray]]) -> pl.DataFrame:
-    """PICKS: each decision row's targets by rank."""
-    rows = [
-        (panel.dates[row].item(), code, rank)
-        for row, targets in decisions
-        for rank, code in enumerate(panel.codes[targets].tolist(), 1)
-    ]
-    return pl.DataFrame(rows, schema=PICKS, orient="row")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -98,9 +48,10 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"{store.home}: nothing committed")
     cache = args.cache or Path(tempfile.mkdtemp(prefix="wequant-runs-cache-"))
     archive = Archive(args.runs or Path(tempfile.mkdtemp(prefix="wequant-runs-")))
+    engine = functools.partial(run_form, store=store, cache_dir=cache)
     if args.rerun:
-        return rerun(archive, args.rerun, standin(store, cache))
-    text = report(store, cache, archive, args)
+        return rerun(archive, args.rerun, engine)
+    text = report(store, engine, cache, archive, args)
     if args.out:
         args.out.write_text(text, "utf-8")
     else:
@@ -134,11 +85,10 @@ def rerun(archive: Archive, run_id: str, engine: Engine) -> int:
     return 0 if comparison.identical else 1
 
 
-def report(store: Store, cache: Path, archive: Archive, args: argparse.Namespace) -> str:
+def report(store: Store, engine: Engine, cache: Path, archive: Archive, args: argparse.Namespace) -> str:
     """The Markdown report: the run, then each archive check, under a header and above a peak RSS footer."""
     version = store.manifest()["version"]
     description = describe(load_panel(version=version, store=store, cache_dir=cache).dates, args)
-    engine = standin(store, cache)
     seconds, run = timed(engine, description, version)
     body = [
         *run_section(run, seconds),
@@ -148,16 +98,16 @@ def report(store: Store, cache: Path, archive: Archive, args: argparse.Namespace
         *changed_section(archive, run),
         *index_section(archive, run.id),
     ]
-    return "\n".join([*header(store, version, cache, archive, run), *body, *footer()]) + "\n"
+    return "\n".join([*header(store, cache, archive, run, args), *body, *footer()]) + "\n"
 
 
 def describe(dates: np.ndarray, args: argparse.Namespace) -> dict:
-    """The stand-in's description: the last args.years of trading, the options and fixed cash and costs."""
+    """The Backtest form: weekly top args.top by momentum over the last args.years of trading, without slippage."""
     start = dates[np.searchsorted(dates, np.datetime64(years_before(dates[-1].item(), args.years)))].item()
+    adj = Field("adj_close")
+    strategy = Strategy(factors=(Factor("momentum", adj / REF(adj, args.window) - 1),), top_n=args.top, period="week")
     benchmark = None if args.benchmark == "none" else args.benchmark
-    execution = Execution(slippage_bps=0.0).to_dict()
-    options = {"top": args.top, "window": args.window, "benchmark": benchmark}
-    return {"start": start.isoformat(), **options, "cash": CASH, "execution": execution}
+    return Backtest(strategy, start=start, cash=CASH, execution=Execution(slippage_bps=0.0), benchmark=benchmark).form
 
 
 def years_before(day: dt.date, years: int) -> dt.date:
@@ -168,8 +118,8 @@ def years_before(day: dt.date, years: int) -> dt.date:
         return day.replace(year=day.year - years, day=28)
 
 
-def header(store: Store, version: int, cache: Path, archive: Archive, run: Run) -> list[str]:
-    last = run.ledger.daily["date"][-1]
+def header(store: Store, cache: Path, archive: Archive, run: Run, args: argparse.Namespace) -> list[str]:
+    version, last = run.store_version, run.ledger.daily["date"][-1]
     return [
         f"# Run archive report: store v{version}",
         "",
@@ -177,9 +127,9 @@ def header(store: Store, version: int, cache: Path, archive: Archive, run: Run) 
         f"- **code_version:** {code_version()}",
         f"- **Cache:** {cache}",
         f"- **Archive:** {archive.root}",
-        f"- **Engine:** the stand-in, weekly top {run.description['top']} by "
-        f"adj_close / REF(adj_close, {run.description['window']}) over SH/SZ codes, through trade_target; its "
-        "returns exercise the archive and say nothing about a strategy.",
+        "- **Engine:** the rebalance engine, `functools.partial(wequant.backtest.run_form, store=store, "
+        f"cache_dir=cache)`: weekly top {args.top} SH/SZ codes by adj_close / REF(adj_close, {args.window}) - 1, "
+        "equal weights, no slippage.",
         f"- **Description:** `{canonical(run.description)}`",
         f"- **Versions:** `{canonical(run.versions)}`; run id {run.id}.",
         "",
@@ -188,14 +138,16 @@ def header(store: Store, version: int, cache: Path, archive: Archive, run: Run) 
 
 def run_section(run: Run, seconds: float) -> list[str]:
     encode, files = timed(run_files, run)
-    orders = run.ledger.orders
+    orders, days = run.ledger.orders, run.ledger.daily["date"]
     statuses = ", ".join(f"{s} {n:,}" for s, n in orders["status"].value_counts(sort=True).iter_rows())
     rows = [[name, f"{len(data):,}"] for name, data in files.items()]
     return [
         "## 1. The run",
         "",
-        f"- **Engine:** {seconds:.2f} s for {run.ledger.daily.height - 1:,} days from {run.anchor}.",
-        f"- **Orders:** {orders.height:,} ({statuses or 'none'}); picks {run.picks.height:,}.",
+        f"- **Engine:** {seconds:.2f} s for {days.len() - 1:,} run days from {days[0]}, on a panel from {run.anchor}.",
+        f"- **Orders:** {orders.height:,} ({statuses or 'none'}); decisions {run.funnel['date'].n_unique():,}, "
+        f"picks {run.picks.height:,}, detail rows {run.detail.height:,}.",
+        f"- **Warnings:** {', '.join(run.warnings) or 'none'}.",
         f"- **run_files:** {encode * 1000:.0f} ms for {sum(map(len, files.values())):,} bytes.",
         "",
         *table(["file", "bytes"], rows),

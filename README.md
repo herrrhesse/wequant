@@ -19,8 +19,14 @@ uv sync --extra baostock     # BaoStock data source
 - `wequant/expr/`: signal expressions: checked trees of panel fields and operators with one canonical JSON form,
   evaluated once per distinct subexpression and cached.
 - `wequant/account/`: cash, positions and order execution on raw prices: lots, T+1, fees, corporate actions and one order
-  validation.
+  validation, plus the batch protocol every engine trades by.
 - `wequant/analytics/`: the metrics of a run.
+- `wequant/strategy/`: strategy descriptions (universe, filters, ranked factors, top N, schedule and weights) with one
+  canonical form, and the screen: a strategy's selection at one day's close.
+- `wequant/backtest/`: the rebalance engine: decides at each decision day's close, trades the next day through one
+  account and returns the run with its metrics and warnings; it reports progress and can be cancelled.
+- `wequant/runs/`: runs and the archive under `$WEQUANT_HOME/runs/`: each run with each decision day's selection, kept
+  write-once and re-run byte for byte.
 - `wequant/service/`: the operations: one function each, pydantic models in and out.
 - `wequant/cli/`: the `wequant` command; it only calls the service.
 - `tools/`: command-line jobs: fetch, merge, data checks and reports. `tools/investment_data/` is a temporary seed
@@ -144,6 +150,8 @@ uv run python -m tools.ops_report --cache /tmp/wequant-cache         # operator 
 uv run python -m tools.metrics_report                                # metrics of index buy-and-hold
 uv run python -m tools.expr_report --cache /tmp/wequant-cache        # expression timings, cache hits, equality with operators
 uv run python -m tools.account_report --cache /tmp/wequant-cache     # buy-and-hold through ex-dates, account invariants, speed
+uv run python -m tools.backtest_report --cache /tmp/wequant-cache    # no signal, buy-and-hold, speed, typical strategies
+uv run python -m tools.runs_report --cache /tmp/wequant-cache        # one run saved, loaded, re-run byte for byte, indexed
 ```
 
 Run `wequant data check --commit` again after every import: the panel applies the voids it records. Panels are cached

@@ -32,7 +32,7 @@ def test_report_passes_every_check_and_writes_only_the_archive(tmp_path):
     assert listing(home) == before
     [directory] = runs.iterdir()
     run = Archive(runs).load(directory.name)
-    assert run.ledger.orders.height > 0 and run.picks.height > 0
+    assert run.engine == "rebalance" and run.ledger.orders.height > 0 and run.picks.height > 0
     assert run.description["benchmark"] is None and run.description["start"] == "2024-03-01"
 
 
