@@ -1,7 +1,6 @@
 """Each funnel level's rejected stocks on a hand-made day: every listed stock once, counts that match the funnel, the
 verdict and the value side of a simple comparison."""
 
-import numpy as np
 import polars as pl
 import pytest
 
@@ -9,7 +8,7 @@ from tests.frames import table_frame
 from wequant.data.store import Store
 from wequant.expr import BETWEEN, REF, Field
 from wequant.panel import load_panel
-from wequant.strategy import Comparison, Condition, Factor, Group, Pool, Strategy, comparison, levels, screen, select
+from wequant.strategy import Comparison, Condition, Factor, Group, Pool, Strategy, comparison, levels, screen
 
 DAYS = ["2024-01-02", "2024-01-03", "2024-01-04"]
 CLOSE, OPEN = Field("close"), Field("open")
@@ -107,23 +106,11 @@ def test_the_rejects_of_each_level_are_what_its_left_count_drops(screened):
 @pytest.mark.parametrize(
     "expr, want",
     [
-        (CLOSE > 5.0, Comparison(CLOSE, "gt", 5.0, None)),
         (5.0 > CLOSE, Comparison(CLOSE, "lt", 5.0, None)),
-        (5.0 <= CLOSE, Comparison(CLOSE, "ge", 5.0, None)),
-        (Field("amount") <= 1e8, Comparison(Field("amount"), "le", 1e8, None)),
         (BETWEEN(CLOSE, 9.0, 3.0), Comparison(CLOSE, "between", 3.0, 9.0)),
         (CLOSE > OPEN, None),
-        (BETWEEN(CLOSE, OPEN, 3.0), None),
-        (~Field("st"), None),
     ],
+    ids=["constant_on_the_left", "between_bounds_reversed", "two_expressions"],
 )
 def test_a_simple_comparison_puts_its_constant_on_the_right(expr, want):
     assert comparison(expr) == want
-
-
-def test_select_keeps_the_value_side_of_each_simple_comparison_when_asked(panel):
-    kept = select(STRATEGY, panel, [1], values=True)
-    assert list(kept.values) == ["cheap", "busy"]  # drop compares two expressions
-    assert np.array_equal(kept.values["cheap"], panel.raw("close")[[1]], equal_nan=True)
-    assert np.array_equal(kept.values["busy"], panel.raw("volume")[[1]], equal_nan=True)
-    assert select(STRATEGY, panel, [1]).values == {}

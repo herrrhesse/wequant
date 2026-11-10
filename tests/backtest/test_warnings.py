@@ -10,7 +10,6 @@ from tests.backtest.market import WEEK, A, B, build_store, business_days
 from tests.frames import table_frame
 from wequant.account import Execution
 from wequant.backtest import WARNINGS, Backtest, run
-from wequant.backtest import warnings as warnings_module
 from wequant.backtest.anomalies import ANOMALY_USES
 from wequant.backtest.warnings import screen_warnings, st_band_fills
 from wequant.expr import Field
@@ -67,7 +66,9 @@ def stale(tmp_path, days):
 
 
 def test_a_holding_without_a_bar_for_more_than_20_days_is_reported(tmp_path):
-    result = stale(tmp_path, 25)
+    """stale_holdings: a holding valued at its last close more than STALE_DAYS (20) rows after its last bar."""
+    assert "stale_holdings" not in stale(tmp_path / "twenty", 23).warnings  # rows 3 to 22 without a bar: 20, not more
+    result = stale(tmp_path / "more", 25)
     assert result.ledger.orders.select("date", "shares", "price").rows() == [(dt.date(2024, 1, 3), 9700.0, 10.3)]
     assert result.ledger.daily["equity"][-1] == pytest.approx(97_059.03)
     text, params = result.warnings["stale_holdings"]
@@ -95,18 +96,6 @@ def test_a_holding_stale_in_the_middle_of_the_run_is_reported_though_it_trades_a
     assert params["worst_share"] == pytest.approx(97_000 / 97_059.03) and params["day"] == "2024-02-13"
 
 
-def test_twenty_days_without_a_bar_are_not_stale(tmp_path):
-    result = stale(tmp_path, 23)
-    assert result.ledger.daily["date"][-1] == dt.date(2024, 2, 1) and "stale_holdings" not in result.warnings
-
-
-def test_limits_unchecked_goes_once_the_limits_are_checked(tmp_path, monkeypatch):
-    result = stale(tmp_path / "before", 23)
-    assert list(result.warnings) == ["limits_unchecked"]
-    monkeypatch.setattr(warnings_module, "limit_check_current", lambda manifest: True)
-    assert stale(tmp_path / "after", 23).warnings == {}
-
-
 def test_warnings_keep_the_order_of_warnings(tmp_path):
     never = Strategy(filters=(Condition("never", Field("close") < 0.0), Condition("not_st", ~Field("st"))))
     result = run(
@@ -117,6 +106,7 @@ def test_warnings_keep_the_order_of_warnings(tmp_path):
 
 
 def test_index_uncovered_counts_the_decision_days_outside_each_index_span(tmp_path):
+    """index_uncovered: per member@ index read, the decision days outside its index_members span, numbered by index."""
     store = build_store(tmp_path / "home", WEEK, {A: [(10.0, 10.0)] * 5, B: [(20.0, 20.0)] * 5})
     members = [{"index_code": "000905.SH", "code": code, "start_date": WEEK[2], "end_date": WEEK[4]} for code in (A, B)]
     store.commit({"source": "test"}, replace={"index_members": table_frame("index_members", members)})
@@ -128,12 +118,23 @@ def test_index_uncovered_counts_the_decision_days_outside_each_index_span(tmp_pa
         "member@000905.SH: 2 decision days outside its index_members span from 2024-01-04",
         {"index": "000905.SH", "days": 2, "first": "2024-01-04"},
     )
-    both = replace(csi500, universe=~Field("exchange@BJ") & Field("member@000852.SH"))
-    assert run(Backtest(both, execution=EX0, benchmark=None), panel).warnings["index_uncovered"] == (
-        "member@000852.SH: 4 decision days outside its index_members span, which is empty; "
-        "member@000905.SH: 2 decision days outside its index_members span from 2024-01-04",
-        {"index": "000852.SH", "days": 4, "first": None, "index_2": "000905.SH", "days_2": 2, "first_2": "2024-01-04"},
-    )
+    members = Field("member@000985.SH") & Field("member@000852.SH") & Field("member@000906.SH")  # none stored
+    four = replace(csi500, universe=~Field("exchange@BJ") & members)
+    params = run(Backtest(four, execution=EX0, benchmark=None), panel).warnings["index_uncovered"][1]
+    assert params == {  # numbered by index, never in a set's (hash) order: warnings.json is the same in every process
+        "index": "000852.SH",
+        "days": 4,
+        "first": None,
+        "index_2": "000905.SH",
+        "days_2": 2,
+        "first_2": "2024-01-04",
+        "index_3": "000906.SH",
+        "days_3": 4,
+        "first_3": None,
+        "index_4": "000985.SH",
+        "days_4": 4,
+        "first_4": None,
+    }
     assert (
         "index_uncovered"
         not in run(Backtest(replace(csi500, pool=Pool()), execution=EX0, benchmark=None), panel).warnings

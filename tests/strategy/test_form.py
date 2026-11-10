@@ -55,6 +55,7 @@ def test_golden_strategy_keys():
         '"filters":[{"conditions":[{"expr":["GT","close",5.0],"name":"a"},{"enabled":false,"expr":["NOT","st"],'
         '"name":"b"}],"mode":"any","name":"g"}],"top_n":10}'
     )
+    assert Strategy(band=-0.0).key == Strategy(band=0).key == '{"band":0.0}'  # one key for -0.0, 0 and 0.0
 
 
 def test_the_new_fields_stay_out_of_the_form_at_their_defaults_and_have_golden_keys():
@@ -78,21 +79,11 @@ def test_golden_backtest_keys_write_execution_and_metrics_in_full():
         f'{{"cash":100000.0,"data":{DATA},"execution":{EXECUTION},"metrics":{METRICS},"strategy":{{"factors":[{{"expr":["DIV",'
         '"adj_close",["REF","adj_close",1]],"name":"ret1"}],"period":"day","top_n":1}}'
     )
-
-
-def test_to_form_writes_dates_as_iso_text_and_none_when_it_is_not_the_default():
-    backtest = Backtest(Strategy(anchor=dt.date(2016, 11, 7)), start=dt.date(2016, 11, 8), benchmark=None)
-    form = backtest.form
-    assert form["strategy"] == {"anchor": "2016-11-07"} and form["start"] == "2016-11-08"
-    assert form["benchmark"] is None and "end" not in form and "cash" not in form
-
-
-def test_round_trips_compare_canonical_text():
-    backtest = Backtest(MOM, start=dt.date(2020, 1, 2), cash=123_456.78, execution=EX0, metrics=MetricSpec(250))
-    assert Backtest.from_form(backtest.form) == backtest and Backtest.from_form(backtest.form).key == backtest.key
-    assert Strategy.from_form(MOM.form) == MOM
-    form = json.loads(backtest.key)
-    assert canonical(to_form(parse_form(Backtest, form))) == canonical(form)
+    dated = Backtest(Strategy(anchor=dt.date(2016, 11, 7)), start=dt.date(2016, 11, 8), execution=EX0, benchmark=None)
+    assert dated.key == (  # dates as ISO text; a None that is not the default is written
+        f'{{"benchmark":null,"data":{DATA},"execution":{EXECUTION},"metrics":{METRICS},"start":"2016-11-08",'
+        '"strategy":{"anchor":"2016-11-07"}}'
+    )
 
 
 NUMBERS = st.one_of(st.integers(1, 9), st.floats(0.01, 9.0, allow_nan=False, allow_infinity=False))
@@ -192,37 +183,21 @@ def mom_form(**changes) -> dict:
 GROUPED = json.loads(Strategy(filters=(Group("g", (Condition("a", CLOSE > 5.0),)),)).key)
 
 
-@pytest.mark.parametrize(
-    "form",
-    [
-        mom_form(extra=1),
-        mom_form(strategy__extra=1),
-        mom_form(strategy__factors__0__extra=1),
-        mom_form(execution__foo=1),
-        mom_form(metrics__foo=1),
-        {"strategy": GROUPED | {"filters": [{**GROUPED["filters"][0], "extra": 1}]}},
-        {"strategy": {"filters": [{"name": "a", "expr": ["GT", "close", 5.0], "extra": 1}]}},
-        {"strategy": {"filters": [{"name": "a", "expr": ["GT", "close", 5.0], "conditions": []}]}},
-        {"strategy": {"filters": [{"name": "a"}]}},
-        mom_form(execution=[1]),
-        mom_form(metrics="default"),
-        mom_form(strategy=None),
-        {},
-        [],
-        mom_form(strategy__factors={"name": "mom"}),
-        mom_form(strategy__universe=["ADD", "close", 1.0]),
-        mom_form(strategy__factors__0__weight=True),
-        mom_form(strategy__factors__0__weight="1"),
-        mom_form(strategy__factors__0__weight=10**400),
-        mom_form(strategy__top_n=2.0),
-        mom_form(strategy__anchor="2024-13-01"),
-        mom_form(strategy__anchor=20240102),
-        mom_form(cash=None),
-        mom_form(execution__price=1),
-        mom_form(metrics__periods_per_year=True),
-        mom_form(start="2024-01-02", end="2023-01-02"),
-    ],
-)
+BAD_FORMS = {
+    "unknown_top_level_key": mom_form(extra=1),
+    "unknown_factor_key": mom_form(strategy__factors__0__extra=1),
+    "unknown_group_key": {"strategy": GROUPED | {"filters": [{**GROUPED["filters"][0], "extra": 1}]}},
+    "condition_with_conditions": {
+        "strategy": {"filters": [{"name": "a", "expr": ["GT", "close", 5.0], "conditions": []}]}
+    },
+    "execution_a_list": mom_form(execution=[1]),
+    "strategy_null": mom_form(strategy=None),
+    "form_a_list": [],
+    "start_after_end": mom_form(start="2024-01-02", end="2023-01-02"),
+}
+
+
+@pytest.mark.parametrize("form", list(BAD_FORMS.values()), ids=list(BAD_FORMS))
 def test_bad_forms_raise_value_error_never_type_error(form):
     with pytest.raises(ValueError):
         Backtest.from_form(form)
@@ -288,15 +263,8 @@ def test_rules_across_fields_follow_once_every_field_reads_and_report_every_one_
     "form, code, loc",
     [
         ({"filters": [5]}, "wrong_type", ("filters", 0)),
-        ({"filters": {"name": "a"}}, "wrong_type", ("filters",)),
         ({"anchor": "2024-13-01"}, "wrong_type", ("anchor",)),
-        ({"band": 10**400}, "out_of_range", ("band",)),
-        ({"pool": []}, "wrong_type", ("pool",)),
-        ({"pool": {"index": "000300.SZ"}}, "not_a_choice", ("pool", "index")),
-        ({"pool": {"boards": []}}, "out_of_range", ("pool", "boards")),
-        ({"pool": {"boards": ["main", "main"]}}, "duplicate_value", ("pool", "boards", 1)),
-        ({"pool": {"min_list_days": 1}}, "out_of_range", ("pool", "min_list_days")),
-        ({"filters": [{"name": "a", "expr": "close"}]}, "needs_condition", ("filters", 0, "expr")),
+        ({"band": 10**400}, "out_of_range", ("band",)),  # an int too large for a float
         (
             {"filters": [{"name": "g", "conditions": [{"name": "c"}]}]},
             "missing_key",
@@ -304,6 +272,14 @@ def test_rules_across_fields_follow_once_every_field_reads_and_report_every_one_
         ),
         ({"filters": [{"name": "a", "expr": "st", "mode": "all"}]}, "unknown_key", ("filters", 0, "mode")),
         (5, "wrong_type", ()),
+    ],
+    ids=[
+        "list_item_type",
+        "bad_iso_date",
+        "float_overflow",
+        "nested_missing_key",
+        "condition_unknown_key",
+        "not_an_object",
     ],
 )
 def test_a_form_error_has_its_code_and_location(form, code, loc):

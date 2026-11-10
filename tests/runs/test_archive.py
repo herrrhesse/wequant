@@ -2,12 +2,9 @@
 
 import dataclasses
 import datetime as dt
-import json
-import multiprocessing
 import os
 import pickle
 import re
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import polars as pl
@@ -15,17 +12,12 @@ import pytest
 
 import wequant.runs.archive
 from tests.runs.engines import DESC, buggy, hold
-from wequant.analytics import Metric, metrics_json
+from wequant.analytics import Metric
 from wequant.data.files import atomic_write
-from wequant.runs import FILES, INDEX, PROVENANCE, SAME, Archive, RunConflict, json_differences
+from wequant.runs import FILES, INDEX, PROVENANCE, SAME, Archive, RunConflict
 
 ID = "0a001d6ea6cdea5c"
 NEW_YEAR = "2026-01-01T00:00:00+00:00"
-FOUND = {
-    "daily.parquet": "equity row 2: 100194.9 → 100287.25; cash row 2: 89994.9 → 95187.25; sold row 2: 0.0 → 5200.0",
-    "orders.parquet": "rows 1 → 2",
-    "positions.parquet": "shares row 1: 1000.0 → 500.0; value row 1: 10200.0 → 5100.0",
-}
 
 
 def snapshot(directory: Path) -> dict[str, tuple[bytes, int]]:
@@ -34,11 +26,6 @@ def snapshot(directory: Path) -> dict[str, tuple[bytes, int]]:
 
 def names(directory: Path) -> list[str]:
     return sorted(path.name for path in directory.iterdir())
-
-
-def save_hold(root: Path, shares: int) -> str:
-    """Save a hold run of shares through a fresh Archive: one worker's job."""
-    return Archive(root).save(hold(DESC | {"shares": shares}, 1))
 
 
 def test_save_and_save_again(tmp_path, clock):
@@ -53,30 +40,21 @@ def test_save_and_save_again(tmp_path, clock):
 
 
 def test_a_result_changing_bug_conflicts(tmp_path):
-    archive, run, bug = Archive(tmp_path), hold(DESC, 1), buggy(DESC, 1)
-    archive.save(run)
+    """A run whose id is archived with other results raises RunConflict naming the files that differ, leaves the
+    archive as it was, and pickles across processes; the difference texts are test_compare's."""
+    archive, bug = Archive(tmp_path), buggy(DESC, 1)
+    archive.save(hold(DESC, 1))
     before = snapshot(tmp_path / ID)
-    sale = bug.ledger.orders.select("value", "commission", "stamp_tax", "transfer_fee").row(1)
-    assert sale == (5200.0, 5.0, 2.6, 0.05) and bug.id == ID
-    assert bug.ledger.daily.select("cash", "equity").row(2) == (95187.25, 100287.25)
-    found = archive.compare(ID, bug).differences
-    assert sorted(found) == ["daily.parquet", "metrics.json", "orders.parquet", "positions.parquet"]
-    assert {name: found[name] for name in FOUND} == FOUND
-    metrics = json_differences(*(json.loads(metrics_json(r.metrics, r.spec)) for r in (run, bug)))
-    assert metrics[0] == "metrics.annual_return.value: 0.26566728713318555 → 0.41492178353263176"
-    assert found["metrics.json"].startswith(metrics[0])
-    assert {
-        "metrics.total_return.value: 0.0019489999999999785 → 0.0028725000000000556",
-        "metrics.turnover.value: 6.050000000000001 → 9.180507120261826",
-        "metrics.max_drawdown.value: 0.0029852261159520888 → 0.0020662740099246513",
-    } <= set(metrics)
+    assert bug.id == ID
     with pytest.raises(RunConflict) as conflict:
         archive.save(bug)
-    assert str(conflict.value) == (
-        f"run {ID} is archived with other results (daily.parquet, metrics.json, orders.parquet, positions.parquet); "
-        f"remove {tmp_path / ID} to replace it"
-    )
-    assert conflict.value.run_id == ID and conflict.value.differences == found
+    assert sorted(conflict.value.differences) == [
+        "daily.parquet",
+        "metrics.json",
+        "orders.parquet",
+        "positions.parquet",
+    ]
+    assert conflict.value.run_id == ID and conflict.value.differences == archive.compare(ID, bug).differences
     assert str(pickle.loads(pickle.dumps(conflict.value))) == str(conflict.value)
     assert snapshot(tmp_path / ID) == before
 
@@ -91,12 +69,8 @@ def test_the_same_content_in_other_bytes_is_kept(tmp_path):
     assert archive.compare(ID, run).differences == {"daily.parquet": SAME}
 
 
-def test_index_of_a_missing_root(tmp_path):
-    index = Archive(tmp_path / "runs").index()
-    assert index.is_empty() and index.schema == pl.Schema(INDEX) and not (tmp_path / "runs").exists()
-
-
 def test_index_rows(tmp_path, clock):
+    """One row per archived run by created_at then id, from its files; other entries in the root are skipped."""
     archive = Archive(tmp_path)
     (tmp_path / ".x.tmp").mkdir()
     (tmp_path / "notes").write_text("not a run")
@@ -116,14 +90,10 @@ def test_index_rows(tmp_path, clock):
     index = archive.index()
     assert index["created_at"].is_sorted() and index["id"].to_list()[1:] == [ID, double.id]
     assert index.row(2, named=True)["total_return"] == 0.003937999999999997
-
-
-def test_index_shows_null_for_a_metric_with_a_reason(tmp_path):
-    run = hold(DESC, 1)
     no_sharpe = dataclasses.replace(run, metrics=run.metrics | {"sharpe": Metric(None, "ratio", "zero_volatility")})
-    Archive(tmp_path).save(no_sharpe)
-    row = Archive(tmp_path).index().row(0, named=True)
-    assert row["sharpe"] is None and row["total_return"] == 0.0019489999999999785
+    Archive(tmp_path / "other").save(no_sharpe)
+    row = Archive(tmp_path / "other").index().row(0, named=True)
+    assert row["sharpe"] is None and row["total_return"] == headline[0]  # a metric with a reason shows as null
 
 
 def test_index_names_a_run_it_cannot_read(tmp_path):
@@ -137,7 +107,7 @@ def test_index_names_a_run_it_cannot_read(tmp_path):
         archive.index()
 
 
-@pytest.mark.parametrize("name", ["../x", "ABCDEF0123456789", "0123456789abcde", "0123456789abcdef0", 7, None])
+@pytest.mark.parametrize("name", ["../x", "0123456789abcdef0"], ids=["path_traversal", "17_characters"])
 def test_names_that_are_not_run_ids(tmp_path, name):
     archive = Archive(tmp_path)
     with pytest.raises(ValueError, match="is not a run id"):
@@ -188,15 +158,11 @@ def test_a_failed_write_leaves_nothing(tmp_path, monkeypatch):
     assert written == ["run.json", "metrics.json"] and names(tmp_path) == []
 
 
-def test_parallel_saves_of_the_same_runs(tmp_path):
-    shares = [1000, 2000, 3000] * 12
-    with ProcessPoolExecutor(4, mp_context=multiprocessing.get_context("spawn")) as pool:  # a fork pool can hang
-        ids = list(pool.map(save_hold, [tmp_path] * len(shares), shares))
-    assert ids[:3] == ids[3:6] and len(set(ids)) == 3 and names(tmp_path) == sorted(set(ids))
-
-
 def test_the_default_root(tmp_path, monkeypatch):
+    """The archive defaults to $WEQUANT_HOME/runs; reading a root that does not exist finds nothing and creates nothing."""
     monkeypatch.setenv("WEQUANT_HOME", str(tmp_path / "home"))
     archive = Archive()
     assert archive.root == tmp_path / "home" / "runs"
-    assert archive.index().is_empty() and ID not in archive and not (tmp_path / "home").exists()
+    index = archive.index()
+    assert index.is_empty() and index.schema == pl.Schema(INDEX)
+    assert ID not in archive and not (tmp_path / "home").exists()

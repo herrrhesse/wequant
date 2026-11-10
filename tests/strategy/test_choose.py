@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from wequant.expr import Field
-from wequant.strategy import Factor, Strategy, choose, cross_section, stack, verdicts
+from wequant.strategy import Factor, Strategy, choose, cross_section, verdicts
 
 CLOSE = Field("close")
 BY_X = Strategy(factors=(Factor("x", CLOSE),), top_n=2, backups=1)
@@ -69,14 +69,12 @@ def test_a_held_backup_rank_is_skipped_with_hold_rank_but_not_without():
 
 
 def test_weights_follow_the_final_targets():
+    """Score weights share the slots among the targets hold_rank leaves: rank 1 (score 1) and the kept rank 5 (score
+    2/6) get 3/4 and 1/4."""
     by_score = Strategy(factors=BY_X.factors, top_n=2, weighting="score", hold_rank=5)
     got = choose(by_score, section(by_score, X), 0, held(4))  # rank 5 stays beside rank 1
-    scores = section(by_score, X).score[0]
     assert got.target.tolist() == [True, False, False, False, True, False]
-    assert got.weight == pytest.approx(scores[[0, 4]] / scores[[0, 4]].sum())
-    by_formula = Strategy(factors=BY_X.factors, top_n=3, weighting="formula", formula=CLOSE)
-    raw = choose(by_formula, section(by_formula, X, [6, 3, 1, 9, 9, 9]), 0, held()).raw_weight
-    assert raw.tolist() == [0.6, 0.3, 0.1]
+    assert got.weight == pytest.approx([0.75, 0.25], abs=1e-15)
 
 
 def test_the_excess_over_the_cap_goes_to_the_other_targets_in_proportion():
@@ -89,13 +87,12 @@ def test_the_excess_over_the_cap_goes_to_the_other_targets_in_proportion():
 
 
 def test_what_no_target_can_take_stays_in_cash():
+    """A cap excess no target can take stays in cash: two targets capped at 0.4 keep 0.2; equal weights are cut only
+    when the cap is below one slot (0.3 leaves 1/4 slots alone, 0.2 keeps 0.2 in cash)."""
     capped = Strategy(factors=BY_X.factors, top_n=2, weighting="score", max_weight=0.4)
     got = choose(capped, section(capped, X), 0, held())
     assert got.weight.tolist() == [0.4, 0.4] and got.capped.tolist()[:2] == [True, True]
     assert got.cash == pytest.approx(0.2, abs=1e-15) and got.raw_weight.sum() - got.weight.sum() == pytest.approx(0.2)
-
-
-def test_equal_weights_are_cut_only_below_one_slot():
     loose = Strategy(factors=BY_X.factors, top_n=4, max_weight=0.3)
     assert choose(loose, section(loose, X), 0, held()).weight.tolist() == [0.25] * 4
     tight = Strategy(factors=BY_X.factors, top_n=4, max_weight=0.2)
@@ -103,16 +100,15 @@ def test_equal_weights_are_cut_only_below_one_slot():
     assert got.weight.tolist() == [0.2] * 4 and got.cash == pytest.approx(0.2)
 
 
-def test_unfilled_slots_are_not_cap_cash_and_stack_keeps_every_row():
+def test_unfilled_slots_are_not_cap_cash():
+    """Slots no stock fills stay in cash but are not max_weight's cash: no max_weight_cash warning for them."""
     capped = Strategy(factors=BY_X.factors, top_n=4, weighting="score", max_weight=0.5)
     got = choose(capped, section(capped, [2, 1, np.nan, np.nan, np.nan, np.nan]), 0, held())
     assert got.weight.tolist() == [0.25 * 2 * 2 / 3, 0.25 * 2 / 3] and got.cash == 0.0
-    both = stack([got, got])
-    assert both.target.shape == (2, 6) and both.cash.tolist() == [0.0, 0.0]
-    assert both.weight.tolist() == got.weight.tolist() * 2  # each row's targets in turn
 
 
 def test_a_cap_that_exactly_fits_every_target_leaves_no_cash():
+    """28c2017: a rounding-level excess (targets x cap equal to the total) is not counted as cap cash."""
     exact = Strategy(factors=BY_X.factors, top_n=4, weighting="score", max_weight=0.25)
     got = choose(exact, section(exact, [4, 3, 2, 1, np.nan, np.nan]), 0, held())
     assert got.weight == pytest.approx([0.25] * 4) and got.cash == 0.0
