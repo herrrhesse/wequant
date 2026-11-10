@@ -8,6 +8,7 @@ from wequant.service.contract import OperationModels, SchemaRequest, ServiceSche
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest, expr_check, expr_eval
 from wequant.service.issues import IssueCount, IssueRow, Issues, IssuesRequest, data_issues
+from wequant.service.profile import ProfileReport, Stage
 from wequant.service.rows import Row
 from wequant.service.screen import ScreenRequest, ScreenResult, screen
 from wequant.service.status import DataStatus, StatusRequest, TableStatus, data_status
@@ -38,6 +39,8 @@ from wequant.service.strategies import (
 )
 
 __all__ = [
+    "ProfileReport",
+    "Stage",
     "BacktestRequest",
     "BacktestResult",
     "backtest",

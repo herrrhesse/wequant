@@ -163,3 +163,12 @@ def test_save_and_archive_change_the_library(cli, library_home, tmp_path):
     assert code == 0 and service.StrategyInfo.model_validate_json(out).archived
     code, out, _ = cli("strategy", "archive", "t", "--restore", "--json", "--home", library_home)
     assert code == 0 and not service.StrategyInfo.model_validate_json(out).archived
+
+
+def test_profile_times_the_stages_on_stderr_and_leaves_stdout_alone(cli, market_home):
+    argv = ["screen", "--strategy", "m", "--json", "--home", market_home]
+    code, plain, _ = cli(*argv)
+    code, out, err = cli(*argv, "--profile")
+    report = service.ProfileReport.model_validate_json(err)
+    assert code == 0 and out == plain and report.operation == "screen"
+    assert {"open_panel", "evaluate:mom", "frames", "result", "render"} <= {stage.name for stage in report.stages}

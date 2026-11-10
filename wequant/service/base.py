@@ -115,16 +115,22 @@ class PanelRequest(DataRequest):
 @dataclass(frozen=True)
 class Context:
     """The caller's settings for one call, never part of a request: the data root, the panel cache root, a resident
-    process's expression cache, and a long run's progress and cancel callbacks."""
+    process's expression cache, a long run's progress and cancel callbacks, and a stage timer's mark."""
 
     home: Path | None = None  # None: $WEQUANT_HOME, else ~/.wequant
     cache: Path | None = None  # panels go under <cache>/panel/; None: <home>/cache
     expr_cache: Cache | None = None  # a resident process's expression results; None: computed afresh
     progress: Callable[[Progress], None] | None = None  # told where a long run is
     cancel: Callable[[], bool] | None = None  # asked whether to stop a long run
+    mark: Callable[[str], None] | None = None  # told as each stage of the call ends (--profile)
 
     def store(self) -> Store:
         return Store(self.home)
+
+    def stage(self, name: str) -> None:
+        """Stage name has ended."""
+        if self.mark is not None:
+            self.mark(name)
 
     def library(self) -> Library:
         """The saved strategies of the data root."""

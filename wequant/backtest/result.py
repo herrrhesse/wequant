@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import numpy as np
@@ -51,27 +52,26 @@ def assemble(
     closes: np.ndarray | None,
     engine: str,
     version: int,
+    mark: Callable[[str], None] | None = None,
 ) -> Run:
     """The Run of a closed account and the stacked choices of its decision rows; engine and version name the engine in
-    versions."""
+    versions; mark(stage) as each stage ends: anomalies, metrics, frames."""
+    mark = mark or (lambda stage: None)
     if closes is not None:
         ledger = replace(ledger, daily=ledger.daily.with_columns(pl.Series("benchmark", closes).fill_nan(None)))
     calendar = pl.Series("date", panel.dates)
     spec, strategy = backtest.metrics, backtest.strategy
-    orders, uses = rebalance_orders(ledger.orders), run_uses(strategy, panel, section, choice, ledger)
+    uses = run_uses(strategy, panel, section, choice, ledger)
+    mark("anomalies")
+    orders = rebalance_orders(ledger.orders)
     metrics = compute_metrics(ledger.daily, calendar, spec, positions=ledger.positions, orders=orders)
-    return Run(
-        engine,
-        backtest.form,
-        versions(engine, version),
-        panel_key(panel),
-        panel.dates[0].item(),
-        ledger,
-        metrics,
-        spec,
+    mark("metrics")
+    frames = (
         picks_frame(section, choice, panel),
         funnel_frame(strategy, section, choice, panel),
         detail_frame(strategy, section, choice, panel),
-        uses,
-        run_warnings(strategy, panel, section, choice, ledger, uses),
     )
+    warnings = run_warnings(strategy, panel, section, choice, ledger, uses)
+    mark("frames")
+    meta = (engine, backtest.form, versions(engine, version), panel_key(panel), panel.dates[0].item())
+    return Run(*meta, ledger, metrics, spec, *frames, uses, warnings)

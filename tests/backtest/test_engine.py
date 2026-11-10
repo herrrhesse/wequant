@@ -344,3 +344,10 @@ def test_a_universe_admitting_beijing_raises_from_select(mixed):
 def test_warnings_follow_their_fixed_order(rotated):
     result, _ = rotated
     assert list(result.warnings) == [code for code in WARNINGS if code in result.warnings]
+
+
+def test_the_engine_marks_each_stage_as_it_ends(rotation):
+    marks = []
+    run(Backtest(RET1, execution=EX0, benchmark=None), rotation, mark=marks.append)
+    roots = [m for m in marks if m.startswith("evaluate:")]
+    assert roots and marks == [*roots, "cross_section", "day_loop", "anomalies", "metrics", "frames"]

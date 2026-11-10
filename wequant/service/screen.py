@@ -150,13 +150,14 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
     library = context.library()
     strategy, warnings = resolve(request, library)
     data = to_data(request.data)
+    context.stage("compile")
     panel = strategy_panel(strategy, request.data_version, data, context, _where(request))
     with on_panel(_where(request)):
-        shot = core_screen(strategy, panel, request.date, context.expr_cache)
+        shot = core_screen(strategy, panel, request.date, context.expr_cache, context.mark)
     section, choice, row = shot.section, shot.choice, int(shot.section.rows[0])
     uses = screen_uses(strategy, panel, section, choice)
     found = strategy_hash(strategy)
-    return ScreenResult(
+    result = ScreenResult(
         data_version=panel.version,
         date=panel.dates[row].item(),
         next_day=panel.dates[row + 1].item() if row + 1 < len(panel.dates) else None,
@@ -170,6 +171,8 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
         anomalies=data_anomaly(uses, panel.excluded, sample=None),
         warnings=warnings + warnings_out(screen_warnings(strategy, panel, section, choice, uses)),
     )
+    context.stage("result")
+    return result
 
 
 def strategy_panel(
@@ -178,12 +181,15 @@ def strategy_panel(
     """The panel a backtest without an end runs on: every code from the strategy's anchor to the store's last day."""
     store = context.store()
     manifest(store, version)  # NOT_FOUND that names the kept versions
+    context.stage("open_store")
     try:
-        return load_panel(
+        panel = load_panel(
             strategy.anchor, None, version=version, store=store, cache_dir=context.cache, exclude=data.excluded
         )
     except NotInPanel as error:
         raise not_found(error.code, error.args[0], [*loc, "anchor"]) from None
+    context.stage("open_panel")
+    return panel
 
 
 @contextmanager
