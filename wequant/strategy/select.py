@@ -42,8 +42,8 @@ def select(
     values: bool = False,
 ) -> Section:
     """Each root of expressions(strategy) evaluated on the whole panel and kept on rows, on_root(name) after each: the
-    pool and its parts together, then every other root seeded with the pool's grid, so it is computed once; values
-    keeps each simple comparison's value side too. SpecError admits_beijing when the pool admits a Beijing code on one
+    pool and its parts together, then every other root, seeded with the pool's grid when one has it wrapped in, so the
+    pool is computed once; values keeps each simple comparison's value side too. SpecError admits_beijing when the pool admits a Beijing code on one
     of the rows."""
     rows, roots, report = np.asarray(rows, dtype=np.int64), expressions(strategy), on_root or (lambda name: None)
     family = {name: roots[name] for name in ("universe", *pool_items(strategy), "pool")}
