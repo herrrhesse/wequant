@@ -128,6 +128,14 @@ def test_a_holding_valued_on_the_anomalous_close_is_a_use_that_exclusion_values_
     assert excluded.ledger.daily.filter(pl.col("date") == day(10))["equity"].item() == pytest.approx(cash + 99_000)
 
 
+def test_a_holding_across_an_adjustment_day_is_a_valuation_use_at_the_close_before(tmp_path):
+    """Design 15.1: an adjustment taints a holding rescaled at the day's open; it was last valued the close before."""
+    result = run_on(panel_of(tmp_path, [BLIP]), HOLD_A)
+    cash = 100_000 - 99_000 - 29.70 - 0.99
+    used = result.anomalies.select("date", "channel", "value", "share").rows()
+    assert used == [(day(10), "valuation", 99_000.0, pytest.approx(99_000 / (cash + 99_000)))]  # 9,900 x 10.00
+
+
 def test_an_excluded_adjustment_stays_used_and_counts_as_unavoidable(tmp_path):
     """Design 15.4 and G-D11: no missing day fixes an adjustment ratio, so its use stays and the warning says so."""
     data = DataOptions(anomalies="exclude_day", exclude_suspicious=True)

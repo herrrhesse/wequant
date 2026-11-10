@@ -22,6 +22,7 @@ from wequant.rules.book import default_book
 from wequant.rules.limits import LIMITS_FORMAT
 
 Day = dt.date | str | np.datetime64
+_MISSING = {"status": MISSING, **dict.fromkeys(RAW_FIELDS, np.nan)}  # what an excluded cell of a grid reads as
 
 
 def load_panel(
@@ -252,8 +253,7 @@ class Panel:
     def _grid(self, name: str) -> np.ndarray:
         if name not in self._memo:
             grid = self._slice(self._src.array(name))
-            missing = {"status": MISSING} | dict.fromkeys(RAW_FIELDS, np.nan)
-            self._memo[name] = self._missing(grid, missing[name]) if name in missing else grid
+            self._memo[name] = self._missing(grid, _MISSING[name]) if name in _MISSING else grid
         return self._memo[name]
 
     def _missing(self, grid: np.ndarray, fill: float) -> np.ndarray:
