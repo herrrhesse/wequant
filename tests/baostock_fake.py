@@ -1,6 +1,8 @@
 """A fake baostock client that mimics its paging, and synthetic replies in BaoStock's field formats."""
 
-from types import SimpleNamespace
+import socket
+import sys
+from types import ModuleType, SimpleNamespace
 
 from wequant.data.sources.baostock import PAGE_ROWS
 
@@ -90,3 +92,42 @@ def adjust_factor(code: str) -> tuple[list[str], list[list[str]]]:
         [code, "2003-06-02", "0.750000", "1.500000", "1.500000"],
     ]
     return ADJUST_FACTOR, rows
+
+
+def install_baostock(monkeypatch, host: str, port: int) -> None:
+    """Put a stand-in for the baostock package in sys.modules, pointed at host:port: the modules the adapter patches,
+    with baostock 0.9.4's own connect, its reply loop (recv until the end marker, any exception -> no reply) and its
+    login answer to no reply, error 10002007."""
+    package, util, common = ModuleType("baostock"), ModuleType("baostock.util"), ModuleType("baostock.common")
+    socketutil, context = ModuleType("baostock.util.socketutil"), ModuleType("baostock.common.context")
+
+    class SocketUtil:
+        def connect(self, api_key):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((host, port))
+            context.default_socket = sock
+
+    def send_msg(msg: str) -> str | None:
+        try:
+            sock = context.default_socket
+            sock.send(bytes(msg + "\n", encoding="utf-8"))
+            receive = b""
+            while True:
+                receive += sock.recv(8192)
+                if receive[-13:] == b"<![CDATA[]]>\n":
+                    return bytes.decode(receive)
+        except Exception:
+            return None
+
+    def login():
+        SocketUtil().connect("0")
+        if not send_msg("login"):
+            return SimpleNamespace(error_code="10002007", error_msg="网络接收错误。")
+        return SimpleNamespace(error_code="0", error_msg="success")
+
+    socketutil.SocketUtil, socketutil.send_msg = SocketUtil, send_msg
+    package.login, package.logout = login, lambda: None
+    modules = {"baostock": package, "baostock.util": util, "baostock.common": common}
+    modules |= {"baostock.util.socketutil": socketutil, "baostock.common.context": context}
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)

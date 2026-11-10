@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from tests.baostock_fake import FakeClient, FakeResult, stock_basic
+from tests.baostock_fake import FakeClient, FakeResult, install_baostock, stock_basic
 from wequant.data.schema import TABLES
 from wequant.data.sources import baostock as bsmod
 from wequant.data.sources.baostock import (
@@ -150,10 +150,9 @@ def released():
 
 @pytest.mark.parametrize("silent", [False, True], ids=["closed", "silent"])
 def test_a_dead_connection_fails_the_login_instead_of_hanging(silent, released, monkeypatch):
-    constants = pytest.importorskip("baostock.common.contants")
+    """Without the guard, baostock's reply loop spins on a closed connection and blocks on a silent one."""
     monkeypatch.setattr(bsmod, "REPLY_TIMEOUT", 0.5)
-    monkeypatch.setattr(constants, "BAOSTOCK_SERVER_IP", "127.0.0.1")
-    monkeypatch.setattr(constants, "BAOSTOCK_SERVER_PORT", serve_once(released.wait if silent else lambda: None))
+    install_baostock(monkeypatch, "127.0.0.1", serve_once(released.wait if silent else lambda: None))
     errors = []
 
     def login():
