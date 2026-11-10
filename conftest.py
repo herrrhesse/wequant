@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 pytest_plugins = ["pytester"]
+collect_ignore = ["frontend"]  # the frontend runs its own checks with npm
 CACHES = {".hypothesis", ".pytest_cache", "__pycache__"}  # what pytest and hypothesis keep in the root
 BEFORE = pytest.StashKey[set[str]]()
 
