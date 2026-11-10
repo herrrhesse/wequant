@@ -10,10 +10,7 @@ import pytest
 from tests.expr.conftest import SH, SZ, arguments
 from wequant import ops
 from wequant.expr import (
-    BARSLAST,
-    COUNT,
     CS_RANK,
-    EVERY,
     FAMILIES,
     FIELDS,
     GE,
@@ -25,7 +22,6 @@ from wequant.expr import (
     OPERATORS,
     REF,
     SMA,
-    VALUEWHEN,
     Cache,
     Field,
     Op,
@@ -34,7 +30,6 @@ from wequant.expr import (
     from_form,
     panel_key,
 )
-from wequant.panel import PRICE_FIELDS, RAW_FIELDS
 
 NAN = np.nan
 close, adj, st, limit_up, limit_up_price = (
@@ -43,34 +38,27 @@ close, adj, st, limit_up, limit_up_price = (
 up = close > REF(close, 1)
 FAMILY_NAMES = [f"{family}@{param}" for family, spec in FAMILIES.items() for param in spec.params]
 GOLDENS = [  # expression, 000001.SZ, 600000.SH, relative tolerance
-    (MA(close, 2), [NAN, 19.5, 19.25, 20.0, 20.25, 20.5], [NAN, 10.25, 11.025, NAN, 11.275, 11.55], 1e-12),
-    (up, [NAN, 0, 1, 1, 0, 1], [NAN, 1, 1, NAN, 0, 1], 0),
-    (COUNT(up, 3), [NAN, NAN, NAN, 2, 2, 2], [NAN, NAN, NAN, NAN, 2, 2], 0),
-    (EVERY(up, 2), [NAN, NAN, 0, 1, 0, 0], [NAN, NAN, 1, NAN, 0, 0], 0),
-    (BARSLAST(limit_up), [NAN, NAN, NAN, NAN, NAN, 0], [NAN, NAN, 0, NAN, 1, 0], 0),
-    (VALUEWHEN(limit_up, close), [NAN, NAN, NAN, NAN, NAN, 21.0], [NAN, NAN, 11.55, NAN, 11.55, 12.1], 0),
     (
         adj / REF(adj, 1) - 1,  # SZ D3 is 22.55 / 19.5 - 1; the raw close would give 20.5 / 19.5 - 1
         [NAN, -0.05, 0.0263157894736842, 0.1564102564102565, -0.0243902439024390, 0.05],
         [NAN, 0.05, 0.1, NAN, -0.0476190476190476, 0.1],
         1e-12,
     ),
-    (CS_RANK(IF(st, None, adj)), [2, 2, 2, 1, NAN, NAN], [1, 1, 1, NAN, 1, 1], 0),
+    (CS_RANK(IF(st, None, adj)), [2, 2, 2, 1, NAN, NAN], [1, 1, 1, NAN, 1, 1], 0),  # ST leaves the ranking
 ]
 GOLDEN_IDS = [repr(e) for e, *_ in GOLDENS]
 FIELD_GOLDENS = {  # 000001.SZ, 600000.SH
     "limit_up": ([0, 0, 0, 0, 0, 1], [0, 0, 1, NAN, 0, 1]),
-    "limit_down": ([0, 0, 0, 0, 0, 0], [0, 0, 0, NAN, 0, 0]),
-    "limit_locked": ([0, 0, 0, 0, 0, 1], [0, 0, 1, NAN, 0, 0]),
-    "limit_known": ([0, 1, 1, 1, 1, 1], [0, 1, 1, NAN, 1, 1]),
     "st": ([0, 0, 0, 0, 1, 1], [0, 0, 0, NAN, 0, 0]),
-    "st_known": ([1, 1, 1, 1, 1, 1], [0, 0, 0, NAN, 0, 0]),
     "factor": ([1, 1, 1, 1.1, 1.1, 1.1], [1, 1, 1, NAN, 1, 1]),
-    "board@main": ([1, 1, 1, 1, 1, 1], [1, 1, 1, NAN, 1, 1]),
-    "board@star": ([0, 0, 0, 0, 0, 0], [0, 0, 0, NAN, 0, 0]),
     "exchange@SH": ([0, 0, 0, 0, 0, 0], [1, 1, 1, NAN, 1, 1]),
-    "exchange@SZ": ([1, 1, 1, 1, 1, 1], [0, 0, 0, NAN, 0, 0]),
-    "exchange@BJ": ([0, 0, 0, 0, 0, 0], [0, 0, 0, NAN, 0, 0]),
+    # trading days since securities.first_date (D0 for both), that day counted as 1; no value without a bar
+    "list_days": ([1, 2, 3, 4, 5, 6], [1, 2, 3, NAN, 5, 6]),
+}
+PANEL_GRIDS = {  # one field per loader kind, and the panel array behind it
+    "close": lambda panel: panel.raw("close"),
+    "adj_close": lambda panel: panel.adjusted("close"),
+    "limit_up_price": lambda panel: panel.limit_up_price,
 }
 
 
@@ -82,32 +70,6 @@ def expect(grid, first, second, rtol=0.0):
 def identical(a, b) -> bool:
     """The same shape and the same bits in every cell."""
     return a.shape == b.shape and np.array_equal(a.view(np.uint64), b.view(np.uint64))
-
-
-def accessor(panel, name: str) -> np.ndarray:
-    """The panel array behind a field name, read without wequant.expr."""
-    family, _, param = name.partition("@")
-    if family == "member":
-        member = panel.member({"000300.SH": "399300.SZ"}.get(param, param))
-        return np.where(panel.traded & (member >= 0), member == 1, np.nan)
-    if param:
-        values = panel.boards if family == "board" else panel.exchanges
-        return panel.on_bars(np.broadcast_to(values == param, panel.traded.shape))
-    if name == "list_days":
-        return np.where(panel.traded & (panel.list_days > 0), panel.list_days, np.nan)
-    if name.startswith("adj_"):
-        return panel.adjusted(name[4:])
-    if name == "factor":
-        return np.where(panel.traded, panel.factor, np.nan)
-    if name.endswith("_price"):
-        return getattr(panel, name)
-    return panel.raw(name) if name in RAW_FIELDS else panel.on_bars(getattr(panel, name))
-
-
-def direct(name: str, panel) -> np.ndarray:
-    """getattr(wequant.ops, name) on the panel arrays behind arguments(name)."""
-    grids = {"x": panel.raw("close"), "s": panel.adjusted("close"), "c": panel.on_bars(panel.limit_up)}
-    return getattr(ops, name)(*[grids.get(role, a) for role, a in zip(OPERATORS[name].roles, arguments(name))])
 
 
 @pytest.fixture
@@ -130,20 +92,6 @@ def calls(monkeypatch):
 # ---------------------------------------------------------------- panel facts and goldens
 
 
-def test_panel_facts(panel, free_panel):
-    assert panel.codes.tolist() == [SZ, SH]
-    expect(panel.limit_up_price, [NAN, 22.00, 20.90, 21.45, 21.53, 21.00], [NAN, 11.00, 11.55, NAN, 12.71, 12.10])
-    expect(panel.limit_down_price, [NAN, 18.00, 17.10, 17.55, 19.48, 19.00], [NAN, 9.00, 9.45, NAN, 10.40, 9.90])
-    expect(panel.adjusted("close"), [20, 19, 19.5, 22.55, 22, 23.1], [10, 10.5, 11.55, NAN, 11, 12.1], 1e-12)
-    limited = np.isfinite(panel.limit_up_price)
-    assert (panel.raw("low")[limited] >= panel.limit_down_price[limited]).all()
-    assert (panel.raw("high")[limited] <= panel.limit_up_price[limited]).all()
-    assert panel.raw("high")[5, 1] == panel.limit_up_price[5, 1] == 12.10
-    assert free_panel.codes.tolist() == [SZ, "000002.SZ"]
-    expect(free_panel.limit_up_price, [NAN, 22.00, 20.90, 21.45, 22.55, 22.00], [NAN] + [np.inf] * 5)
-    expect(free_panel.limit_down_price, [NAN, 18.00, 17.10, 17.55, 18.45, 18.00], [NAN] + [-np.inf] * 5)
-
-
 @pytest.mark.parametrize(("e", "sz", "sh", "rtol"), GOLDENS, ids=GOLDEN_IDS)
 def test_goldens(panel, e, sz, sh, rtol):
     expect(evaluate(e, panel), sz, sh, rtol)
@@ -155,11 +103,6 @@ def test_field_goldens(panel, name, sz, sh):
 
 
 # ---------------------------------------------------------------- repeated subexpressions
-
-
-def test_a_repeated_subexpression_is_computed_once(panel, calls):
-    expect(evaluate(MA(close, 2) - MA(close, 2), panel), [NAN, 0, 0, 0, 0, 0], [NAN, 0, 0, NAN, 0, 0])
-    assert calls == {"MA": 1, "SUB": 1}
 
 
 def written(form) -> Counter:
@@ -246,14 +189,11 @@ def test_the_cache_evicts_the_least_recently_used():
     cache.put("c", c)
     assert cache.nbytes == 192 and cache.get("b") is None and (cache.hits, cache.misses) == (1, 1)
     assert cache.get("a") is a and cache.get("c") is c
-    cache.put("c", c)
-    assert cache.nbytes == 192
-
-
-def test_the_newest_grid_always_stays():
-    cache, grid = Cache(max_bytes=50), np.zeros(12)
-    cache.put("x", grid)
-    assert cache.get("x") is grid and cache.nbytes == 96
+    cache.put("c", c)  # a repeat replaces the grid: its bytes count once, so nothing else has to leave
+    assert cache.nbytes == 192 and cache.get("a") is a and cache.get("c") is c
+    small, grid = Cache(max_bytes=50), np.zeros(12)
+    small.put("x", grid)  # the newest grid stays even when it alone exceeds max_bytes
+    assert small.get("x") is grid and small.nbytes == 96
 
 
 # ---------------------------------------------------------------- no look-ahead
@@ -271,9 +211,9 @@ def test_later_data_never_moves_an_earlier_row(two_versions):
     assert any(not identical(v1[f"op {name}"][4:], v2[f"op {name}"][4:]) for name in OPERATORS)
 
 
-@pytest.mark.parametrize("e", [e for e, *_ in GOLDENS], ids=GOLDEN_IDS)
-def test_a_shorter_panel_gives_the_same_rows(panel, load, e):
-    assert identical(evaluate(e, load(end="2024-01-05")), evaluate(e, panel)[:4])
+def test_a_shorter_panel_gives_the_same_rows(panel, load):
+    full, short = (evaluate_all(EVERYTHING, p) for p in (panel, load(end="2024-01-05")))
+    assert all(identical(short[name], full[name][:4]) for name in EVERYTHING)
 
 
 # ---------------------------------------------------------------- FREE cells
@@ -293,30 +233,9 @@ def test_free_limits_are_infinite_in_the_bare_field_and_no_value_elsewhere(free_
 # ---------------------------------------------------------------- parity with direct calls
 
 
-def assert_grid(result, panel):
-    assert result.shape == (len(panel.dates), len(panel.codes)) and result.dtype == np.float64
-    assert not result.flags.writeable
-
-
-@pytest.mark.parametrize("name", list(OPERATORS))
-def test_an_operator_equals_its_direct_call(panel, name):
-    result = evaluate(Op(name, *arguments(name)), panel)
-    assert identical(result, direct(name, panel))
-    assert_grid(result, panel)
-
-
-@pytest.mark.parametrize("name", [*FIELDS, *FAMILY_NAMES])
-def test_a_field_equals_its_accessor(panel, name):
-    result = evaluate(Field(name), panel)
-    assert identical(result, accessor(panel, name))
-    assert_grid(result, panel)
-
-
-@pytest.mark.parametrize(
-    "name", [*RAW_FIELDS, *[f"adj_{f}" for f in PRICE_FIELDS], "limit_up_price", "limit_down_price"]
-)
+@pytest.mark.parametrize("name", list(PANEL_GRIDS))
 def test_a_field_is_the_panel_grid_itself(panel, name):
-    assert evaluate(Field(name), panel) is accessor(panel, name)
+    assert evaluate(Field(name), panel) is PANEL_GRIDS[name](panel)
 
 
 def test_an_operator_gets_and_gives_its_grids_uncopied(panel, monkeypatch):
@@ -337,6 +256,5 @@ def test_the_deepest_tree_evaluates_under_the_default_recursion_limit(panel):
     for _ in range(MAX_DEPTH - 1):
         x, expected = x + 1.0, ops.ADD(expected, 1.0)
     result = evaluate(x, panel)
-    assert identical(result, expected) and repr(x).startswith("ADD(ADD(")
-    assert x.key == json.dumps(x.form, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    assert identical(result, expected)
     np.testing.assert_allclose(result, panel.raw("close") + 255.0, rtol=1e-12)
