@@ -12,7 +12,6 @@ ALLOWED = {
     "frontend/contract/service-models.schema.json",  # the service models' JSON Schema, not data
     "tests/data/resolutions_sample.toml",  # synthetic
     "wequant/rules/rules.toml",  # dated trading rules, written from the exchanges' published rules
-    "wequant/data/merge/resolutions.toml",  # real decisions until S2.4b moves them to the data root
     "tests/data/rule_examples.toml",  # synthetic, worked out by hand from rules.toml
 }
 
