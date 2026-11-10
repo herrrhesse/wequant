@@ -164,6 +164,10 @@ uv run python -m tools.backtest_report --cache /tmp/wequant-cache    # no signal
 uv run python -m tools.runs_report --cache /tmp/wequant-cache        # one run saved, loaded, re-run byte for byte, indexed
 ```
 
+The backtest and run archive reports open with the store version, the code version, the start time (ISO 8601 with
+its UTC offset) and a summary table of every check: PASS or FAIL and what it measured, such as seconds, bytes or
+whether a re-run was byte-identical. The sections below give the details.
+
 Run `wequant data check --commit` again after every import: the panel applies the voids it records. Panels are cached
 by store version under `$WEQUANT_HOME/cache/panel/`. The cache is derived data and can be deleted at any time.
 

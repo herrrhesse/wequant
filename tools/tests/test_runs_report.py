@@ -6,6 +6,7 @@ import pytest
 
 from tests.account.golden import build_store
 from tools import runs_report
+from tools.tests.test_summary import summary_rows
 from wequant.runs import Archive
 
 
@@ -27,7 +28,12 @@ def test_report_passes_every_check_and_writes_only_the_archive(tmp_path):
         assert f"\n## {number}. {heading}\n" in text
     assert "**Re-run:**" in text and "PASS: every file byte-identical" in text
     assert re.search(r"\*\*Result:\*\* [\d.]+ s, exit 0; PASS: identical", text)
-    assert "FAIL" not in text and text.count("PASS") == 7
+    assert "FAIL" not in text and text[text.index("## 1.") :].count("PASS") == 7
+    rows = summary_rows(text[: text.index("## Setup")])
+    assert [verdict for _, verdict, _ in rows] == ["PASS"] * 7
+    assert re.fullmatch(r"archive [\d,]+ bytes, save \d+ ms", rows[0][2])
+    assert re.fullmatch(r"[\d.]+ s, byte-identical yes", rows[2][2])
+    assert re.fullmatch(r"[\d.]+ s, exit 0, byte-identical yes", rows[3][2])
     assert re.search(r"peak RSS: [\d,]+ MB \(PASS", text)
     assert listing(home) == before
     [directory] = runs.iterdir()

@@ -23,6 +23,7 @@ from typing import NamedTuple
 import numpy as np
 import polars as pl
 
+from tools.summary import Summary
 from wequant.account import EXECUTION_VERSION, Execution
 from wequant.analytics import METRICS_VERSION
 from wequant.backtest import PROGRESS_DAYS, Backtest, Cancelled, Progress, panel_for, run, span
@@ -33,7 +34,6 @@ from wequant.panel import Panel, load_panel
 from wequant.rules import limit_check_current
 from wequant.runs.run import Run
 from wequant.strategy import Condition, Factor, Group, Section, Strategy, decision_rows, screen, select
-from wequant.version import code_version
 
 CODES = ("600000.SH", "000002.SZ", "600519.SH", "002594.SZ", "300750.SZ", "688981.SH")
 CASH = 10_000_000.0  # yuan: the strategies of sections 1 and 3 to 6
@@ -84,7 +84,7 @@ def strategy_s(anchor: dt.date) -> Strategy:
 
 @dataclass
 class Report:
-    """What every section reads: the store version, the cache, the window and the codes of section 2."""
+    """What every section reads: the store version, the cache, the window, the codes of section 2 and the summary."""
 
     store: Store
     cache: Path
@@ -94,6 +94,7 @@ class Report:
     dates: np.ndarray = field(init=False)  # the calendar of the store version
     start: dt.date = field(init=False)  # the first trading day on or after the last day less years
     shared: dict = field(default_factory=dict)  # results one section hands to a later one
+    summary: Summary = field(default_factory=Summary)  # made before __post_init__ loads a panel: the start time
 
     def __post_init__(self) -> None:
         self.dates = self.panel().dates
@@ -144,18 +145,18 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def render(report: Report) -> str:
-    """The Markdown report: the header, every section, and the peak RSS taken after the last one."""
+    """The Markdown report: the summary, the setup, every section, and the peak RSS taken after the last one."""
     load = os.getloadavg()
     body = [line for section in SECTIONS for line in section(report)]
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+    memory = report.summary.check("Memory: peak RSS", peak <= PEAK_LIMIT, f"{peak / 2**20:,.0f} MB (≤ 5 GB)")
     manifest = report.store.manifest(report.version)
     run_days = len(report.dates) - 1 - int(np.searchsorted(report.dates, np.datetime64(report.start)))
-    header = [
-        f"# Backtest report: store v{report.version}",
+    setup = [
+        "## Setup",
         "",
-        f"- **Store:** {report.store.home} (version {report.version}, last day {report.dates[-1]})",
+        f"- **Store:** {report.store.home}, last day {report.dates[-1]}",
         f"- **limit_check_current:** {limit_check_current(manifest)}",
-        f"- **code_version:** {code_version()}",
         f"- **EXECUTION_VERSION:** {EXECUTION_VERSION}; **METRICS_VERSION:** {METRICS_VERSION}",
         f"- **Machine:** {os.cpu_count()} CPUs; load average at the start {fmt_load(load)}",
         f"- **Window:** start {report.start}, the first trading day on or after the last day less --years "
@@ -163,8 +164,9 @@ def render(report: Report) -> str:
         f"- **Cache:** {report.cache}",
         "",
     ]
-    footer = ["## Memory", "", f"- **Peak RSS:** {peak / 2**20:,.0f} MB: {verdict(peak <= PEAK_LIMIT)} (≤ 5 GB)", ""]
-    return "\n".join(header + body + footer) + "\n"
+    footer = ["## Memory", "", f"- **Peak RSS:** {peak / 2**20:,.0f} MB: {memory} (≤ 5 GB)", ""]
+    head = report.summary.head(f"Backtest report: store v{report.version}", report.version)
+    return "\n".join(head + setup + body + footer) + "\n"
 
 
 # ---------------------------------------------------------------- 1. no signal
@@ -176,6 +178,7 @@ def no_signal_section(report: Report) -> list[str]:
     ledger = result.ledger
     flat = (ledger.daily["equity"] == CASH).all()
     ok = ledger.orders.is_empty() and flat and ledger.positions.is_empty() and "no_picks" in result.warnings
+    measured = f"{ledger.orders.height:,} orders, {ledger.positions.height:,} positions, flat equity {flat}"
     return [
         "## 1. No signal",
         "",
@@ -184,7 +187,7 @@ def no_signal_section(report: Report) -> list[str]:
         "",
         f"- **Orders:** {ledger.orders.height:,}; **positions:** {ledger.positions.height:,}; **equity equals the "
         f"cash on every day:** {flat}; **warnings:** {', '.join(result.warnings)}.",
-        f"- **Result:** {verdict(ok)}",
+        f"- **Result:** {report.summary.check('1. No signal', ok, measured)}",
         "",
     ]
 
@@ -195,6 +198,7 @@ def no_signal_section(report: Report) -> list[str]:
 def hold_section(report: Report) -> list[str]:
     rows = [hold_row(report, code) for code in report.codes]
     ids = [row[-2] for row in rows]
+    distinct = report.summary.check("2. Distinct run ids", len(set(ids)) == len(ids), f"{len(set(ids))} of {len(ids)}")
     return [
         "## 2. Buy-and-hold",
         "",
@@ -204,25 +208,27 @@ def hold_section(report: Report) -> list[str]:
         "shares × price × (close × factor on the last traded day) / (open × factor on the buy day).",
         "",
         *table(["code", "base", "buy day", "status", "shares", "total_return", "equity gap", "id", ""], rows),
-        f"- **Distinct run ids:** {len(set(ids))} of {len(ids)}: {verdict(len(set(ids)) == len(ids))}",
+        f"- **Distinct run ids:** {len(set(ids))} of {len(ids)}: {distinct}",
         "",
     ]
 
 
 def hold_row(report: Report, code: str) -> list:
-    panel = report.panel(codes=[code])
+    panel, name = report.panel(codes=[code]), f"2. Buy-and-hold {code}"
     base = hold_base(panel, int(np.searchsorted(panel.dates, np.datetime64(report.start))))
     if base is None:
-        return [code, "no base day", *["—"] * 6, verdict(False)]
+        return [code, "no base day", *["—"] * 6, report.summary.check(name, False, "no base day")]
     result = run(Backtest(ONE, start=panel.dates[base].item(), cash=HOLD_CASH, execution=EX0, benchmark=None), panel)
     orders, last = result.ledger.orders, panel.dates[-1].item()
     if orders.height != 1 or orders["shares"][0] <= 0:
-        return [code, panel.dates[base], "—", f"{orders.height} orders", "—", "—", "—", result.id, verdict(False)]
+        found = f"{orders.height} orders"
+        return [code, panel.dates[base], "—", found, "—", "—", "—", result.id, report.summary.check(name, False, found)]
     order = orders.row(0, named=True)
     gap = abs(result.ledger.daily["equity"][-1] - expected_end(panel, order, base + 1))
     held = result.ledger.positions.filter(pl.col("date") == last).height == 1
     cells = [order["status"], f"{order['shares']:,.0f}", f"{result.metrics['total_return'].value:.4f}", f"{gap:.2e}"]
-    return [code, panel.dates[base], panel.dates[base + 1], *cells, result.id, verdict(held and gap <= TOLERANCE)]
+    ok = report.summary.check(name, held and gap <= TOLERANCE, f"equity gap {gap:.2e} yuan")
+    return [code, panel.dates[base], panel.dates[base + 1], *cells, result.id, ok]
 
 
 def hold_base(panel: Panel, first: int) -> int | None:
@@ -255,7 +261,7 @@ def speed_section(report: Report) -> list[str]:
     full = [timed(report, None) for _ in range(REPEATS)]
     load_full = os.getloadavg()
     report.shared["m"] = ten[-1]
-    rows = [speed_row("10-year anchor", ten, load_ten), speed_row("default anchor", full, load_full)]
+    rows = [speed_row(report, "10-year anchor", ten, load_ten), speed_row(report, "default anchor", full, load_full)]
     counts = [
         count_row(f"{report.start} (10-year)", ten[-1].run),
         count_row(f"{report.dates[0]} (default)", full[-1].run),
@@ -289,10 +295,12 @@ def timed(report: Report, anchor: dt.date | None, period: str = "week") -> Timin
     return Timing(time.perf_counter() - started, marks[0] - started, result, calls)
 
 
-def speed_row(label: str, timings: list[Timing], load: tuple[float, ...]) -> list:
+def speed_row(report: Report, label: str, timings: list[Timing], load: tuple[float, ...]) -> list:
     best = min(timings, key=lambda t: t.seconds)
     busy = load[0] > (os.cpu_count() or 1) / 2
-    result = verdict(best.seconds < SPEED_LIMIT) + (" (busy)" if busy else "")
+    measured = f"{best.seconds:.2f} s, best of {REPEATS}" + ("; busy" if busy else "")
+    result = report.summary.check(f"3. Speed, M weekly, {label}", best.seconds < SPEED_LIMIT, measured)
+    result += " (busy)" if busy else ""
     times = ", ".join(f"{t.seconds:.2f}" for t in timings)
     median = statistics.median(t.seconds for t in timings)
     split = f"{best.to_progress:.2f}", f"{best.seconds - best.to_progress:.2f}"
@@ -388,7 +396,10 @@ def screen_section(report: Report) -> list[str]:
         screened = screen(strategy, panel, day, cache)
         ran = {name: frame(result, name).filter(pl.col("date") == day) for name in DECISIONS}
         same = [getattr(screened, name).equals(rows_of_day) for name, rows_of_day in ran.items()]
-        rows.append([day, f"{ran['picks'].height:,}", f"{ran['detail'].height:,}", *same, verdict(all(same))])
+        picks, detail = f"{ran['picks'].height:,}", f"{ran['detail'].height:,}"
+        measured = f"{picks} picks rows, {detail} detail rows"
+        ok = report.summary.check(f"5. Screen equals backtest on {day}", all(same), measured)
+        rows.append([day, picks, detail, *same, ok])
     return [
         "## 5. Screen equals backtest",
         "",
@@ -412,10 +423,12 @@ def progress_section(report: Report) -> list[str]:
             f"recording, {total:,} run days",
             f"{len(calls)} progress calls (want {want}), the last at done {calls[-1].done:,}",
             f"{timing.seconds:.2f}",
-            verdict(len(calls) == want and calls[-1].done == total),
+            report.summary.check(
+                "6. Progress calls", len(calls) == want and calls[-1].done == total, f"{len(calls)} calls (want {want})"
+            ),
         ],
-        cancel_row("cancel once 3 progress calls are made", late, late[0] and late[1] == 3),
-        cancel_row("cancel on its second poll, inside select", early, early[0] and early[1] == 0),
+        cancel_row(report, "cancel once 3 progress calls are made", late, late[0] and late[1] == 3),
+        cancel_row(report, "cancel on its second poll, inside select", early, early[0] and early[1] == 0),
     ]
     return ["## 6. Progress and cancel", "", "M at the 10-year anchor.", "", *table(["run", "seen", "s", ""], rows)]
 
@@ -437,14 +450,10 @@ def cancelled(report: Report, stop: Callable[[int, int], bool]) -> tuple[bool, i
     return raised, len(calls), time.perf_counter() - started
 
 
-def cancel_row(label: str, got: tuple[bool, int, float], ok: bool) -> list:
+def cancel_row(report: Report, label: str, got: tuple[bool, int, float], ok: bool) -> list:
     raised, calls, seconds = got
-    return [
-        label,
-        f"{calls} progress calls, then {'Cancelled' if raised else 'no cancel'}",
-        f"{seconds:.2f}",
-        verdict(ok),
-    ]
+    seen = f"{calls} progress calls, then {'Cancelled' if raised else 'no cancel'}"
+    return [label, seen, f"{seconds:.2f}", report.summary.check(f"6. {label.capitalize()}", ok, seen)]
 
 
 SECTIONS = (no_signal_section, hold_section, speed_section, typical_section, screen_section, progress_section)
@@ -473,10 +482,6 @@ def fmt_load(load: tuple[float, ...]) -> str:
 def table(header: list[str], rows) -> list[str]:
     lines = ["| " + " | ".join(header) + " |", "|" + "|".join(" --- " for _ in header) + "|"]
     return lines + ["| " + " | ".join(str(x) for x in row) + " |" for row in rows] + [""]
-
-
-def verdict(ok: bool) -> str:
-    return "PASS" if ok else "FAIL"
 
 
 def years_before(day: dt.date, years: int) -> dt.date:
