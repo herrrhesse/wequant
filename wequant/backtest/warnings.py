@@ -86,8 +86,9 @@ def list_days_bounds(panel: Panel, section: Section) -> tuple[int, int]:
     """Codes whose data starts with the calendar, so that list_days only bounds their listing age from below, and the
     decision-day cells of theirs min_list_days left out."""
     at_start = panel.list_days[0] == panel.calendar_offset + 1
-    left_out = section.steps["min_list_days"][:, at_start] == 0 if "min_list_days" in section.steps else np.zeros(0)
-    return int(at_start.sum()), int(left_out.sum())
+    if "min_list_days" not in section.steps:
+        return int(at_start.sum()), 0
+    return int(at_start.sum()), int((section.steps["min_list_days"][:, at_start] == 0).sum())
 
 
 def stale_holdings(panel: Panel, ledger: Ledger) -> tuple[int, float, dt.date]:

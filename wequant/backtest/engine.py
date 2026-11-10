@@ -86,9 +86,8 @@ def planned_id(backtest: Backtest, panel: Panel) -> str:
 def targets(section: Section, i: int, choice: Choice) -> Target:
     """Decision i's choice as a batch target: its weights, 0 for every other held code with a bar, the scores as
     priority, the backups by rank."""
-    weights = np.where(
-        choice.held & section.traded[i], 0.0, np.nan
-    )  # a held code without a bar waits for a later decision
+    # a held code without a bar waits for a later decision
+    weights = np.where(choice.held & section.traded[i], 0.0, np.nan)
     weights[choice.target] = choice.weight[choice.target]
     backups = np.flatnonzero(choice.backup)
     return Target(weights, section.score[i], backups[np.argsort(section.rank[i, backups])])
