@@ -24,10 +24,10 @@ import polars as pl
 from wequant.account import EXECUTION_VERSION, ORDER_REASONS, REJECTED, Account, Execution, Fills, Ledger
 from wequant.analytics.inputs import known_fills
 from wequant.analytics.metrics import capacity
+from wequant.backtest.warnings import band_prices, main_band, st_band_fills
 from wequant.data.store import Store
 from wequant.panel import Panel, load_panel
 from wequant.rules import default_book, limit_check_current, max_buy, max_sell, trade_fees
-from wequant.rules.limits import down_price, up_price
 from wequant.version import code_version
 
 CODES = ("600000.SH", "000002.SZ", "600519.SH", "002594.SZ", "300750.SZ", "688981.SH")
@@ -439,37 +439,6 @@ def stream_section(run: Run) -> list[str]:
         "number of shares but not whole (D3 float noise; holdings are not snapped).",
         "",
     ]
-
-
-def st_band_fills(panel: Panel, orders: pl.DataFrame) -> tuple[int, int]:
-    """Fills at the ST band's limit price on LIMITED main-board cells whose ST state is unknown and band narrower."""
-    fills = orders.filter(pl.col("shares") > 0)
-    t, j = day_rows(panel, fills["date"]), code_columns(panel, fills["code"])
-    st_bp, normal_bp, tick = main_band(panel.dates[t])
-    limited = np.isfinite(panel.limit_up_price[t, j]) & (panel.boards[j] == "main")
-    unknown = limited & ~panel.st_known[t, j] & (st_bp < normal_bp)
-    up, down = band_prices(np.rint(panel.raw("preclose")[t, j] * 1000), st_bp, tick)
-    price, sell = (fills["price"] * 1000).round().to_numpy(), fills["side"].to_numpy() == "sell"
-    return int((unknown & ~sell & (price == up)).sum()), int((unknown & sell & (price == down)).sum())
-
-
-def main_band(dates: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """st_bp, normal_bp and tick of the main board on each date."""
-    book = default_book()
-    bands = {d: book.in_force("band", "main", d) for d in set(dates.tolist())}
-    lots = {d: book.in_force("lot", "main", d) for d in bands}
-    days = dates.tolist()
-    st, normal = (np.array([getattr(bands[d], name) for d in days], dtype=np.int64) for name in ("st_bp", "normal_bp"))
-    return st, normal, np.array([lots[d].tick for d in days], dtype=np.int64)
-
-
-def band_prices(pre: np.ndarray, bp: np.ndarray, tick: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Up and down limit in 厘 of preclose pre (厘) at band bp, by wequant.rules.limits; -1 where pre is NaN."""
-    frame = pl.DataFrame({"pre": np.nan_to_num(pre, nan=-1).astype(np.int64), "bp": bp, "tick": tick})
-    pre_, bp_, tick_ = pl.col("pre"), pl.col("bp"), pl.col("tick")
-    out = frame.select(up=up_price(pre_, bp_, tick_), down=down_price(pre_, bp_, tick_))
-    valid = ~np.isnan(pre)
-    return np.where(valid, out["up"].to_numpy(), -1), np.where(valid, out["down"].to_numpy(), -1)
 
 
 # ---------------------------------------------------------------- 3. speed
