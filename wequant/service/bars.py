@@ -10,7 +10,7 @@ from wequant.expr import FIELDS
 from wequant.service.base import Context, Distinct, Model, PanelRequest, open_panel
 from wequant.service.rows import Row, rows
 
-BarField = Literal[*(name for name in FIELDS if name != "list_days")]  # until the contract snapshot is regenerated
+BarField = Literal[tuple(FIELDS)]
 DEFAULT_FIELDS = (
     "open",
     "high",

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import json
 import math
 import re
@@ -14,7 +13,7 @@ import polars as pl
 
 from wequant.account import Ledger
 from wequant.analytics import Metric, MetricSpec
-from wequant.canonical import canonical
+from wequant.canonical import canonical, digest
 
 FORMAT = 3  # bump when the run id, a Run field or an archived file changes meaning
 _CODE = re.compile(r"[a-z][a-z0-9_]*")
@@ -45,8 +44,8 @@ def run_inputs(
 
 
 def run_id(inputs: Mapping) -> str:
-    """First 16 hex of the sha256 of canonical(inputs)."""
-    return hashlib.sha256(canonical(dict(inputs)).encode()).hexdigest()[:16]
+    """digest(inputs)."""
+    return digest(dict(inputs))
 
 
 @dataclass(frozen=True, eq=False)

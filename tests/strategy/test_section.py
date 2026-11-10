@@ -23,6 +23,7 @@ from wequant.strategy import (
     stack,
     verdicts,
 )
+from wequant.strategy.section import weight_shares
 
 NAN = np.nan
 CLOSE = Field("close")
@@ -81,6 +82,13 @@ def test_scores_rank_backup_and_equal_weights():
     assert chosen(TWO, got).backup.tolist() == [[False, False, True, False, False]]
     assert weights(chosen(TWO, got)).tolist() == [[0.5, 0.5, 0, 0, 0]]
     assert got.eligible.tolist() == [[True, True, True, True, False]]
+
+
+def test_the_score_weighs_each_factor_by_its_weight_share():
+    shares = weight_shares(TWO)
+    pct_x1, pct_x2 = [5 / 6, 1 / 3, 5 / 6], [1, 2 / 3, 1 / 3]  # x1 ties A and C; x2 prefers low
+    expected = [shares["x1"] * a + shares["x2"] * b for a, b in zip(pct_x1, pct_x2)]
+    assert shares == {"x1": 1 / 3, "x2": 2 / 3} and np.allclose(two().score[0, :3], expected, rtol=0, atol=1e-15)
 
 
 def test_score_and_formula_weights():

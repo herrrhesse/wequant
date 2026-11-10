@@ -1,7 +1,8 @@
-"""Canonical JSON: the one text that keys and run ids hash."""
+"""Canonical JSON: the one text that keys, run ids and strategy hashes hash, and the bytes of JSON files kept."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 
@@ -14,3 +15,13 @@ def canonical(value: object) -> str:
     if json.loads(text) != value:  # a tuple or a non-str key comes back changed
         raise ValueError(f"not plain JSON: {value!r}")
     return text
+
+
+def digest(value: object) -> str:
+    """First 16 hex digits of the sha256 of canonical(value)."""
+    return hashlib.sha256(canonical(value).encode()).hexdigest()[:16]
+
+
+def document(value: object) -> bytes:
+    """JSON bytes that depend only on the content: sorted keys, indent 1, no NaN, a final newline."""
+    return json.dumps(value, sort_keys=True, indent=1, ensure_ascii=False, allow_nan=False).encode() + b"\n"

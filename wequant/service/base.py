@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from wequant.data.codes import split as split_code
 from wequant.data.store import Store
-from wequant.panel import Panel, load_panel
+from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.errors import Exit, ServiceError
+from wequant.strategy.library import Library
 
 
 class Model(BaseModel):
@@ -56,14 +58,22 @@ def error_body(error: ServiceError) -> ErrorBody:
     return ErrorBody(exit=error.exit, name=error.exit.name, message=str(error), detail=list(error.detail))
 
 
+def not_found(code: str, message: str, loc: list[str | int] = ()) -> ServiceError:
+    """NOT_FOUND with its one located detail."""
+    return ServiceError(Exit.NOT_FOUND, message, [ErrorDetail(code=code, message=message, loc=list(loc))])
+
+
 def _code(code: str) -> str:
-    split_code(code)
+    try:
+        split_code(code)
+    except ValueError as error:
+        raise PydanticCustomError("wrong_type", str(error)) from None
     return code
 
 
 def _distinct(values: list) -> list:
     if len(set(values)) != len(values):
-        raise ValueError(f"values repeat: {values}")
+        raise PydanticCustomError("duplicate_value", "values repeat: {values}", {"values": values})
     return values
 
 
@@ -91,7 +101,7 @@ class PanelRequest(DataRequest):
     @model_validator(mode="after")
     def _check_range(self) -> PanelRequest:
         if self.start and self.end and self.start > self.end:
-            raise ValueError(f"start {self.start} is after end {self.end}")
+            raise PydanticCustomError("out_of_range", f"start {self.start} is after end {self.end}")
         return self
 
 
@@ -105,6 +115,10 @@ class Context:
     def store(self) -> Store:
         return Store(self.home)
 
+    def library(self) -> Library:
+        """The saved strategies of the data root."""
+        return Library(self.store().home / "strategies")
+
 
 def manifest(store: Store, version: int | None = None) -> dict:
     """The manifest of version (default: the current one); NOT_FOUND without a store or that version."""
@@ -113,8 +127,8 @@ def manifest(store: Store, version: int | None = None) -> dict:
         return found
     kept = store.versions()
     if not kept:
-        raise ServiceError(Exit.NOT_FOUND, f"no store at {store.home}")
-    raise ServiceError(Exit.NOT_FOUND, f"store version {version} is not kept; kept: {kept}")
+        raise not_found("no_store", f"no store at {store.home}")
+    raise not_found("version_not_kept", f"store version {version} is not kept; kept: {kept}", ["data_version"])
 
 
 def open_panel(request: PanelRequest, context: Context, history: bool = False) -> Panel:
@@ -126,5 +140,5 @@ def open_panel(request: PanelRequest, context: Context, history: bool = False) -
         return load_panel(
             start, request.end, request.codes, version=request.data_version, store=store, cache_dir=context.cache
         )
-    except KeyError as error:  # load_panel's missing data; any other error is a bug, not missing data
-        raise ServiceError(Exit.NOT_FOUND, error.args[0]) from None
+    except NotInPanel as error:
+        raise not_found(error.code, error.args[0], ["codes"] if error.code == "unknown_code" else []) from None

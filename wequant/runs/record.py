@@ -12,6 +12,7 @@ import polars as pl
 
 from wequant.account import Ledger
 from wequant.analytics import Metric, MetricSpec, metrics_json
+from wequant.canonical import document
 from wequant.data.files import parquet_bytes
 from wequant.runs.run import FORMAT, Run
 
@@ -20,11 +21,6 @@ FRAMES = (*LEDGER, "picks", "funnel", "detail", "anomalies")
 FILES = ("run.json", "metrics.json", "warnings.json", *(f"{name}.parquet" for name in FRAMES))  # compared on rerun
 PROVENANCE = "provenance.json"  # code version, library versions, creation time: never compared
 LIBRARIES = ("numpy", "polars", "numba")
-
-
-def document(value: object) -> bytes:
-    """JSON bytes that depend only on the content: sorted keys, indent 1, no NaN, a final newline."""
-    return json.dumps(value, sort_keys=True, indent=1, ensure_ascii=False, allow_nan=False).encode() + b"\n"
 
 
 def run_json(run: Run) -> bytes:
