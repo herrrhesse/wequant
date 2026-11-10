@@ -36,7 +36,7 @@ def parse_form[T](cls: type[T], form: object) -> T:
     """The cls a form describes, each field read by its annotation and checked by cls.check_field when cls has one.
 
     Unknown keys and field errors in the form's order, then missing keys, are raised at once as SpecErrors, each located
-    in the form; a SpecError of the rules across fields follows, at the first one broken, also as SpecErrors.
+    in the form; the rules across fields follow, as SpecErrors of those broken.
     """
     if not isinstance(form, dict):
         raise SpecError("wrong_type", (), f"{cls.__name__}: the form is a {type(form).__name__}, not an object")
@@ -49,7 +49,7 @@ def parse_form[T](cls: type[T], form: object) -> T:
     found.check()
     try:
         return cls(**values)
-    except SpecError as error:
+    except SpecError as error:  # a rule across fields of a class whose check raises one error
         raise SpecErrors([error]) from None
 
 

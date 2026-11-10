@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from pydantic import BaseModel, ValidationError
 
+from wequant.backtest import DataOptions
 from wequant.expr import ExprError
 from wequant.service.base import ErrorDetail
 from wequant.service.errors import Exit, ServiceError
@@ -45,19 +46,28 @@ def expr_detail(error: ExprError, loc: Loc = ()) -> ErrorDetail:
     return ErrorDetail(code=error.code, message=str(error), loc=list(loc), path=list(error.path))
 
 
-def usage(details: list[ErrorDetail]) -> ServiceError:
+def usage(details: list[ErrorDetail], complete: bool = True) -> ServiceError:
     """USAGE carrying details; the message is the first one's, located."""
     first, more = details[0], f" (and {len(details) - 1} more)" if len(details) > 1 else ""
     where = ".".join(map(str, first.loc))
-    return ServiceError(Exit.USAGE, (f"{where}: " if where else "") + first.message + more, details)
+    return ServiceError(Exit.USAGE, (f"{where}: " if where else "") + first.message + more, details, complete)
 
 
 def validated[M: BaseModel](model: type[M], data: Mapping) -> M:
-    """model built from data; USAGE with a detail per error otherwise."""
+    """model built from data; USAGE with a detail per error otherwise, an inline strategy's core errors included so one
+    pass reports every field."""
     try:
         return model.model_validate(data)
     except ValidationError as error:
-        raise usage(pydantic_details(error)) from None
+        details, complete = pydantic_details(error), not any(e["loc"] for e in error.errors())
+    if isinstance(strategy := data.get("strategy"), Mapping):
+        try:
+            Strategy.from_form(strategy)
+        except (SpecError, SpecErrors) as error:
+            seen = {tuple(d.loc) for d in details}
+            details += [d for d in spec_details(error, ("strategy",)) if tuple(d.loc) not in seen]
+            complete = complete and error.complete
+    raise usage(details, complete)
 
 
 def to_strategy(spec: BaseModel, loc: Loc = ("strategy",)) -> Strategy:
@@ -65,4 +75,12 @@ def to_strategy(spec: BaseModel, loc: Loc = ("strategy",)) -> Strategy:
     try:
         return Strategy.from_form(spec.model_dump(mode="json"))
     except (SpecError, SpecErrors) as error:
-        raise usage(spec_details(error, loc)) from None
+        raise usage(spec_details(error, loc), error.complete) from None
+
+
+def to_data(spec: BaseModel, loc: Loc = ("data",)) -> DataOptions:
+    """The core data options of a DataSpec; USAGE requires when exclude_suspicious comes without exclude_day."""
+    try:
+        return DataOptions(**spec.model_dump())
+    except ValueError as error:
+        raise usage([ErrorDetail(code="requires", message=str(error), loc=[*loc, "exclude_suspicious"])]) from None

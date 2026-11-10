@@ -23,7 +23,7 @@ from wequant.strategy import (
     stack,
     verdicts,
 )
-from wequant.strategy.section import weight_shares
+from wequant.strategy.section import percentiles, weight_shares
 
 NAN = np.nan
 CLOSE = Field("close")
@@ -84,11 +84,21 @@ def test_scores_rank_backup_and_equal_weights():
     assert got.eligible.tolist() == [[True, True, True, True, False]]
 
 
+def test_percentiles_rank_the_value_and_what_the_score_ranks_among_the_scored():
+    pct = percentiles(TWO, two())
+    assert np.allclose(pct["x1"][0][0, :3], [5 / 6, 1 / 3, 5 / 6]) and np.allclose(
+        pct["x1"][1][0, :3], [5 / 6, 1 / 3, 5 / 6]
+    )
+    assert np.allclose(pct["x2"][0][0, :3], [1 / 3, 2 / 3, 1]) and np.allclose(pct["x2"][1][0, :3], [1, 2 / 3, 1 / 3])
+    assert np.isnan(pct["x1"][0][0, 3:]).all()  # D has no x1, E is outside the universe
+
+
 def test_the_score_weighs_each_factor_by_its_weight_share():
-    shares = weight_shares(TWO)
-    pct_x1, pct_x2 = [5 / 6, 1 / 3, 5 / 6], [1, 2 / 3, 1 / 3]  # x1 ties A and C; x2 prefers low
-    expected = [shares["x1"] * a + shares["x2"] * b for a, b in zip(pct_x1, pct_x2)]
-    assert shares == {"x1": 1 / 3, "x2": 2 / 3} and np.allclose(two().score[0, :3], expected, rtol=0, atol=1e-15)
+    got, shares = two(), weight_shares(TWO)
+    pct = percentiles(TWO, got)
+    expected = shares["x1"] * pct["x1"][1] + shares["x2"] * pct["x2"][1]
+    assert shares == {"x1": 1 / 3, "x2": 2 / 3}
+    assert np.allclose(got.score[0, :3], expected[0, :3], rtol=0, atol=1e-15)
 
 
 def test_score_and_formula_weights():

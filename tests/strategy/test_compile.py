@@ -10,7 +10,7 @@ from wequant.strategy import (
     Factor,
     Group,
     Pool,
-    SpecError,
+    SpecErrors,
     Strategy,
     expressions,
     pool_expr,
@@ -85,9 +85,9 @@ def test_a_strategy_whose_compiled_expression_is_too_large_names_that_expression
         big = big + big  # 2,047 nodes
     ranks = CS_RANK(CLOSE) + CS_RANK(OPEN) + CS_RANK(AMOUNT) + CS_RANK(Field("high")) + CS_RANK(Field("low"))
     Strategy(universe=big > 0, filters=(Condition("ok", ranks > 0, enabled=False),))
-    with pytest.raises(SpecError) as raised:
+    with pytest.raises(SpecErrors) as raised:
         Strategy(universe=big > 0, filters=(Group("g", (Condition("a", CLOSE > 1), Condition("ok", ranks > 0))),))
-    assert (raised.value.code, raised.value.loc) == ("too_large", ("filters", 0, "conditions", 1, "expr"))
-    with pytest.raises(SpecError) as raised:
+    assert [(e.code, e.loc) for e in raised.value.errors] == [("too_large", ("filters", 0, "conditions", 1, "expr"))]
+    with pytest.raises(SpecErrors) as raised:
         Strategy(universe=big > 0, factors=(Factor("f", CLOSE), Factor("r", ranks)))
-    assert (raised.value.code, raised.value.loc) == ("too_large", ("factors", 1, "expr"))
+    assert [(e.code, e.loc) for e in raised.value.errors] == [("too_large", ("factors", 1, "expr"))]

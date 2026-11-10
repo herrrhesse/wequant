@@ -28,7 +28,7 @@ class Checked:
         self.check()
 
     def check(self) -> None:
-        """The rules across fields; SpecError at the first one broken."""
+        """The rules across fields: SpecErrors of those broken."""
 
     @classmethod
     def check_field(cls, name: str, value: object) -> object:

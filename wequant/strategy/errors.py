@@ -11,6 +11,8 @@ Loc = tuple[str | int, ...]
 class SpecError(ValueError):
     """A description that breaks one rule; loc names the field like pydantic, path the node inside its expression."""
 
+    complete = True  # see SpecErrors.complete
+
     def __init__(self, code: str, loc: Loc, message: str, path: tuple[int, ...] = ()) -> None:
         super().__init__(f"{'.'.join(map(str, loc))}: {message}" if loc else message)
         self.code, self.loc, self.message, self.path = code, tuple(loc), message, tuple(path)
@@ -26,10 +28,11 @@ class SpecError(ValueError):
 
 
 class SpecErrors(ValueError):
-    """Every field error of one form, in the form's order."""
+    """Every field error of one form, in the form's order; complete is False when the rules across fields did not run
+    because a field failed, so fixing these may reveal more."""
 
-    def __init__(self, errors: Iterable[SpecError]) -> None:
-        self.errors = tuple(errors)
+    def __init__(self, errors: Iterable[SpecError], complete: bool = True) -> None:
+        self.errors, self.complete = tuple(errors), complete
         super().__init__("; ".join(map(str, self.errors)))
 
 
@@ -48,6 +51,6 @@ class Collector:
             self.errors += [e.under(*loc) for e in error.errors]
 
     def check(self) -> None:
-        """SpecErrors of everything kept, if anything was."""
+        """SpecErrors of everything kept, if anything was: field errors, so the rules across fields wait."""
         if self.errors:
-            raise SpecErrors(self.errors)
+            raise SpecErrors(self.errors, complete=False)

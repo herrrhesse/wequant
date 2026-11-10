@@ -11,10 +11,11 @@ from tests.frames import table_frame
 from wequant.account import Execution
 from wequant.backtest import WARNINGS, Backtest, run
 from wequant.backtest import warnings as warnings_module
-from wequant.backtest.warnings import st_band_fills
+from wequant.backtest.anomalies import ANOMALY_USES
+from wequant.backtest.warnings import screen_warnings, st_band_fills
 from wequant.expr import Field
 from wequant.panel import load_panel
-from wequant.strategy import Condition, Factor, Pool, Strategy
+from wequant.strategy import Condition, Factor, Pool, Strategy, screen
 
 EX0 = Execution(slippage_bps=0.0)
 CHINEXT = "300001.SZ"
@@ -158,3 +159,17 @@ def test_list_days_approximate_counts_the_codes_starting_with_the_calendar_and_t
     assert run(Backtest(seasoned_expr, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"][0] == (
         text.format(0)
     )
+
+
+def test_a_screen_warns_of_what_its_decision_alone_shows(tmp_path):
+    panel = panel_of(tmp_path, WEEK, {A: [(10.0, 10.0)] * 5, B: [(20.0, 20.0)] * 5})
+    capped, nobody = replace(ONE, max_weight=0.4), replace(NOT_ST, filters=(Condition("never", Field("close") < 0.0),))
+    found = {}
+    for strategy in (capped, nobody):
+        shot = screen(strategy, panel)
+        found[strategy] = screen_warnings(strategy, panel, shot.section, shot.choice, pl.DataFrame(schema=ANOMALY_USES))
+    assert list(found[capped]) == ["limits_unchecked", "max_weight_cash"] and list(found[nobody]) == [
+        "limits_unchecked",
+        "no_picks",
+    ]
+    assert found[capped]["max_weight_cash"][1] == {"days": 1, "mean_share": pytest.approx(0.6)}

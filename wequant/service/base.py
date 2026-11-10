@@ -12,6 +12,7 @@ from pydantic_core import PydanticCustomError
 
 from wequant.data.codes import split as split_code
 from wequant.data.store import Store
+from wequant.expr import Cache
 from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.errors import Exit, ServiceError
 from wequant.strategy.library import Library
@@ -51,11 +52,15 @@ class ErrorBody(Model):
     """The Exit member's name, e.g. USAGE."""
     message: str
     detail: list[ErrorDetail] = []
+    complete: bool = True
+    """False: rules that relate fields to each other (requires, duplicate_name, ...) did not run because a field
+    failed; fixing the listed errors may reveal more."""
 
 
 def error_body(error: ServiceError) -> ErrorBody:
     """The ErrorBody of a ServiceError."""
-    return ErrorBody(exit=error.exit, name=error.exit.name, message=str(error), detail=list(error.detail))
+    detail, complete = list(error.detail), error.complete
+    return ErrorBody(exit=error.exit, name=error.exit.name, message=str(error), detail=detail, complete=complete)
 
 
 def not_found(code: str, message: str, loc: list[str | int] = ()) -> ServiceError:
@@ -107,10 +112,12 @@ class PanelRequest(DataRequest):
 
 @dataclass(frozen=True)
 class Context:
-    """The caller's settings for one call, never part of a request: the data root and the panel cache root."""
+    """The caller's settings for one call, never part of a request: the data root, the panel cache root and a
+    resident process's expression cache."""
 
     home: Path | None = None  # None: $WEQUANT_HOME, else ~/.wequant
     cache: Path | None = None  # panels go under <cache>/panel/; None: <home>/cache
+    expr_cache: Cache | None = None  # a resident process's expression results; None: computed afresh
 
     def store(self) -> Store:
         return Store(self.home)

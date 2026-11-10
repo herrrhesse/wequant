@@ -264,14 +264,24 @@ def test_every_field_error_of_a_form_is_raised_at_once_in_the_forms_order():
     assert str(raised.value).startswith("top_n: '5' is not of type int; pool.exclud_st: Pool has no field")
 
 
-def test_rules_across_fields_follow_once_every_field_reads_and_stop_at_the_first():
+def test_rules_across_fields_follow_once_every_field_reads_and_report_every_one_broken():
     with pytest.raises(SpecErrors) as raised:
         Strategy.from_form({"top_n": 2, "backups": 1, "hold_rank": 2})
-    assert [(e.code, e.loc) for e in raised.value.errors] == [("requires", ("top_n",))]
+    assert [(e.code, e.loc) for e in raised.value.errors] == [
+        ("requires", ("top_n",)),
+        ("out_of_range", ("hold_rank",)),
+    ]
     form = {"factors": [{"name": "a", "expr": "close"}, {"name": "a", "expr": "open"}], "top_n": 2, "hold_rank": 2}
     with pytest.raises(SpecErrors) as raised:
         Strategy.from_form(form)
-    assert [(e.code, e.loc) for e in raised.value.errors] == [("duplicate_name", ("factors", 1, "name"))]
+    assert [(e.code, e.loc) for e in raised.value.errors] == [
+        ("duplicate_name", ("factors", 1, "name")),
+        ("out_of_range", ("hold_rank",)),
+    ]
+    assert raised.value.complete
+    with pytest.raises(SpecErrors) as raised:
+        Strategy.from_form({**form, "every": 0})  # a field error: the duplicate name waits
+    assert [e.code for e in raised.value.errors] == ["out_of_range"] and not raised.value.complete
 
 
 @pytest.mark.parametrize(

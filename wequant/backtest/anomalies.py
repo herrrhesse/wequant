@@ -68,6 +68,17 @@ def run_uses(strategy: Strategy, panel: Panel, section: Section, choice: Choice,
     return pl.concat([_as_uses(frame) for frame in found]).sort(ORDER)
 
 
+def screen_uses(strategy: Strategy, panel: Panel, section: Section, choice: Choice) -> pl.DataFrame:
+    """ANOMALY_USES of a screen, in ORDER: the signal windows of its scored stocks, each by its role."""
+    cells = panel.anomalies.filter(~pl.col("excluded"))
+    if cells.is_empty():
+        return pl.DataFrame(schema=ANOMALY_USES)
+    i, j = np.nonzero(section.scored)
+    role = np.where(choice.target[i, j], "target", np.where(choice.backup[i, j], "backup", "candidate"))
+    decisions = pl.DataFrame({"row": section.rows[i], "col": j, "decision": role}, schema_overrides={"col": pl.Int64})
+    return _as_uses(signal_uses(strategy, panel, decisions, cells)).sort(ORDER)
+
+
 def run_decisions(section: Section, choice: Choice, cols: np.ndarray) -> pl.DataFrame:
     """The buys, keeps and sells of the decision rows in columns cols: row, col and decision."""
     action = actions(choice.target[:, cols], choice.held[:, cols], section.traded[:, cols])

@@ -6,8 +6,10 @@ import datetime as dt
 from collections.abc import Mapping
 from typing import Literal
 
+import polars as pl
+
 from wequant.account.ledger import ORDER_REASONS
-from wequant.backtest.anomalies import CHANNELS, DECISIONS
+from wequant.backtest.anomalies import CHANNELS, DECISIONS, anomaly_params
 from wequant.data.schema import CLASSES, LEVELS
 from wequant.service.base import Model
 
@@ -173,3 +175,30 @@ class DelistedRow(Model):
     """Yuan at the last close."""
     cash: float
     """Yuan returned as cash (0 for a write-down without recovery)."""
+
+
+def data_anomaly(uses: pl.DataFrame, excluded: tuple[str, ...], sample: int | None = 20) -> DataAnomaly | None:
+    """The DataAnomaly of a result's anomaly uses (ANOMALY_USES, in order), with its first sample uses (None: all);
+    None without any use."""
+    if uses.is_empty():
+        return None
+    params = anomaly_params(uses, excluded)
+    kinds = uses.select("code", "anomaly_date", "kind").unique()["kind"].value_counts(sort=True, name="n")
+    shown = uses if sample is None else uses.head(sample)
+    return DataAnomaly(
+        codes=params["codes"],
+        cells=params["cells"],
+        levels=LevelCounts(**{level: params[f"{level}_cells"] for level in LEVELS}),
+        kinds=dict(kinds.sort("kind").iter_rows()),
+        decisions=params["decisions"],
+        fills=params["fills"],
+        max_share=params["max_share"] or 0.0,
+        max_share_day=params["max_share_day"],
+        unavoidable=params["unavoidable"] or 0,
+        sample=[anomaly_use(row) for row in shown.iter_rows(named=True)],
+    )
+
+
+def anomaly_use(row: Mapping) -> AnomalyUse:
+    """The AnomalyUse of an ANOMALY_USES row."""
+    return AnomalyUse(**{key: value for key, value in row.items() if key != "class"}, anomaly_class=row["class"])

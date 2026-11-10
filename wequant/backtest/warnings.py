@@ -28,16 +28,36 @@ def run_warnings(
     strategy: Strategy, panel: Panel, section: Section, choice: Choice, ledger: Ledger, uses: pl.DataFrame
 ) -> dict[str, tuple[str, Params]]:
     """Each warning that applies, code -> (text, params), in WARNINGS order; uses are the run's anomaly uses."""
-    found, fields = {}, frozenset().union(*map(read_fields, expressions(strategy).values()))
-    if not limit_check_current(panel.manifest):
-        found["limits_unchecked"] = {}
-    if (known := _st_known_share(fields, panel, section)) < 1:
-        found["st_unknown"] = {"known_share": known}
+    found = _decision_params(strategy, panel, section, choice, uses)
     buys, sells = st_band_fills(panel, ledger.orders)
     if buys or sells:
         found["st_band_fills"] = {"buys": buys, "sells": sells}
     if (stale := stale_holdings(panel, ledger))["codes"]:
         found["stale_holdings"] = stale
+    if (cleared := delisted_holdings(panel, ledger))["codes"]:
+        found["delisted_holdings"] = cleared
+    if (guessed := delisting_approximate(panel, ledger))["earlier_codes"]:
+        found["delisting_approximate"] = guessed
+    return {code: warning(code, found[code]) for code in WARNINGS if code in found}
+
+
+def screen_warnings(
+    strategy: Strategy, panel: Panel, section: Section, choice: Choice, uses: pl.DataFrame
+) -> dict[str, tuple[str, Params]]:
+    """The warnings of decisions without holdings or orders, in WARNINGS order; uses are the screen's anomaly uses."""
+    found = _decision_params(strategy, panel, section, choice, uses)
+    return {code: warning(code, found[code]) for code in WARNINGS if code in found}
+
+
+def _decision_params(
+    strategy: Strategy, panel: Panel, section: Section, choice: Choice, uses: pl.DataFrame
+) -> dict[str, Params]:
+    """code -> params of the warnings the decisions alone raise."""
+    found, fields = {}, frozenset().union(*map(read_fields, expressions(strategy).values()))
+    if not limit_check_current(panel.manifest):
+        found["limits_unchecked"] = {}
+    if (known := _st_known_share(fields, panel, section)) < 1:
+        found["st_unknown"] = {"known_share": known}
     if not choice.target.any():
         found["no_picks"] = {}
     if uncovered := index_uncovered(fields, panel, section):
@@ -47,13 +67,9 @@ def run_warnings(
         found["list_days_approximate"] = {"codes_at_calendar_start": codes, "cells": cells}
     if (kept := choice.cash[choice.cash > 0]).size:
         found["max_weight_cash"] = {"days": kept.size, "mean_share": float(kept.mean())}
-    if (cleared := delisted_holdings(panel, ledger))["codes"]:
-        found["delisted_holdings"] = cleared
-    if (guessed := delisting_approximate(panel, ledger))["earlier_codes"]:
-        found["delisting_approximate"] = guessed
     if uses.height:
         found["data_anomaly"] = anomaly_params(uses, panel.excluded)
-    return {code: warning(code, params) for code, params in found.items()}
+    return found
 
 
 def index_uncovered(fields: set[str], panel: Panel, section: Section) -> list[tuple[str, int, dt.date | None]]:
