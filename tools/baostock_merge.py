@@ -1,7 +1,9 @@
 """Merge the raw BaoStock layer into a store: a dry run reports, --commit writes one version and its report.
 
 python -m tools.baostock_merge copy-store DEST [--home H]
-python -m tools.baostock_merge run [--home H] [--raw R] [--days FIRST..LAST] [--commit] [--check-idempotency] [--out FILE]
+python -m tools.baostock_merge propose [--home H] [--raw R] [--days FIRST..LAST] [--out FILE]
+python -m tools.baostock_merge run [--home H] [--raw R] [--days FIRST..LAST] [--resolutions FILE] [--commit]
+    [--check-idempotency] [--out FILE]
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import datetime as dt
 import json
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
 
 import polars as pl
@@ -18,7 +21,11 @@ import polars as pl
 from wequant.data.merge import MergePlan, apply_merge, plan_merge
 from wequant.data.merge.assemble import BJ, read_years, status_to_restore
 from wequant.data.merge.audit import FLAGGED, status_disagreements
+from wequant.data.merge.conflicts import SEEDED
 from wequant.data.merge.plan import LATE_EVENT_DAYS
+from wequant.data.merge.propose import propose
+from wequant.data.merge.resolutions import PACKAGED, add, load
+from wequant.data.merge.resolve import STATES
 from wequant.data.raw import BaoStockRaw
 from wequant.data.store import CommitResult, Store, wequant_home
 from wequant.version import code_version
@@ -27,11 +34,13 @@ WHOLE_TABLES = ("adj_factor", "securities", "data_issues", "calendar")
 YEAR_TABLES = ("bars", "daily_status")
 FROZEN_TABLES = ("index_bars", "index_members")
 FLAGGED_ROWS = 1000  # flagged rows listed in the report at most
-LISTED_KINDS = ("price_mismatch", "preclose_mismatch", "bar_unconfirmed", "tradestatus_conflict", "amount_mismatch")
+LISTED_KINDS = ("preclose_mismatch", "bar_unconfirmed", "tradestatus_conflict", "amount_mismatch")
 LISTED_ROWS = 100  # rows listed per kind at most
+UNDECIDED_ROWS = 1000  # conflicts without any entry listed at most
 LISTED_FILES = 200  # factor files named in the report at most
 LISTED_DAYS = 20  # days to re-merge named at most
 KEY = ["code", "date"]
+DETAIL_VALUES = ("before", "baostock", "after")  # a resolved row's values, in report order
 
 
 def copy_store(source: Path, target: Path) -> int:
@@ -56,19 +65,21 @@ def raw_days(raw: BaoStockRaw, spec: str | None) -> list[dt.date] | None:
 
 
 def run(args: argparse.Namespace) -> int:
-    """Plan, report and, with --commit, apply one merge; 1 when an acceptance criterion fails."""
+    """Plan, report and, with --commit, apply one merge; 1 when a conflict lacks an approved resolution (nothing is
+    committed then) or an acceptance criterion fails."""
     store = Store(args.home)
     raw = BaoStockRaw(Path(args.raw)) if args.raw else BaoStockRaw.at(store.home)
-    plan = plan_merge(store, raw, days=raw_days(raw, args.days))
+    plan = plan_merge(store, raw, days=raw_days(raw, args.days), resolutions=args.resolutions)
+    stopped = plan.unresolved.height > 0
     commit, checks = None, {}
-    if args.commit:
+    if args.commit and not stopped:
         commit = apply_merge(store, plan)
         for frames in (plan.replace_parts, plan.replace, plan.upsert):
             frames.clear()  # committed; the report and checks need only the stats and issues, and memory is tight
         checks = acceptance(store, plan, commit)
         if args.check_idempotency:
-            checks["idempotent"] = idempotent(store, raw, plan)
-    report = render(plan, commit, checks)
+            checks["idempotent"] = idempotent(store, raw, plan, args.resolutions)
+    report = render(plan, commit, checks, args.resolutions or PACKAGED)
     targets = [Path(args.out)] if args.out else []
     if commit is not None:
         name = f"baostock_merge_{store.manifest()['last_trade_date']}_v{commit.version}.md"
@@ -78,12 +89,30 @@ def run(args: argparse.Namespace) -> int:
         path.write_text(report, "utf-8")
     if not targets:
         sys.stdout.write(report)
-    return 0 if all(ok for ok, _ in checks.values()) else 1
+    return 0 if not stopped and all(ok for ok, _ in checks.values()) else 1
 
 
-def idempotent(store: Store, raw: BaoStockRaw, plan: MergePlan) -> tuple[bool, str]:
+def propose_entries(args: argparse.Namespace) -> int:
+    """Add a proposed entry for each conflict on the raw days to the resolutions file, whose price entries the amount
+    check follows; reads the store and raw only."""
+    store = Store(args.home)
+    raw = BaoStockRaw(Path(args.raw)) if args.raw else BaoStockRaw.at(store.home)
+    path = args.out or PACKAGED
+    entries = load(path) if path.exists() else None
+    proposals = propose(store, raw, days=raw_days(raw, args.days), entries=entries)
+    added = add(path, proposals)
+    print(f"{len(proposals)} proposals; {added} added to {path}, {len(proposals) - added} already there")
+    counts = Counter((p["kind"], p["take"], ", ".join(p["fields"])) for p in proposals)
+    for (kind, take, fields), n in sorted(counts.items()):
+        print(f"  {kind} take {take} [{fields}]: {n}")
+    return 0
+
+
+def idempotent(store: Store, raw: BaoStockRaw, plan: MergePlan, resolutions: Path | None) -> tuple[bool, str]:
     """Plan and apply the same days and factor files again; nothing may change."""
-    again = apply_merge(store, plan_merge(store, raw, days=plan.days, factor_codes=plan.factor_codes))
+    again = apply_merge(
+        store, plan_merge(store, raw, days=plan.days, factor_codes=plan.factor_codes, resolutions=resolutions)
+    )
     ok = not again.changed and not again.files_written
     return ok, f"re-run of the same days and factor files: changed {again.changed}, files written {again.files_written}"
 
@@ -95,7 +124,7 @@ def acceptance(store: Store, plan: MergePlan, commit: CommitResult) -> dict[str,
     """Each acceptance criterion of the merge: (passed, what was measured)."""
     manifest = store.manifest()
     return {
-        "prices_equal": prices_equal(plan),
+        "resolutions_applied": resolutions_applied(store, manifest, plan),
         "status_agrees": status_agrees(store, manifest, plan),
         "adjustment_checked": adjustment_checked(store, manifest, plan),
         "factor_files_consistent": factor_files_consistent(plan),
@@ -106,19 +135,27 @@ def acceptance(store: Store, plan: MergePlan, commit: CommitResult) -> dict[str,
     }
 
 
-def prices_equal(plan: MergePlan) -> tuple[bool, str]:
-    """No price mismatch; for those found, whose close the next day's exchange preclose repeats."""
-    details = [json.loads(d) for d in plan.issues.filter(pl.col("kind") == "price_mismatch")["detail"]]
-    message = f"{len(details)} price mismatches on {plan.stats['compared']:,} compared rows"
-    closes = [(d["next_preclose"], d["store_close"], d["close"]) for d in details if d["store_close"] != d["close"]]
-    if closes:
-        store = sum(following == old for following, old, _ in closes)
-        new = sum(following == close for following, _, close in closes)
-        message += (
-            f"; of the {len(closes)} with another close, the next exchange preclose repeats the store's in {store} "
-            f"and BaoStock's in {new}"
-        )
-    return not details, message
+def resolutions_applied(store: Store, manifest: dict, plan: MergePlan) -> tuple[bool, str]:
+    """Each committed bar a resolution decided holds that resolution's after values."""
+    resolved = _resolved(plan.issues)
+    if resolved.is_empty():
+        return True, "no resolution applied in this run"
+    span = {"start": resolved["date"].min(), "end": resolved["date"].max(), "manifest": manifest}
+    bars = store.scan("bars", **span).join(resolved.lazy().select(KEY), on=KEY, how="semi").collect()
+    committed = {(row["code"], row["date"]): row for row in bars.to_dicts()}
+    differ = [
+        f"{code} {day}"
+        for code, day, detail in resolved.select("code", "date", "detail").rows()
+        if any(committed.get((code, day), {}).get(f, ...) != v for f, v in json.loads(detail)["after"].items())
+    ]
+    return not differ, (
+        f"{resolved.height} resolutions applied; committed bars differing from their after values: "
+        f"{', '.join(differ[:LISTED_DAYS]) or 'none'}"
+    )
+
+
+def _resolved(issues: pl.DataFrame) -> pl.DataFrame:
+    return issues.filter(pl.col("action").str.starts_with("resolved_")).sort("date", "code", "kind")
 
 
 def status_agrees(store: Store, manifest: dict, plan: MergePlan) -> tuple[bool, str]:
@@ -257,13 +294,17 @@ def bj_frozen(store: Store, base: dict, manifest: dict) -> tuple[bool, str]:
 # ------------------------------------------------------------ report
 
 
-def render(plan: MergePlan, commit: CommitResult | None, checks: dict[str, tuple[bool, str]]) -> str:
+def render(
+    plan: MergePlan, commit: CommitResult | None, checks: dict[str, tuple[bool, str]], resolutions: Path = PACKAGED
+) -> str:
     """The Markdown report of one merge."""
     sections = [
-        _header(plan, commit),
+        _header(plan, commit, resolutions),
         _rows_section(plan),
         _issues_section(plan),
         _listed_section(plan),
+        _resolutions_section(plan),
+        _awaiting_section(plan),
         _adjustment_section(plan),
         _late_events_section(plan),
         _unconfirmed_events_section(plan),
@@ -289,15 +330,20 @@ def _cell(value) -> str:
     return "" if value is None else str(value)
 
 
-def _header(plan: MergePlan, commit: CommitResult | None) -> list[str]:
+def _header(plan: MergePlan, commit: CommitResult | None, resolutions: Path) -> list[str]:
     if commit is None:
         version = f"dry run on version {plan.base_version}; nothing written"
     else:
         version = f"version {plan.base_version} → {commit.version}" + ("" if commit.changed else " (unchanged)")
+    counts = plan.stats["resolutions"]
     return [
         "# BaoStock merge",
         "",
+        *_stop_line(counts),
         f"- **Store:** {version}",
+        f"- **Resolutions:** {resolutions}: {sum(counts['applied'].values()):,} applied, {counts['flagged']:,} closes "
+        f"flagged, {sum(counts['unresolved'].values()):,} conflicts awaiting a decision, {len(counts['idle']):,} "
+        "approved entries met no conflict",
         f"- **code_version:** {code_version()}",
         f"- **Days:** {plan.days[0]}..{plan.days[-1]} ({len(plan.days):,} raw days); factor files: {len(plan.factor_codes):,}",
         f"- **Meta after the merge:** {json.dumps(plan.meta, sort_keys=True)}",
@@ -313,9 +359,21 @@ def _header(plan: MergePlan, commit: CommitResult | None) -> list[str]:
     ]
 
 
+def _stop_line(counts: dict) -> list[str]:
+    waiting = counts["unresolved"]
+    if not sum(waiting.values()):
+        return []
+    return [
+        f"- **Stop:** {sum(waiting.values()):,} conflicts lack an approved resolution ({waiting['missing']:,} without an "
+        f"entry, {waiting['unfetched']:,} waiting for their reference day, {waiting['proposed']:,} with a proposed "
+        f"entry awaiting approval, {waiting['unpriced']:,} amount conflicts waiting for their cell's price entry); "
+        "nothing is committed until each has one (section 5).",
+    ]
+
+
 def _rows_section(plan: MergePlan) -> list[str]:
     s = plan.stats
-    merged, pre, gaps = s["merged"], s["preclose"], s["seed_gaps"]
+    merged, pre, gaps, turn, layout = s["merged"], s["preclose"], s["seed_gaps"], s["turn"], s["layout_only"]
     quantiles = [(name, *(s[name][q] for q in ("p50", "p99", "max"))) for name in ("volume_rel", "amount_rel")]
     return [
         "## 1. Rows",
@@ -323,8 +381,11 @@ def _rows_section(plan: MergePlan) -> list[str]:
         *table(["table", "rows after the merge"], s["rows"].items()),
         f"- **Merged:** {merged['bars']:,} bars and {merged['daily_status']:,} status rows "
         f"({merged['suspended']:,} suspended, {merged['st']:,} ST).",
-        f"- **Touched years:** bars {s['years']['bars']}, daily_status {s['years']['daily_status']}; stale layouts "
-        f"rewritten: {s['years']['stale'] or 'none'}.",
+        f"- **Touched years:** bars {s['years']['bars']}, daily_status {s['years']['daily_status']}.",
+        f"- **Stale layouts rewritten:** {s['years']['stale'] or 'none'}; {len(layout['years'])} of these years "
+        f"({layout['rows']:,} rows) have no merged day and are rewritten only to gain the current columns.",
+        f"- **turn:** {turn['non_null']:,} of {turn['bars']:,} merged BaoStock bars have a turnover "
+        f"({_share(turn['non_null'], turn['bars'])}); {turn['null_traded']:,} merged bars trade without one.",
         f"- **Compared with the store:** {s['compared']:,} bars; derived precloses replaced by the exchange's: "
         f"{pre['replaced']:,}, of which {pre['differing']:,} differ.",
         f"- **Seed gaps** (listed days inside the store span without a store bar): {gaps['tradestatus_0']:,} with "
@@ -334,6 +395,10 @@ def _rows_section(plan: MergePlan) -> list[str]:
         "",
         *table(["relative error", "p50", "p99", "max"], quantiles),
     ]
+
+
+def _share(part: int, whole: int) -> str:
+    return f"{part / whole:.4%}" if whole else "no bars"
 
 
 def _restore_line(restore: dict) -> str:
@@ -399,6 +464,85 @@ def _listed_section(plan: MergePlan) -> list[str]:
     return lines if len(lines) > 2 else [*lines, "None.", ""]
 
 
+def _resolutions_section(plan: MergePlan) -> list[str]:
+    resolved = _resolved(plan.issues)
+    details = [json.loads(d) for d in resolved["detail"]]
+    rows = [
+        (code, day, kind, action, ", ".join(d["fields"]), *(_ordered(d, x) for x in DETAIL_VALUES), d["evidence"])
+        for (code, day, kind, action), d in zip(resolved.select("code", "date", "kind", "action").rows(), details)
+    ]
+    flagged = plan.issues.filter(pl.col("kind") == "close_unconfirmed").sort("date", "code")
+    columns = ["close", "baostock_close", "seed_close", "next_date", "next_preclose", "ex_event"]
+    closes = [(c, day, *(json.loads(d)[x] for x in columns)) for c, day, d in flagged.select(*KEY, "detail").rows()]
+    header = ["code", "date", "kind", "action", "fields", "store before", "BaoStock", "after", "evidence"]
+    return [
+        "## 4. Resolutions applied",
+        "",
+        *(table(header, rows) if rows else ["None.", ""]),
+        *(
+            [
+                f"**close_unconfirmed:** {len(closes)} kept closes the next day's exchange preclose does not confirm (it "
+                "differs, is missing, or an adj_factor step lies between); flagged.",
+                "",
+                *table(["code", "date", *columns], closes),
+            ]
+            if closes
+            else []
+        ),
+    ]
+
+
+def _awaiting_section(plan: MergePlan) -> list[str]:
+    """Conflicts without an approved entry, those without any entry first, and approved entries that met none."""
+    lines = ["## 5. Conflicts awaiting a decision", ""]
+    rows = plan.unresolved
+    if rows.height:
+        caps = {
+            "missing": UNDECIDED_ROWS,
+            "unfetched": UNDECIDED_ROWS,
+            "proposed": LISTED_ROWS,
+            "unpriced": LISTED_ROWS,
+        }
+        shown = pl.concat(rows.filter(pl.col("entry") == state).head(cap) for state, cap in caps.items())
+        lines += [
+            f"The merge stops before writing anything: {rows.height:,} conflicts lack an approved entry in the "
+            f"resolutions file. Listed: those without an entry (at most {UNDECIDED_ROWS:,}), then those with a proposed "
+            f"one and the amount conflicts waiting for a price entry (at most {LISTED_ROWS} each). `propose` adds "
+            "missing entries as proposed; only the user approves them.",
+            "",
+            *table(["code", "date", "kind", "entry", "BaoStock", "store"], [_awaiting(r) for r in shown.to_dicts()]),
+        ]
+    idle = plan.stats["resolutions"]["idle"]
+    if idle:
+        lines += [
+            f"**Approved entries that met no conflict:** {len(idle):,}. They take other than BaoStock's values, but the "
+            "bars keep BaoStock's: the conflict is gone (the raw row changed), or the entry changed after the store "
+            "took an earlier one.",
+            "",
+            *table(["code", "date", "kind", "fields", "take"], [_idle(entry) for entry in idle]),
+        ]
+    return lines if len(lines) > 2 else [*lines, "None.", ""]
+
+
+def _awaiting(row: dict) -> tuple:
+    baostock, store = ({c: row[f"{prefix}{c}"] for c in SEEDED} for prefix in ("", "seed_"))
+    return row["code"], row["date"], row["kind"], STATES[row["entry"]], _values(baostock), _values(store)
+
+
+def _idle(entry: dict) -> tuple:
+    return entry["code"], entry["date"], entry["kind"], ", ".join(entry["fields"]), entry["take"]
+
+
+def _ordered(detail: dict, which: str) -> str:
+    """detail's values of one source in the order of its fields; 'no store bar' for a before without one."""
+    values = detail[which]
+    return "no store bar" if values is None else _values({f: values[f] for f in detail["fields"] if f in values})
+
+
+def _values(values: dict) -> str:
+    return ", ".join(f"{name} {value}" for name, value in values.items())
+
+
 def _busiest(counts: pl.DataFrame) -> str:
     return ", ".join(f"{key} ({n:,})" for key, n in counts.rows())
 
@@ -413,7 +557,7 @@ def _adjustment_section(plan: MergePlan) -> list[str]:
         for (c, day, k), d in zip(flagged.select("code", "date", "kind").rows(), details, strict=False)
     ]
     return [
-        "## 4. Adjustment check",
+        "## 6. Adjustment check",
         "",
         f"{s['checked']:,} exchange-preclose bars checked against adj_factor ({s['agree']:,} agree); "
         f"{s['first_bar']:,} first bars have no earlier close. Flagged: "
@@ -433,7 +577,7 @@ def _late_events_section(plan: MergePlan) -> list[str]:
     events = plan.stats["adjustment"]["late_seed_events"]
     rows = [(e["code"], e["missing"], e["unimplied"], e["lag"], e["step"]) for e in events]
     return [
-        "## 5. Late seed events",
+        "## 7. Late seed events",
         "",
         f"An event_missing followed within {LATE_EVENT_DAYS} trading days by an event_unimplied of the same step: "
         "the seed placed the event late.",
@@ -449,7 +593,7 @@ def _late_events_section(plan: MergePlan) -> list[str]:
 def _unconfirmed_events_section(plan: MergePlan) -> list[str]:
     dropped = plan.issues.filter(pl.col("kind") == "event_unconfirmed").group_by("date").len().sort("date")
     return [
-        "## 6. Store events the factor files do not confirm",
+        "## 8. Store events the factor files do not confirm",
         "",
         *(table(["date", "event_unconfirmed"], dropped.rows()) if dropped.height else ["None.", ""]),
     ]
@@ -457,21 +601,21 @@ def _unconfirmed_events_section(plan: MergePlan) -> list[str]:
 
 def _bj_section(plan: MergePlan) -> list[str]:
     rows = [(str(year), before, after) for year, (before, after) in plan.stats["bj_rows"].items()]
-    return ["## 7. BJ bars in the touched years", "", *table(["year", "before", "after"], rows)]
+    return ["## 9. BJ bars in the touched years", "", *table(["year", "before", "after"], rows)]
 
 
 def _acceptance_section(checks: dict[str, tuple[bool, str]]) -> list[str]:
     if not checks:
-        return ["## 8. Acceptance", "", "Runs with --commit.", ""]
+        return ["## 10. Acceptance", "", "Runs with --commit.", ""]
     rows = [(name, "pass" if ok else "FAIL", message) for name, (ok, message) in checks.items()]
-    return ["## 8. Acceptance", "", *table(["criterion", "result", "measured"], rows)]
+    return ["## 10. Acceptance", "", *table(["criterion", "result", "measured"], rows)]
 
 
 def _inputs_section(plan: MergePlan) -> list[str]:
     files = ", ".join(plan.factor_codes[:LISTED_FILES]) or "none"
     more = f" and {len(plan.factor_codes) - LISTED_FILES:,} more" if len(plan.factor_codes) > LISTED_FILES else ""
     return [
-        "## 9. Inputs of this run",
+        "## 11. Inputs of this run",
         "",
         f"- **Raw days:** {len(plan.days):,}, {plan.days[0]}..{plan.days[-1]}.",
         f"- **Factor files:** {files}{more}.",
@@ -488,10 +632,14 @@ def main(argv: list[str] | None = None) -> int:
     copy = commands.add_parser("copy-store", help="copy the current store version, without lock or raw layer")
     copy.add_argument("dest", type=Path)
     copy.add_argument("--home", type=Path, default=None)
+    proposing = commands.add_parser("propose", help="add a proposed resolution for each conflict; reads only")
     merge = commands.add_parser("run", help="plan the merge, report it, and commit with --commit")
-    merge.add_argument("--home", type=Path, default=None)
-    merge.add_argument("--raw", type=Path, default=None, help="raw BaoStock root (default: <home>/raw/baostock)")
-    merge.add_argument("--days", default=None, help="FIRST..LAST, inclusive ISO dates (default: every raw day)")
+    for command in (proposing, merge):
+        command.add_argument("--home", type=Path, default=None)
+        command.add_argument("--raw", type=Path, default=None, help="raw BaoStock root (default: <home>/raw/baostock)")
+        command.add_argument("--days", default=None, help="FIRST..LAST, inclusive ISO dates (default: every raw day)")
+    proposing.add_argument("--out", type=Path, default=None, help="resolutions file (default: the packaged one)")
+    merge.add_argument("--resolutions", type=Path, default=None, help="resolutions file (default: the packaged one)")
     merge.add_argument("--commit", action="store_true")
     merge.add_argument("--check-idempotency", action="store_true", help="re-plan and re-apply; needs --commit")
     merge.add_argument("--out", type=Path, default=None)
@@ -500,6 +648,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "copy-store":
         print(f"copied {copy_store(Path(args.home), args.dest)} files to {args.dest}")
         return 0
+    if args.command == "propose":
+        return propose_entries(args)
     if args.check_idempotency and not args.commit:
         parser.error("--check-idempotency needs --commit")
     return run(args)

@@ -17,6 +17,7 @@ from tests.baostock_raw_fake import (
     SOURCE,
     World,
     day_row,
+    empty_resolutions,
     stale_bars,
     standard_world,
     suspended_row,
@@ -25,12 +26,18 @@ from tests.baostock_raw_fake import (
 )
 from tests.frames import table_frame
 from tools.baostock_merge import invariant_problems, status_complete
-from wequant.data.merge import RawDataError, StalePlan, apply_merge, plan_merge
+from wequant.data.merge import RawDataError, StalePlan, apply_merge, plan_merge, resolutions
 from wequant.data.merge.assemble import stale_years
 from wequant.data.schema import BARS
 from wequant.version import code_version
 
 FIXED_600010 = [(dt.date(1999, 1, 4), 1.0), (D2, 1.25)]
+
+
+@pytest.fixture(autouse=True)
+def no_decisions(tmp_path, monkeypatch):
+    """The merge reads an empty resolutions file, never the user's packaged one."""
+    monkeypatch.setattr(resolutions, "PACKAGED", empty_resolutions(tmp_path))
 
 
 @pytest.fixture
@@ -103,6 +110,9 @@ def test_end_to_end(world):
 
     merged = store.read_table("bars", start=D1, end=D3).filter(~bj)
     assert set(merged["source"]) == {SOURCE} and not merged["preclose_derived"].any()
+    assert merged.filter(pl.col("turn").is_not_null()).select("code", "turn").rows() == [("600000.SH", 0.5123)] * 3
+    assert plan.stats["turn"] == {"bars": 26, "non_null": 3, "null_traded": 23}
+    assert store.read_table("bars", end=C2)["turn"].is_null().all()  # seed rows have none
     status = store.read_table("daily_status").select(
         "code", "date", st_status=pl.col("tradestatus"), st=pl.col("is_st")
     )
@@ -253,6 +263,7 @@ def test_partitions_and_migration(tmp_path):
     stale_bars(store)
     plan, first = merge(store, raw)
     assert plan.stats["years"] == {"bars": [2023, 2024], "daily_status": [2024], "stale": [2023, 2024]}
+    assert plan.stats["layout_only"] == {"years": [2023], "rows": 16}  # 8 codes on 2023-12-28 and 29, no merged day
     expected = {"bars/2023", "bars/2024", "daily_status/2024", "adj_factor/adj_factor"}
     assert parts(first.files_written) == expected | {"securities/securities", "data_issues/data_issues"}
     assert parts(first.files_reused) == {"calendar/calendar"}

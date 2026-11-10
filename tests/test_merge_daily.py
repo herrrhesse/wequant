@@ -3,9 +3,9 @@ import datetime as dt
 import polars as pl
 import pytest
 
-from tests.baostock_raw_fake import D1, D2, MERGED, SOURCE, World, day_row, suspended_row
+from tests.baostock_raw_fake import D1, D2, MERGED, SOURCE, World, day_row, empty_resolutions, suspended_row
 from wequant.data.merge import RawDataError, plan_merge
-from wequant.data.merge.daily import read_daily, split
+from wequant.data.merge.daily import paid, read_daily, split
 from wequant.data.schema import BARS, DAILY_STATUS
 from wequant.data.sources.baostock import parse_daily
 from wequant.data.sources.base import DAILY
@@ -15,7 +15,7 @@ CHEAP = dict.fromkeys(("open", "high", "low", "close"), "0.5000")
 
 
 def parsed(*rows: dict[str, str]) -> pl.DataFrame:
-    return parse_daily(pl.DataFrame(list(rows))).with_columns(source=pl.lit(SOURCE))
+    return parse_daily(pl.DataFrame(list(rows)), turn=True).with_columns(source=pl.lit(SOURCE))
 
 
 def test_parse_daily_golden():
@@ -36,6 +36,8 @@ def test_parse_daily_golden():
         "tradestatus": 1,
         "is_st": False,
     }
+    with_turn = parse_daily(pl.DataFrame([row | {"turn": "0.564000"}]), turn=True)
+    assert with_turn.columns == [*DAILY, "turn"] and with_turn["turn"].item() == 0.564
 
 
 def test_parse_daily_empty_fields_are_null():
@@ -44,6 +46,7 @@ def test_parse_daily_empty_fields_are_null():
     empty = parse_daily(pl.DataFrame([suspended_row("600000.SH", D1)])).row(0, named=True)
     assert all(empty[p] is None for p in ("open", "high", "low", "close", "preclose"))
     assert empty["tradestatus"] == 0 and empty["is_st"] is False
+    assert parse_daily(pl.DataFrame([suspended_row("600000.SH", D1)]), turn=True)["turn"].item() is None
 
 
 def test_split_suspended_traded_while_suspended_and_no_volume():
@@ -66,8 +69,17 @@ def test_read_daily_adds_the_source(tmp_path):
     w.stock("600000.SH", STEADY, seed=())
     _, raw = w.write(tmp_path)
     daily = read_daily(raw, MERGED)
-    assert daily.columns == [*DAILY, "source"] and daily["source"].unique().to_list() == [SOURCE]
+    assert daily.columns == [*DAILY, "turn", "source"] and daily["source"].unique().to_list() == [SOURCE]
     assert daily["close"].to_list() == [10000, 10100, 10200]
+
+
+def test_read_daily_keeps_turn_and_split_puts_it_on_the_bar(tmp_path):
+    w = World()
+    w.stock("600000.SH", STEADY, seed=())
+    w.days[D1][0].update(turn="1.234500")
+    _, raw = w.write(tmp_path)
+    bars, _ = split(read_daily(raw, MERGED))
+    assert bars["turn"].to_list() == [1.2345, None, None]
 
 
 BROKEN = [
@@ -83,12 +95,25 @@ BROKEN = [
     ("code", lambda rows: rows[0].update(code="sh.000001")),
     ("volume", lambda rows: rows[0].update(volume="1000.0")),
     ("amount", lambda rows: rows[0].update(amount="1.5e8")),
-    ("average_price", lambda rows: rows[0].update(amount="0.0000")),
-    ("average_price", lambda rows: rows[0].update(amount="1.0000")),
-    ("average_price", lambda rows: rows[0].update(amount="10020.0000")),
-    ("average_price", lambda rows: rows[0].update(tradestatus="0", volume="1118342", amount="0.0000")),
-    ("average_price", lambda rows: rows[0].update(CHEAP, volume="1", amount="0.0000")),  # worth half a yuan
+    ("turn", lambda rows: rows[0].update(turn="1.2e3")),
+    ("turn", lambda rows: rows[0].update(turn="-0.5")),
 ]
+UNPAID = [
+    {"amount": "0.0000"},
+    {"amount": "1.0000"},
+    {"amount": "10020.0000"},  # above 1000 shares at 10.00 by more than the tolerance
+    {"tradestatus": "0", "volume": "1118342", "amount": "0.0000"},
+    CHEAP | {"volume": "1", "amount": "0.0000"},  # worth half a yuan
+]
+
+
+@pytest.mark.parametrize("change", UNPAID)
+def test_amounts_outside_low_high_fail_paid_without_raising(tmp_path, change):
+    w = World()
+    w.stock("600000.SH", STEADY)
+    w.days[D1][0].update(change)
+    _, raw = w.write(tmp_path)
+    assert read_daily(raw, [D1]).select(paid()).item() is False
 
 
 def test_amounts_cut_to_the_whole_yuan_pass(tmp_path):
@@ -96,7 +121,8 @@ def test_amounts_cut_to_the_whole_yuan_pass(tmp_path):
     w.stock("600000.SH", STEADY)
     w.days[D1][0].update(CHEAP, volume="113", amount="56.0000")  # 113 shares at 0.50 are 56.50 yuan
     store, raw = w.write(tmp_path)
-    assert read_daily(raw, [D1])["amount"].to_list() == [56.0]
+    daily = read_daily(raw, [D1])
+    assert daily["amount"].to_list() == [56.0] and daily.select(paid()).item()
 
 
 @pytest.mark.parametrize("check, change", BROKEN)
@@ -106,6 +132,6 @@ def test_broken_raw_rows_raise_naming_the_check(tmp_path, check, change):
     change(w.days[D1])
     store, raw = w.write(tmp_path)
     with pytest.raises(RawDataError) as error:
-        plan_merge(store, raw)
+        plan_merge(store, raw, resolutions=empty_resolutions(tmp_path))
     assert len(error.value.problems) == 1 and error.value.problems[0].startswith(f"{check}: ")
     assert store.manifest()["version"] == 1

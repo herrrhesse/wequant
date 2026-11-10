@@ -6,6 +6,7 @@ import datetime as dt
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 import polars as pl
 
@@ -31,14 +32,18 @@ from wequant.data.merge.audit import (
     check_adjustment,
     status_disagreements,
 )
+from wequant.data.merge.conflicts import price_conflicts, with_references
 from wequant.data.merge.daily import read_daily, split
 from wequant.data.merge.factors import events, normalize, read_factors
 from wequant.data.merge.reconcile import drop_duplicate_codes, drop_status_before_first_bar
+from wequant.data.merge.resolutions import load as load_resolutions
+from wequant.data.merge.resolve import UnresolvedConflicts, first_before, idle_entries, resolve, state_counts
 from wequant.data.raw import BaoStockRaw
 from wequant.data.store import CommitResult, Store
 from wequant.version import code_version
 
 KEY = ["code", "date"]
+STORED = ("calendar", "securities", "adj_factor", "data_issues")  # whole tables every merge reads
 LATE_EVENT_DAYS = 250  # trading days within which a seed event placed late is paired with the real one
 
 
@@ -51,6 +56,7 @@ class MergePlan:
     replace: dict[str, pl.DataFrame]  # "securities", "data_issues"; "adj_factor" only when its rows change
     upsert: dict[str, pl.DataFrame]  # "calendar"
     issues: pl.DataFrame  # this run's record and flagged rows
+    unresolved: pl.DataFrame  # conflicts without an approved resolution: apply_merge refuses the plan
     stats: dict
     meta: dict  # last_trade_date, baostock_merge {first_day, last_day, days}
 
@@ -60,49 +66,53 @@ class StalePlan(RuntimeError):
 
 
 def plan_merge(
-    store: Store, raw: BaoStockRaw, days: Iterable[dt.date] | None = None, factor_codes: Iterable[str] | None = None
+    store: Store,
+    raw: BaoStockRaw,
+    days: Iterable[dt.date] | None = None,
+    factor_codes: Iterable[str] | None = None,
+    resolutions: Path | None = None,
 ) -> MergePlan:
-    """What one merge of raw snapshots (None: every day on disk) and factor files (None: every file) writes; reads only."""
+    """What one merge of raw snapshots (None: every day on disk) and factor files (None: every file) writes, with the
+    approved entries of a resolutions file (None: the packaged one) applied; reads only."""
     manifest = store.manifest()
     if manifest is None:
         raise ValueError(f"{store.home} has no committed version to merge into")
-    calendar = store.read_table("calendar", manifest=manifest)["date"]
+    entries = load_resolutions(resolutions)
+    stored = {table: store.read_table(table, manifest=manifest) for table in STORED}
+    calendar, stored_adj = stored["calendar"]["date"], stored["adj_factor"]
     days = _merge_days(raw, days, calendar)
     factor_codes = _factor_codes(raw, factor_codes)
-    securities = store.read_table("securities", manifest=manifest)
     bars_new, status_new = split(read_daily(raw, days))
     source = _newest(status_new["source"])
 
     stale = stale_years(store, manifest, "bars")
     years = {"bars": {d.year for d in days} | stale}
-    audited = calendar.filter(calendar.is_in(days))
-    parts, bars_new, status_new, bar_issues, bar_stats = _merge_bars(
-        store, manifest, years["bars"], days, audited, securities, bars_new, status_new, source
+    parts, bars_new, status_new, bar_issues, unresolved, bar_stats = _merge_bars(
+        store, manifest, raw, stored, entries, years["bars"], days, bars_new, status_new, source
     )
     after = bars_after(store, manifest, parts, years["bars"])
     spans = after.group_by("code").agg(first_date=pl.col("date").min(), last_date=pl.col("date").max())
     years["daily_status"] = {d.year for d in days} | orphan_status_years(store, manifest, spans)
     status_new, status_parts, early = _merge_status(store, manifest, status_new, spans, years, days, source)
 
-    stored_adj = store.read_table("adj_factor", manifest=manifest)
     new_adj = normalize(read_factors(raw, factor_codes), spans.filter(pl.col("code").is_in(factor_codes)))
     event_issues, event_stats = _event_issues(new_adj, stored_adj, factor_codes, after, source)
-    securities_new, no_bars = securities_table(securities, spans, source)
+    securities_new, no_bars = securities_table(stored["securities"], spans, source)
     adj = adj_factor_table(stored_adj, new_adj, factor_codes, spans)
     flagged, checked = check_adjustment(after, adj.filter(~BJ), source)
     conflicts = _conflict_issues(status_disagreements(bars_new, status_new), source)
 
-    old_issues = store.read_table("data_issues", manifest=manifest)
     record = pl.concat([bar_issues, early, event_issues, no_bars, conflicts])
     issues = pl.concat([record, flagged])
     replace_parts = _checked_parts(manifest, {"bars": parts, "daily_status": status_parts}, years)
-    replace = _whole_tables(securities_new, data_issues_table(old_issues, record, flagged), adj, stored_adj)
+    replace = _whole_tables(securities_new, data_issues_table(stored["data_issues"], record, flagged), adj, stored_adj)
     full_calendar = pl.concat([calendar, pl.Series("date", days)]).unique().sort()
-    restore = status_to_restore(store, manifest, old_issues, spans).filter(~pl.col("date").is_in(days))
+    restore = status_to_restore(store, manifest, stored["data_issues"], spans).filter(~pl.col("date").is_in(days))
     stats = {
         "rows": _rows(manifest, replace_parts, years, replace | {"adj_factor": adj, "calendar": full_calendar}),
         "merged": _merged_counts(bars_new, status_new),
         "years": {table: sorted(y) for table, y in years.items()} | {"stale": sorted(stale)},
+        "layout_only": _layout_only(manifest, stale - {d.year for d in days}),
         **bar_stats,
         "events": event_stats,
         "adj_factor": _adj_changes(stored_adj.filter(~BJ), adj.filter(~BJ), "adj_factor" in replace),
@@ -118,13 +128,17 @@ def plan_merge(
         replace=replace,
         upsert={"calendar": pl.DataFrame({"date": days}, schema={"date": pl.Date})},
         issues=issues,
+        unresolved=unresolved,
         stats=stats,
         meta=_meta(store, manifest, status_parts, years["daily_status"], full_calendar),
     )
 
 
 def apply_merge(store: Store, plan: MergePlan, timeout: float = 0) -> CommitResult:
-    """Commit the plan, code_version added to its block, as one version under the writer lock; StalePlan if the store moved on."""
+    """Commit the plan, code_version added to its block, as one version under the writer lock; StalePlan if the store
+    moved on, UnresolvedConflicts while a conflict lacks an approved resolution."""
+    if plan.unresolved.height:
+        raise UnresolvedConflicts(plan.unresolved)
     with store.lock(timeout):
         current = store.manifest()["version"]
         if current != plan.base_version:
@@ -168,15 +182,33 @@ def _newest(sources: pl.Series) -> str:
     return max(sources.unique().to_list(), key=lambda s: [int(n) for n in re.findall(r"[0-9]+", s)])
 
 
-def _merge_bars(store, manifest, years, days, audited, securities, bars_new, status_new, source) -> tuple:
-    """(bars parts of the touched years, new bars, new status rows, issues, stats): duplicate codes dropped and the
-    store's bars on audited days compared."""
+def _merge_bars(store, manifest, raw, stored, entries, years, days, bars_new, status_new, source) -> tuple:
+    """(bars parts of the touched years, new bars, new status rows, issues, conflicts without an approved entry, stats):
+    duplicate codes dropped, the approved resolutions applied and the store's bars on audited days compared."""
     old, kept, bj_rows = _stored_bars(store, manifest, years, days)
     bars_new, status_new, duplicates = drop_duplicate_codes(bars_new, status_new, old, source)
+    bars_new, resolved, unresolved, counts = _resolve(raw, stored, entries, days, bars_new, old, source)
+    calendar, securities = stored["calendar"]["date"], stored["securities"]
+    audited = calendar.filter(calendar.is_in(days))
     new_audited = bars_new.filter(pl.col("date").is_in(audited.implode()))
     bar_issues, compared = audit_bars(new_audited, old, status_new, securities, source)
-    stats = {"bj_rows": bj_rows, **_bar_stats(compared, bars_new, status_new, old, securities, audited)}
-    return pl.concat([kept, bars_new]), bars_new, status_new, pl.concat([duplicates, bar_issues]), stats
+    stats = {
+        "bj_rows": bj_rows,
+        **_bar_stats(compared, bars_new, status_new, old, securities, audited),
+        "resolutions": counts,
+        "turn": _turn_counts(bars_new),
+    }
+    issues = pl.concat([duplicates, resolved, bar_issues])
+    return pl.concat([kept, bars_new]), bars_new, status_new, issues, unresolved, stats
+
+
+def _resolve(raw, stored, entries, days, bars_new, old, source) -> tuple:
+    """(new bars with the approved entries applied, their issues, the conflicts without one, counts)."""
+    prices = with_references(raw, price_conflicts(bars_new, old), stored["calendar"]["date"], stored["adj_factor"])
+    bars_new, resolved, unresolved = resolve(bars_new, old, prices, entries, source)
+    resolved = first_before(resolved, stored["data_issues"])
+    counts = _resolution_counts(resolved, unresolved, idle_entries(entries, resolved, days))
+    return bars_new, resolved, unresolved, counts
 
 
 def _stored_bars(store: Store, manifest: dict, years: set[int], days: list[dt.date]) -> tuple:
@@ -266,6 +298,34 @@ def _iso(day: dt.date | None) -> str | None:
 def _counts(frame: pl.DataFrame, by: str | pl.Expr) -> dict:
     """{value: rows} of frame grouped by one column or expression."""
     return dict(frame.group_by(by).len().sort(pl.first()).rows())
+
+
+def _layout_only(manifest: dict, years: set[int]) -> dict:
+    """Stale bars years without a merged day, rewritten only to gain the current columns."""
+    rows = part_rows(manifest, "bars")
+    return {"years": sorted(years), "rows": sum(rows[y] for y in years)}
+
+
+def _resolution_counts(resolved: pl.DataFrame, unresolved: pl.DataFrame, idle: pl.DataFrame) -> dict:
+    """Applied entries by kind and action, flagged closes, conflicts without an approved entry by state, and the
+    approved entries that met no conflict."""
+    applied = resolved.filter(pl.col("action") != "flagged")
+    return {
+        "applied": _counts(applied, pl.concat_str("kind", "action", separator=" ")),
+        "flagged": resolved.height - applied.height,
+        "unresolved": state_counts(unresolved),
+        "idle": idle.to_dicts(),
+    }
+
+
+def _turn_counts(bars: pl.DataFrame) -> dict:
+    """Merged BaoStock bars, those with a turn, and those trading without one."""
+    missing = pl.col("turn").is_null() & (pl.col("volume") > 0)
+    return {
+        "bars": bars.height,
+        "non_null": bars["turn"].is_not_null().sum(),
+        "null_traded": bars.filter(missing).height,
+    }
 
 
 def _merged_counts(bars: pl.DataFrame, status: pl.DataFrame) -> dict:

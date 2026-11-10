@@ -30,6 +30,7 @@ def bars(rows):
         low=pl.col("close"),
         volume=pl.lit(100, dtype=pl.Int64),
         amount=pl.lit(1000.0),
+        turn=pl.lit(None, dtype=pl.Float64),
         preclose=pl.lit(None, dtype=pl.Int32),
         preclose_derived=pl.lit(True),
         tradestatus=pl.lit(None, dtype=pl.Int8),

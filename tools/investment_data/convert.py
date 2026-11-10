@@ -166,6 +166,7 @@ def build_tables(
         )
         .with_columns(
             preclose_derived=pl.lit(True),
+            turn=pl.lit(None, dtype=pl.Float64),
             tradestatus=pl.lit(None, dtype=pl.Int8),
             is_st=pl.lit(None, dtype=pl.Boolean),
             source=pl.lit(source),

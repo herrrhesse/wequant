@@ -45,8 +45,11 @@ def from_baostock(code: str) -> str:
     return f"{digits}.{exchange.upper()}"
 
 
-def parse_daily(frame: pl.DataFrame | pl.LazyFrame, decimals: int = 2) -> pl.DataFrame | pl.LazyFrame:
-    """BaoStock daily rows (string columns) in DAILY columns; empty strings become null."""
+def parse_daily(
+    frame: pl.DataFrame | pl.LazyFrame, decimals: int = 2, *, turn: bool = False
+) -> pl.DataFrame | pl.LazyFrame:
+    """BaoStock daily rows (string columns) in DAILY columns, plus turn (percent) when asked; empty strings become null."""
+    extra = {"turn": _text("turn").cast(pl.Float64)} if turn else {}
     return frame.select(
         code=_code("code"),
         date=_text("date").str.to_date(),
@@ -55,7 +58,8 @@ def parse_daily(frame: pl.DataFrame | pl.LazyFrame, decimals: int = 2) -> pl.Dat
         amount=_text("amount").cast(pl.Float64),
         tradestatus=_text("tradestatus").cast(pl.Int8),
         is_st=_text("isST").cast(pl.Int8).cast(pl.Boolean),
-    ).select(list(DAILY))
+        **extra,
+    ).select(*DAILY, *extra)
 
 
 def parse_adjust_factor(frame: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:

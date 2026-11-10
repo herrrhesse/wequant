@@ -21,9 +21,14 @@ BJ = pl.col("code").str.ends_with(".BJ")
 
 def read_years(store: Store, manifest: dict, table: str, years: Iterable[int]) -> pl.DataFrame:
     """The store's rows of those years, in the table's current columns."""
+    return scan_years(store, manifest, table, years).collect(engine="streaming")
+
+
+def scan_years(store: Store, manifest: dict, table: str, years: Iterable[int]) -> pl.LazyFrame:
+    """read_years, lazily."""
     wanted = set(years)
     frames = [_conformed(store, e["path"], TABLES[table]) for e in _files(manifest, table) if int(e["part"]) in wanted]
-    return pl.concat(frames).collect(engine="streaming") if frames else pl.DataFrame(schema=TABLES[table].schema)
+    return pl.concat(frames) if frames else pl.LazyFrame(schema=TABLES[table].schema)
 
 
 def stale_years(store: Store, manifest: dict, table: str) -> set[int]:
