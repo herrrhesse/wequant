@@ -290,7 +290,7 @@ def located(loc: Loc = ()) -> Iterator[None]:
     except NotSaved as error:
         raise not_found(error.code, str(error), [*loc, "n" if error.code == "unknown_version" else "id"]) from None
     except (SpecError, SpecErrors) as error:
-        raise usage(spec_details(error, loc)) from None
+        raise usage(spec_details(error, loc), error.complete) from None
     except StoreLocked as error:
         raise ServiceError(Exit.LOCKED, str(error)) from None
 

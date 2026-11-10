@@ -10,12 +10,13 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from cyclopts import App, CycloptsError, Group, Parameter
 from pydantic import BaseModel
 
 from wequant import service
+from wequant.backtest import ANOMALY_MODES
 from wequant.cli.render import error_panel, refused, render, render_schema
 from wequant.service import Check, Context, ErrorBody, ErrorDetail, Exit, ServiceError
 from wequant.service.base import error_body
@@ -195,6 +196,36 @@ def strategy_archive(id: str, /, *, restore: bool = False, common: Common = COMM
     """
     return run(
         service.strategy_archive, lambda: validated(service.ArchiveRequest, {"id": id, "restore": restore}), common
+    )
+
+
+@app.command
+def screen(
+    *,
+    strategy: StrategyArg,
+    date: str | None = None,
+    data_version: int | None = None,
+    anomalies: Literal[ANOMALY_MODES] = "flag",
+    exclude_suspicious: bool = False,
+    common: Common = COMMON,
+) -> int:
+    """One decision day's funnel, scored stocks and rejects, without holdings: what a backtest decides that day.
+
+    Parameters
+    ----------
+    date
+        The decision day, YYYY-MM-DD (default: the store's last trading day).
+    data_version
+        Store version to read (default: the current one).
+    anomalies
+        flag: use anomalous data and report it; exclude_day: read error-level anomalous days as missing.
+    exclude_suspicious
+        Also exclude suspicious-level days (with exclude_day).
+    """
+    data = {"anomalies": anomalies, "exclude_suspicious": exclude_suspicious}
+    fields = {"date": date, "data_version": data_version, "data": data}
+    return run(
+        service.screen, lambda: validated(service.ScreenRequest, {**strategy_fields(strategy), **fields}), common
     )
 
 

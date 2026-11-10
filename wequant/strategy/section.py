@@ -9,7 +9,7 @@ import numpy as np
 
 from wequant import ops
 from wequant.strategy.compile import pool_items
-from wequant.strategy.strategy import Strategy
+from wequant.strategy.strategy import Factor, Strategy
 
 
 def verdicts(grid: np.ndarray) -> np.ndarray:
@@ -94,6 +94,16 @@ def weight_shares(strategy: Strategy) -> dict[str, float]:
     return {f.name: f.weight / total for f in enabled}
 
 
+def percentiles(strategy: Strategy, section: Section) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Each enabled factor's percentiles among the scored stocks: of its value, and of what the score ranks (the
+    value, or -value for prefer low); NaN where not scored."""
+    found = {}
+    for f in (f for f in strategy.factors if f.enabled):
+        value = section.factors[f.name]
+        found[f.name] = (_pct(value, section.scored), _pct(_ranked(f, value), section.scored))
+    return found
+
+
 def _score(strategy: Strategy, factors: dict[str, np.ndarray], scored: np.ndarray) -> np.ndarray:
     """The weighted mean of the factors' percentiles among the scored stocks; 1.0 for each without a factor.
 
@@ -104,9 +114,17 @@ def _score(strategy: Strategy, factors: dict[str, np.ndarray], scored: np.ndarra
         return np.where(scored, 1.0, np.nan)
     total = np.zeros(scored.shape)
     for f in enabled:
-        value = factors[f.name] if f.prefer == "high" else -factors[f.name]
-        total += f.weight * ops.CS_PCT(np.where(scored, value, np.nan))
+        total += f.weight * _pct(_ranked(f, factors[f.name]), scored)
     return total / sum(f.weight for f in enabled)
+
+
+def _ranked(factor: Factor, value: np.ndarray) -> np.ndarray:
+    """What the score ranks: the value, or -value for a factor preferring low values."""
+    return value if factor.prefer == "high" else -value
+
+
+def _pct(value: np.ndarray, scored: np.ndarray) -> np.ndarray:
+    return ops.CS_PCT(np.where(scored, value, np.nan))
 
 
 def _rank(order: np.ndarray, scored: np.ndarray) -> np.ndarray:

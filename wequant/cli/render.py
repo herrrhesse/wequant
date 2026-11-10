@@ -59,7 +59,8 @@ def refused(error: CycloptsError) -> ErrorBody:
     cause = error.__cause__
     details = pydantic_details(cause) if isinstance(cause, ValidationError) else []
     message = "; ".join(_reason(e) for e in cause.errors()) if details else str(error).strip()
-    return ErrorBody(exit=Exit.USAGE, name=Exit.USAGE.name, message=message, detail=details)
+    complete = not any(d.loc for d in details)
+    return ErrorBody(exit=Exit.USAGE, name=Exit.USAGE.name, message=message, detail=details, complete=complete)
 
 
 def error_panel(error: CycloptsError) -> object:

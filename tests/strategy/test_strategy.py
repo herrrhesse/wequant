@@ -7,7 +7,7 @@ from dataclasses import fields
 import pytest
 
 from wequant.expr import Field
-from wequant.strategy import SH_SZ, Condition, Factor, Group, Pool, SpecError, Step, Strategy
+from wequant.strategy import SH_SZ, Condition, Factor, Group, Pool, SpecError, SpecErrors, Step, Strategy
 
 CLOSE, ST = Field("close"), Field("st")
 OK = Condition("ok", CLOSE > 1.0)
@@ -101,14 +101,15 @@ TOP2 = {"factors": (MOM,), "top_n": 2}
     ],
 )
 def test_each_rule_raises_its_code_at_its_location(build, code, loc):
-    with pytest.raises(SpecError) as raised:
+    with pytest.raises((SpecError, SpecErrors)) as raised:
         build()
-    assert (raised.value.code, raised.value.loc, raised.value.path) == (code, loc, ())
-    assert str(raised.value).startswith(".".join(map(str, loc)) + ": ")
+    (error,) = raised.value.errors
+    assert (error.code, error.loc, error.path) == (code, loc, ())
+    assert str(error).startswith(".".join(map(str, loc)) + ": ")
 
 
 def test_a_duplicate_name_is_named_in_the_message():
-    with pytest.raises(SpecError, match="'ok' names more than one"):
+    with pytest.raises(SpecErrors, match="'ok' names more than one"):
         Strategy(filters=(OK,), factors=(Factor("ok", CLOSE),))
 
 

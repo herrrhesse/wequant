@@ -8,10 +8,10 @@ from tests.backtest.market import build_store, business_days
 from tests.frames import table_frame
 from wequant.account import Execution
 from wequant.backtest import Backtest, DataOptions, run
-from wequant.backtest.anomalies import signal_uses
+from wequant.backtest.anomalies import screen_uses, signal_uses
 from wequant.expr import EMA, REF, Field
 from wequant.panel import load_panel
-from wequant.strategy import Factor, Strategy
+from wequant.strategy import Factor, Strategy, screen
 
 DAYS = business_days(30)
 A, B = "600000.SH", "000001.SZ"
@@ -65,6 +65,15 @@ def test_a_window_holds_lookback_plus_one_bars_and_an_adjustment_counts_only_whe
         (12, "adjustment", "trend", True),
         (12, "price", "trend", True),
     ]
+
+
+def test_a_screen_records_each_scored_stocks_uses_by_its_role(tmp_path):
+    """Design 15.3: a screen's signal uses carry the stock's role; A is the pick on day 10, a candidate on day 11."""
+    panel = panel_of(tmp_path, [PRICE])
+    for k, role in ((10, "target"), (11, "candidate")):
+        shot = screen(RET, panel, DAYS[k])
+        uses = screen_uses(RET, panel, shot.section, shot.choice)
+        assert uses.select("code", "decision", "root", "anomaly_date").rows() == [(A, role, "ret", day(10))]
 
 
 @pytest.fixture(scope="module")

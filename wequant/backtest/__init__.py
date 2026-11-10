@@ -5,7 +5,7 @@ from wequant.backtest.data import ANOMALY_MODES, DataOptions
 from wequant.backtest.engine import ENGINE, REBALANCE_VERSION, planned_id, run, run_form, targets
 from wequant.backtest.progress import PROGRESS_DAYS, Cancelled, Progress, check_cancel, checkpoint
 from wequant.backtest.result import assemble, benchmark_closes, versions
-from wequant.backtest.warnings import STALE_DAYS, WARNINGS, run_warnings
+from wequant.backtest.warnings import STALE_DAYS, WARNINGS, run_warnings, screen_warnings
 
 __all__ = [
     "ANOMALY_MODES",
@@ -27,6 +27,7 @@ __all__ = [
     "run",
     "run_form",
     "run_warnings",
+    "screen_warnings",
     "span",
     "targets",
     "versions",
