@@ -15,7 +15,7 @@ from wequant.account.execution import FEN, LI, exact, finite_number
 from wequant.analytics import MetricSpec
 from wequant.canonical import canonical
 from wequant.panel import Panel, load_panel
-from wequant.strategy import Strategy, check_anchor, parse_form, to_form
+from wequant.strategy import SpecError, Strategy, check_anchor, parse_form, to_form
 
 if TYPE_CHECKING:
     from wequant.data.store import Store
@@ -66,15 +66,16 @@ def panel_for(
 
 
 def span(backtest: Backtest, panel: Panel) -> tuple[int, int]:
-    """Base row and last row on panel; ValueError for an anchor mismatch, a start before the panel or no run day."""
+    """Base row and last row on panel; SpecError for an anchor mismatch, a start before the panel or no run day."""
     check_anchor(backtest.strategy, panel)
     dates, start, end = panel.dates, backtest.start, backtest.end
     if start is not None and np.datetime64(start, "D") < dates[0]:
-        raise ValueError(f"start: {start} is before the panel's first day {dates[0]}")
+        raise SpecError("out_of_range", ("start",), f"{start} is before the panel's first day {dates[0]}")
     base = 0 if start is None else int(np.searchsorted(dates, np.datetime64(start, "D")))
     last = len(dates) - 1 if end is None else int(np.searchsorted(dates, np.datetime64(end, "D"), "right")) - 1
     if base >= last:
-        raise ValueError(f"no run day: the panel has no trading day after a base day between {start} and {end}")
+        message = f"no run day: the panel has no trading day after a base day between {start} and {end}"
+        raise SpecError("out_of_range", ("end",), message)
     return base, last
 
 

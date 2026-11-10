@@ -1,12 +1,16 @@
+from typing import get_args
+
 import numpy as np
 import pydantic
 import pytest
 
 from wequant.data.store import Store
-from wequant.expr import FIELDS
 from wequant.panel import MISSING, NOT_LISTED, RAW_FIELDS, SUSPENDED, TRADED, load_panel
 from wequant.service import BarsRequest, Context, Exit, ServiceError, data_bars
+from wequant.service.bars import BarField
 from wequant.service.rows import STATUS_NAMES
+
+FIELDS = get_args(BarField)
 
 A, B = "600000.SH", "300001.SZ"
 

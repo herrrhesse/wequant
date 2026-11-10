@@ -9,27 +9,28 @@ from typing import TYPE_CHECKING
 import numpy as np
 import polars as pl
 
-from wequant.expr import Expr, Field
+from wequant.expr import STORED_AS, Expr, Field
 from wequant.rules import default_book, limit_check_current
 from wequant.rules.limits import down_price, up_price
-from wequant.strategy import Section, Strategy, expressions
+from wequant.strategy import Choice, Section, Strategy, expressions
 
 if TYPE_CHECKING:
     from wequant.account import Ledger
     from wequant.panel import Panel
 
-WARNINGS = ("limits_unchecked", "st_unknown", "st_band_fills", "stale_holdings", "no_picks")
+WARNINGS = ("limits_unchecked", "st_unknown", "st_band_fills", "stale_holdings", "no_picks", "index_uncovered")
+WARNINGS += ("list_days_approximate", "max_weight_cash")
 STALE_DAYS = 20  # trading days without a bar after which a holding's last-close value is reported
 
 
-def run_warnings(strategy: Strategy, panel: Panel, section: Section, ledger: Ledger) -> dict[str, str]:
+def run_warnings(strategy: Strategy, panel: Panel, section: Section, choice: Choice, ledger: Ledger) -> dict[str, str]:
     """Each warning that applies, code -> text, in WARNINGS order."""
-    found = {}
+    found, fields = {}, _fields(expressions(strategy).values())
     if not limit_check_current(panel.manifest):
         found["limits_unchecked"] = (
             "the store's price limits are not checked against its bars; run tools.check_limits --commit"
         )
-    known = _st_known_share(strategy, panel, section)
+    known = _st_known_share(fields, panel, section)
     if known < 1:
         found["st_unknown"] = (
             f"ST state known on {known:.1%} of the universe cells on decision days; unknown reads as not ST"
@@ -45,9 +46,49 @@ def run_warnings(strategy: Strategy, panel: Panel, section: Section, ledger: Led
             f"{stale} codes held on {day} last traded more than {STALE_DAYS} trading days earlier, valued at their "
             f"last close ({share:.1%} of equity)"
         )
-    if not (section.weight > 0).any():
+    if not choice.target.any():
         found["no_picks"] = "no decision day selected a stock"
+    if uncovered := index_uncovered(fields, panel, section):
+        found["index_uncovered"] = "; ".join(
+            f"member@{index}: {days} decision days outside its index_members span"
+            + (f" from {first}" if first else ", which is empty")
+            for index, days, first in uncovered
+        )
+    if "list_days" in fields:
+        codes, cells = list_days_bounds(panel, section)
+        found["list_days_approximate"] = (
+            "list_days counts trading days from securities.first_date, the first day of the source's data, not the "
+            f"listing date: a lower bound for the {codes} codes whose data starts with the calendar, which "
+            f"min_list_days left out of {cells} decision-day cells"
+        )
+    if (kept := choice.cash[choice.cash > 0]).size:
+        found["max_weight_cash"] = (
+            f"{kept.size} decision days kept {kept.mean():.1%} of equity in cash on average: max_weight capped every "
+            "target"
+        )
     return found
+
+
+def index_uncovered(fields: set[str], panel: Panel, section: Section) -> list[tuple[str, int, dt.date | None]]:
+    """(index, decision days outside its index_members span, the span's first day) of each member@ index read that
+    misses a decision day; the first day is None when the store has no member of it."""
+    found = []
+    for index in sorted(name.partition("@")[2] for name in fields if name.startswith("member@")):
+        stored = STORED_AS.get(index, index)
+        days = int((panel.member(stored)[section.rows] == -1).all(axis=1).sum())
+        if days:
+            span = panel.index_span(stored)
+            found.append((index, days, None if span is None else span[0]))
+    return found
+
+
+def list_days_bounds(panel: Panel, section: Section) -> tuple[int, int]:
+    """Codes whose data starts with the calendar, so that list_days only bounds their listing age from below, and the
+    decision-day cells of theirs min_list_days left out."""
+    at_start = panel.list_days[0] == panel.calendar_offset + 1
+    if "min_list_days" not in section.steps:
+        return int(at_start.sum()), 0
+    return int(at_start.sum()), int((section.steps["min_list_days"][:, at_start] == 0).sum())
 
 
 def stale_holdings(panel: Panel, ledger: Ledger) -> tuple[int, float, dt.date]:
@@ -94,23 +135,23 @@ def band_prices(pre: np.ndarray, bp: np.ndarray, tick: np.ndarray) -> tuple[np.n
     return np.where(valid, out["up"].to_numpy(), -1), np.where(valid, out["down"].to_numpy(), -1)
 
 
-def _st_known_share(strategy: Strategy, panel: Panel, section: Section) -> float:
+def _st_known_share(fields: set[str], panel: Panel, section: Section) -> float:
     """The share of universe cells on decision rows whose ST state is known; 1.0 unless an expression reads ST."""
     cells = section.steps["universe"] == 1
-    if not _reads_st(expressions(strategy).values()) or not cells.any():
+    if not fields & {"st", "st_known"} or not cells.any():
         return 1.0
     return float(panel.st_known[section.rows][cells].mean())
 
 
-def _reads_st(roots: Iterable[Expr]) -> bool:
-    """Some expression among roots reads the field st or st_known."""
-    stack = list(roots)
+def _fields(roots: Iterable[Expr]) -> set[str]:
+    """The names of the fields the expressions among roots read."""
+    found, stack = set(), list(roots)
     while stack:
         node = stack.pop()
-        if isinstance(node, Field) and node.name in ("st", "st_known"):
-            return True
+        if isinstance(node, Field):
+            found.add(node.name)
         stack.extend(a for a in getattr(node, "args", ()) if isinstance(a, Expr))
-    return False
+    return found
 
 
 def _columns(panel: Panel, codes: pl.Series) -> np.ndarray:

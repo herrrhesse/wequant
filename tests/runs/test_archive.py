@@ -19,7 +19,7 @@ from wequant.analytics import Metric, metrics_json
 from wequant.data.files import atomic_write
 from wequant.runs import FILES, INDEX, PROVENANCE, SAME, Archive, RunConflict, json_differences
 
-ID = "019ec00a79bf60a2"
+ID = "06495349834344d8"
 NEW_YEAR = "2026-01-01T00:00:00+00:00"
 FOUND = {
     "daily.parquet": "equity row 2: 100194.9 → 100287.25; cash row 2: 89994.9 → 95187.25; sold row 2: 0.0 → 5200.0",

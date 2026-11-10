@@ -15,7 +15,7 @@ from wequant.account import Ledger
 from wequant.analytics import Metric, MetricSpec
 from wequant.canonical import canonical
 
-FORMAT = 1  # bump when the run id, a Run field or an archived file changes meaning
+FORMAT = 2  # bump when the run id, a Run field or an archived file changes meaning
 _CODE = re.compile(r"[a-z][a-z0-9_]*")
 
 

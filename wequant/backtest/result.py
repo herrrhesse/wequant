@@ -14,7 +14,7 @@ from wequant.backtest.warnings import run_warnings
 from wequant.expr import EXPR_VERSION, panel_key
 from wequant.panel import Panel
 from wequant.runs.run import Run
-from wequant.strategy import STRATEGY_VERSION, Section, detail_frame, funnel_frame, picks_frame
+from wequant.strategy import STRATEGY_VERSION, Choice, Section, SpecError, detail_frame, funnel_frame, picks_frame
 
 
 def versions(engine: str, version: int) -> dict[str, int]:
@@ -29,12 +29,12 @@ def versions(engine: str, version: int) -> dict[str, int]:
 
 
 def benchmark_closes(backtest: Backtest, panel: Panel, base: int, last: int) -> np.ndarray | None:
-    """(last - base + 1,) index closes of the run days, or None without a benchmark; ValueError when it has none."""
+    """(last - base + 1,) index closes of the run days, or None without a benchmark; SpecError when it has none."""
     if backtest.benchmark is None:
         return None
     closes = panel.index_close(backtest.benchmark)[base : last + 1]
     if np.isnan(closes).all():
-        raise ValueError(f"benchmark: {backtest.benchmark} has no close on any run day")
+        raise SpecError("no_data", ("benchmark",), f"{backtest.benchmark} has no close on any run day")
     return closes
 
 
@@ -43,11 +43,13 @@ def assemble(
     panel: Panel,
     ledger: Ledger,
     section: Section,
+    choice: Choice,
     closes: np.ndarray | None,
     engine: str,
     version: int,
 ) -> Run:
-    """The Run of a closed account; engine and version name the engine in versions."""
+    """The Run of a closed account and the stacked choices of its decision rows; engine and version name the engine in
+    versions."""
     if closes is not None:
         ledger = replace(ledger, daily=ledger.daily.with_columns(pl.Series("benchmark", closes).fill_nan(None)))
     calendar = pl.Series("date", panel.dates)
@@ -62,8 +64,8 @@ def assemble(
         ledger,
         metrics,
         spec,
-        picks_frame(section, panel),
-        funnel_frame(strategy, section, panel),
-        detail_frame(strategy, section, panel),
-        run_warnings(strategy, panel, section, ledger),
+        picks_frame(section, choice, panel),
+        funnel_frame(strategy, section, choice, panel),
+        detail_frame(strategy, section, choice, panel),
+        run_warnings(strategy, panel, section, choice, ledger),
     )

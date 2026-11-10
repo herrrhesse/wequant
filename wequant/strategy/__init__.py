@@ -1,24 +1,33 @@
-"""Strategy descriptions and their cross-section on a day: universe, filters, ranked factors, top N and weights."""
+"""Strategy descriptions and their decisions: the pool, filters and ranked factors on a day, then the targets, weights
+and stand-ins given the holdings."""
 
+from wequant.strategy.choose import Choice, choose, stack
+from wequant.strategy.compile import CROSS_SECTIONAL, Comparison, comparison, expressions, pool_expr, pool_items, wrap
+from wequant.strategy.errors import SpecError, SpecErrors
 from wequant.strategy.form import parse_form, to_form
-from wequant.strategy.schedule import decision_rows
-from wequant.strategy.section import Section, cross_section, verdicts
-from wequant.strategy.select import (
+from wequant.strategy.frames import (
+    ACTIONS,
     FUNNEL,
     PICKS,
-    Screen,
-    check_anchor,
+    REJECTS,
+    SELL_KINDS,
+    Level,
     detail_frame,
-    expressions,
+    first_failure,
     funnel_frame,
+    levels,
     picks_frame,
-    screen,
-    select,
+    rejects_frame,
     stocks_frame,
 )
+from wequant.strategy.schedule import decision_rows
+from wequant.strategy.section import Section, cross_section, verdicts
+from wequant.strategy.select import Screen, check_anchor, screen, select
 from wequant.strategy.strategy import (
     MODES,
     PERIODS,
+    POOL_BOARDS,
+    POOL_ITEMS,
     PREFERS,
     RESERVED,
     SH_SZ,
@@ -27,38 +36,60 @@ from wequant.strategy.strategy import (
     Condition,
     Factor,
     Group,
+    Pool,
     Step,
     Strategy,
 )
 
 __all__ = [
+    "ACTIONS",
+    "CROSS_SECTIONAL",
     "FUNNEL",
     "MODES",
     "PERIODS",
     "PICKS",
+    "POOL_BOARDS",
+    "POOL_ITEMS",
     "PREFERS",
+    "REJECTS",
     "RESERVED",
+    "SELL_KINDS",
     "SH_SZ",
     "STRATEGY_VERSION",
     "WEIGHTINGS",
+    "Choice",
+    "Comparison",
     "Condition",
     "Factor",
     "Group",
+    "Level",
+    "Pool",
     "Screen",
     "Section",
+    "SpecError",
+    "SpecErrors",
     "Step",
     "Strategy",
     "check_anchor",
+    "choose",
+    "comparison",
     "cross_section",
     "decision_rows",
     "detail_frame",
     "expressions",
+    "first_failure",
     "funnel_frame",
+    "levels",
     "parse_form",
     "picks_frame",
+    "pool_expr",
+    "pool_items",
+    "rejects_frame",
     "screen",
     "select",
+    "stack",
     "stocks_frame",
     "to_form",
     "verdicts",
+    "wrap",
 ]

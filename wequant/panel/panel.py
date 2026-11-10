@@ -8,9 +8,10 @@ from functools import cached_property
 from pathlib import Path
 
 import numpy as np
+import polars as pl
 
 from wequant.data.store import Store
-from wequant.panel.build import PRICE_FIELDS, PRICE_SCALE, RAW_FIELDS, limits
+from wequant.panel.build import PRICE_FIELDS, PRICE_SCALE, RAW_FIELDS, limits, members
 from wequant.panel.cache import PanelCache
 from wequant.panel.grid import day_rows, find_sorted
 from wequant.panel.status import MISSING, NO_ROW, NOT_LISTED, SUSPENDED, TRADED
@@ -123,6 +124,32 @@ class Panel:
     def st_known(self) -> np.ndarray:
         """daily_status has a row for the cell."""
         return _frozen(self._grid("st") != NO_ROW)
+
+    @cached_property
+    def list_days(self) -> np.ndarray:
+        """(T, N) int16 trading days since each code's first_date, that day counted as 1; 0 before it.
+
+        first_date is the first day the source has data, not the official listing date: a lower bound for codes listed
+        before the calendar starts.
+        """
+        return self._grid("list_days")
+
+    @property
+    def calendar_offset(self) -> int:
+        """Rows of the store's calendar before the panel's first day."""
+        return self._rows.start
+
+    def member(self, index: str) -> np.ndarray:
+        """(T, N) int8 membership of an index_members index: 1 a member, 0 not, -1 outside the index's stored span."""
+        name = f"member-{index}"
+        if name not in self._memo:
+            self._memo[name] = self._slice(self._src.array(name, members(index)))
+        return self._memo[name]
+
+    def index_span(self, index: str) -> tuple[dt.date, dt.date] | None:
+        """First start_date and last end_date of an index_members index, or None when the store has no member of it."""
+        spans = self._src.scan("index_members").filter(pl.col("index_code") == index).collect()
+        return None if spans.is_empty() else (spans["start_date"].min(), spans["end_date"].max())
 
     def on_bars(self, mask: np.ndarray) -> np.ndarray:
         """mask as an ops condition: float64 1.0/0.0 on traded cells, NaN elsewhere."""

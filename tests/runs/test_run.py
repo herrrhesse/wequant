@@ -71,7 +71,7 @@ def test_inputs_and_id():
         "panel_key": "fake-fake-r1-2024-01-02-2024-01-04-56dab30ebda9",
         "versions": {"hold": 1},
     }
-    assert run.id == run_id(run.inputs) == "3d2e5a581dce8804"
+    assert run.id == run_id(run.inputs) == "c43c01570b643d1f"
     assert run.store_version == 1 and run.code_version == run.ledger.meta["code_version"]
     assert golden_run(description={"shares": 1000, "code": "600000.SH"}).id == run.id
 

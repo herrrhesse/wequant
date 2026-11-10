@@ -95,6 +95,40 @@ def limits(src: PanelCache) -> np.ndarray:
     return grid
 
 
+def list_days(src: PanelCache) -> np.ndarray:
+    """int16 trading days from each code's first_date, that day counted as 1, suspended days included; 0 before it."""
+    dates = src.array("dates")
+    first = asof_rows(
+        dates, src.scan("securities").sort("code").select("first_date").collect()["first_date"].to_numpy()
+    )
+    rows = np.arange(len(dates), dtype=np.int32)[:, None]
+    return np.maximum(rows - first.astype(np.int32) + 1, 0).astype(np.int16)
+
+
+def members(index: str) -> Callable[[PanelCache], np.ndarray]:
+    """Builder of an index_members index on the full grid: int8 1 from a member's start_date to its end_date, both
+    included, 0 on other days of the index's stored span, -1 outside it."""
+
+    def build(src: PanelCache) -> np.ndarray:
+        dates, codes = src.array("dates"), src.array("codes")
+        spans = src.scan("index_members").filter(pl.col("index_code") == index).collect()
+        grid = np.full((len(dates), len(codes)), -1, dtype=np.int8)
+        if spans.is_empty():
+            return grid
+        first = asof_rows(dates, spans["start_date"].to_numpy())
+        last = np.searchsorted(dates, spans["end_date"].to_numpy(), "right")
+        span = slice(first.min(), last.max())
+        known = spans["code"].is_in(codes.tolist()).to_numpy()
+        change = np.zeros((len(dates) + 1, len(codes)), dtype=np.int16)
+        cols = code_columns(spans["code"].filter(known), codes)
+        np.add.at(change, (first[known], cols), 1)
+        np.add.at(change, (last[known], cols), -1)
+        grid[span] = np.cumsum(change[:-1], axis=0, dtype=np.int16)[span] > 0
+        return grid
+
+    return build
+
+
 def _bound(price: pl.Series, state: np.ndarray, free: float) -> np.ndarray:
     limited = price.cast(pl.Float64).to_numpy() / PRICE_SCALE
     return np.select([state == LIMITED, state == FREE], [limited, free], np.nan)
@@ -125,4 +159,5 @@ BUILDERS: dict[str, Callable[[PanelCache], np.ndarray]] = {
     "factor": factor,
     "status": status,
     "st": st,
+    "list_days": list_days,
 }

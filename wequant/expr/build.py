@@ -18,7 +18,7 @@ def _builder(name: str) -> Callable[..., Op]:
         try:
             bound = signature.bind(*args, **kwargs)
         except TypeError as error:
-            raise ExprError(f"{name}: {error}") from None
+            raise ExprError("bad_arity", f"{name}: {error}") from None
         bound.apply_defaults()
         return Op(name, *bound.args)
 

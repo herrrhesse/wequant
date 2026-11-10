@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
 EXPR_VERSION = 1  # bump when an operator, a field or the canonical form changes meaning
 NUM, BOOL, SAME = "num", "bool", "same"
+INDEXES = ("000300.SH", "000905.SH", "000906.SH", "000852.SH", "000985.SH")  # the codes member@ takes
+STORED_AS = {"000300.SH": "399300.SZ"}  # the code an index's rows carry in index_members, where it differs
 
 
 class FieldSpec(NamedTuple):
@@ -61,14 +63,30 @@ def _member(attribute: str, params: tuple[str, ...]) -> Family:
     return Family(BOOL, params, lambda p, v: p.on_bars(np.broadcast_to(getattr(p, attribute) == v, p.traded.shape)))
 
 
+def _in_index(panel: Panel, index: str) -> np.ndarray:
+    """1.0 on the bars of the index's members that day, 0.0 on other bars, NaN outside its stored span."""
+    member = panel.member(STORED_AS.get(index, index))
+    return np.where(panel.traded & (member >= 0), member == 1, np.nan)
+
+
+def _list_days(panel: Panel) -> np.ndarray:
+    """Trading days listed on each bar, from securities.first_date; NaN without a bar or before it."""
+    return np.where(panel.traded & (panel.list_days > 0), panel.list_days, np.nan)
+
+
 FIELDS: dict[str, FieldSpec] = {
     **{name: _raw(name) for name in ("open", "high", "low", "close", "preclose", "volume", "amount")},
     **{f"adj_{name}": _adjusted(name) for name in ("open", "high", "low", "close", "preclose")},
     "factor": FieldSpec(NUM, lambda p: np.where(p.traded, p.factor, np.nan)),
     **{name: _limit(name) for name in ("limit_up_price", "limit_down_price")},
     **{name: _mask(name) for name in ("limit_up", "limit_down", "limit_locked", "limit_known", "st", "st_known")},
+    "list_days": FieldSpec(NUM, _list_days),
 }
-FAMILIES: dict[str, Family] = {"board": _member("boards", BOARDS), "exchange": _member("exchanges", EXCHANGES)}
+FAMILIES: dict[str, Family] = {
+    "board": _member("boards", BOARDS),
+    "exchange": _member("exchanges", EXCHANGES),
+    "member": Family(BOOL, INDEXES, _in_index),
+}
 DESCRIPTIVE: tuple[str, ...] = ("status", "listed", "suspended", "missing")
 FUTURE: frozenset[str] = frozenset(
     "BACKSET BARSNEXT CONST CURRBARSCOUNT DRAWLINE FILTERX ISLASTBAR PEAK PEAKBARS REFX REFXV TOTALBARSCOUNT TROUGH "

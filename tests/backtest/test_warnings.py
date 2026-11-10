@@ -1,23 +1,26 @@
 """Run warnings: ST-band fills, the ST state known, stale holdings, unchecked limits, and their fixed order."""
 
 import datetime as dt
+from dataclasses import replace
 
 import polars as pl
 import pytest
 
-from tests.backtest.market import A, build_store, business_days
+from tests.backtest.market import WEEK, A, B, build_store, business_days
+from tests.frames import table_frame
 from wequant.account import Execution
 from wequant.backtest import WARNINGS, Backtest, run
 from wequant.backtest import warnings as warnings_module
 from wequant.backtest.warnings import st_band_fills
 from wequant.expr import Field
 from wequant.panel import load_panel
-from wequant.strategy import Condition, Factor, Strategy
+from wequant.strategy import Condition, Factor, Pool, Strategy
 
 EX0 = Execution(slippage_bps=0.0)
 CHINEXT = "300001.SZ"
 ONE = Strategy(factors=(Factor("one", Field("close")),), top_n=1, period="day", every=1000)
 NOT_ST = Strategy(filters=(Condition("not_st", ~Field("st")),))
+JAN4, JAN5 = dt.date(2024, 1, 4), dt.date(2024, 1, 5)
 
 
 def panel_of(home, days, bars, **market):
@@ -90,3 +93,47 @@ def test_warnings_keep_the_order_of_warnings(tmp_path):
     )
     assert list(result.warnings) == ["limits_unchecked", "st_unknown", "no_picks"]
     assert list(result.warnings) == [code for code in WARNINGS if code in result.warnings]
+
+
+def test_index_uncovered_counts_the_decision_days_outside_each_index_span(tmp_path):
+    store = build_store(tmp_path / "home", WEEK, {A: [(10.0, 10.0)] * 5, B: [(20.0, 20.0)] * 5})
+    members = [{"index_code": "000905.SH", "code": code, "start_date": WEEK[2], "end_date": WEEK[4]} for code in (A, B)]
+    store.commit({"source": "test"}, replace={"index_members": table_frame("index_members", members)})
+    panel = load_panel(store=store, cache_dir=tmp_path / "cache")
+    csi500 = Strategy(pool=Pool(index="000905.SH"), period="day")
+    result = run(Backtest(csi500, execution=EX0, benchmark=None), panel)
+    assert result.picks.filter(pl.col("role") == "target")["date"].unique().sort().to_list() == [JAN4, JAN5]
+    assert (
+        result.warnings["index_uncovered"]
+        == "member@000905.SH: 2 decision days outside its index_members span from 2024-01-04"
+    )
+    both = replace(csi500, universe=~Field("exchange@BJ") & Field("member@000852.SH"))
+    assert run(Backtest(both, execution=EX0, benchmark=None), panel).warnings["index_uncovered"] == (
+        "member@000852.SH: 4 decision days outside its index_members span, which is empty; "
+        "member@000905.SH: 2 decision days outside its index_members span from 2024-01-04"
+    )
+    assert (
+        "index_uncovered"
+        not in run(Backtest(replace(csi500, pool=Pool()), execution=EX0, benchmark=None), panel).warnings
+    )
+
+
+def test_list_days_approximate_counts_the_codes_starting_with_the_calendar_and_their_cells_left_out(tmp_path):
+    store = build_store(tmp_path / "home", WEEK, {A: [(10.0, 10.0)] * 5, B: [(20.0, 20.0)] * 5})
+    seasoned = Strategy(pool=Pool(min_list_days=3), period="day")
+    result = run(Backtest(seasoned, execution=EX0, benchmark=None), load_panel(store=store, cache_dir=tmp_path / "a"))
+    text = (
+        "list_days counts trading days from securities.first_date, the first day of the source's data, not the listing "
+        "date: a lower bound for the 2 codes whose data starts with the calendar, which min_list_days left out of {} "
+        "decision-day cells"
+    )
+    assert result.warnings["list_days_approximate"] == text.format(4)
+    later = replace(seasoned, anchor=dt.date(2024, 1, 3))
+    panel = load_panel(WEEK[1], store=store, cache_dir=tmp_path / "b")
+    assert run(Backtest(later, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"] == text.format(
+        2
+    )
+    seasoned_expr = Strategy(filters=(Condition("seasoned", Field("list_days") > 1),), period="day")
+    assert run(Backtest(seasoned_expr, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"] == (
+        text.format(0)
+    )

@@ -16,17 +16,26 @@ if TYPE_CHECKING:
     from wequant.panel import Panel
 
 
-def evaluate(expr: Expr, panel: Panel, cache: Cache | None = None) -> np.ndarray:
+def evaluate(
+    expr: Expr, panel: Panel, cache: Cache | None = None, seed: Mapping[str, np.ndarray] | None = None
+) -> np.ndarray:
     """expr on panel: a read-only (T, N) float64 grid aligned to panel.dates × panel.codes."""
-    return evaluate_all({"": expr}, panel, cache)[""]
+    return evaluate_all({"": expr}, panel, cache, seed)[""]
 
 
-def evaluate_all(exprs: Mapping[str, Expr], panel: Panel, cache: Cache | None = None) -> dict[str, np.ndarray]:
-    """Each named expression as by evaluate; a subexpression used more than once among them is computed once."""
+def evaluate_all(
+    exprs: Mapping[str, Expr],
+    panel: Panel,
+    cache: Cache | None = None,
+    seed: Mapping[str, np.ndarray] | None = None,
+) -> dict[str, np.ndarray]:
+    """Each named expression as by evaluate; a subexpression used more than once among them is computed once, and one
+    whose key seed holds is that grid, never computed: seed maps keys to grids of this panel."""
     ident, roots = panel_key(panel), {e.key: e for e in exprs.values()}
-    memo: dict[str, np.ndarray] = {}
+    memo: dict[str, np.ndarray] = dict(seed or {})
     if cache is not None:
-        memo = {key: grid for key in roots if (grid := cache.get(f"{ident} {key}")) is not None}
+        stored = {key: cache.get(f"{ident} {key}") for key in roots if key not in memo}
+        memo |= {key: grid for key, grid in stored.items() if grid is not None}
     todo = [e for key, e in roots.items() if key not in memo]
     keep = _repeated(todo) | {e.key for e in todo}
     for root in todo:

@@ -12,11 +12,15 @@ from tests.backtest.market import build_store
 from wequant.expr import REF, Cache, Field, evaluate
 from wequant.panel import load_panel
 from wequant.strategy import (
+    ACTIONS,
     FUNNEL,
     PICKS,
+    SELL_KINDS,
     Condition,
     Factor,
     Group,
+    Pool,
+    SpecError,
     Strategy,
     check_anchor,
     cross_section,
@@ -52,7 +56,7 @@ def test_select_is_cross_section_of_the_evaluated_rows(panel):
     got = select(STRATEGY, panel, rows)
     grids = {name: evaluate(expr, panel)[rows] for name, expr in expressions(STRATEGY).items()}
     grids |= {name: verdicts(grids[name]) for name in ("universe", "cheap", "up", "big")}
-    want = cross_section(STRATEGY, grids, panel.traded[rows], rows)
+    want = cross_section(STRATEGY, grids, rows, panel.listed[rows], panel.traded[rows])
     for name, value in want._asdict().items():
         if isinstance(value, dict):
             assert value.keys() == got._asdict()[name].keys()
@@ -66,7 +70,7 @@ def test_select_is_cross_section_of_the_evaluated_rows(panel):
 def test_on_root_follows_expressions_and_a_cache_serves_the_second_select(panel):
     names, cache = [], Cache()
     select(STRATEGY, panel, [3, 8], cache, on_root=names.append)
-    assert names == list(expressions(STRATEGY)) == ["universe", "cheap", "up", "big", "mom", "level", "formula"]
+    assert names == list(expressions(STRATEGY)) == ["universe", "pool", "cheap", "up", "big", "mom", "level", "formula"]
     assert (cache.hits, cache.misses) == (0, 7)
     select(STRATEGY, panel, [3, 8], cache)
     assert cache.hits == 7
@@ -76,7 +80,7 @@ def test_screen_defaults_to_the_last_day_and_keeps_the_schemas(panel):
     day = panel.dates[-1].item()
     got = screen(STRATEGY, panel)
     assert got.picks.schema == pl.Schema(PICKS) and got.funnel.schema == pl.Schema(FUNNEL)
-    assert set(got.funnel["date"]) == {day} and got.funnel["step"].to_list()[0] == "universe"
+    assert set(got.funnel["date"]) == {day} and got.funnel["step"].to_list()[:3] == ["listed", "bar", "universe"]
     assert got.detail.equals(screen(STRATEGY, panel, day).detail)
     assert screen(STRATEGY, panel, golden.DAYS[3]).funnel["date"][0] == dt.date(2024, 3, 6)
 
@@ -86,8 +90,9 @@ def test_detail_keeps_its_schema_on_a_day_with_an_empty_universe(panel):
     detail = screen(nobody, panel).detail
     assert detail.is_empty() and detail.schema == pl.Schema(
         {"date": pl.Date, "code": pl.String}
-        | dict.fromkeys(("cheap", "up", "big", "g", "scored"), pl.Boolean)
-        | {"rank": pl.Int64}
+        | dict.fromkeys(("universe", "cheap", "up", "big", "g", "scored"), pl.Boolean)
+        | {"rank": pl.Int64, "held": pl.Boolean, "action": pl.Enum(ACTIONS), "sell_kind": pl.Enum(SELL_KINDS)}
+        | {"sell_step": pl.String, "sell_rank": pl.Int64, "sell_limit": pl.Int64}
     )
     assert screen(nobody, panel).picks.is_empty() and screen(nobody, panel).picks.schema == pl.Schema(PICKS)
 
@@ -99,12 +104,14 @@ def test_stocks_frame_holds_every_code_in_column_order(panel):
         "rank",
         "role",
         "weight",
+        "raw_weight",
+        "capped",
     ]
     assert stocks["code"].to_list() == panel.codes.tolist()
     star = stocks.row(by_predicate=pl.col("code") == golden.C, named=True)
     assert star["universe"] is None and star["cheap"] is None and star["g"] is False
     assert star["scored"] is False and star["rank"] is None and star["score"] is None and star["mom"] is None
-    assert star["role"] is None and star["weight"] is None
+    assert star["role"] is None and star["weight"] is None and star["raw_weight"] is None and star["capped"] is False
     assert stocks.schema["rank"] == pl.Int64 and stocks.schema["role"] == pl.String
 
 
@@ -120,8 +127,9 @@ def test_screen_reports_targets_and_backups(panel):
 
 def test_check_anchor(panel):
     check_anchor(replace(STRATEGY, anchor=dt.date(2024, 3, 1)), panel)
-    with pytest.raises(ValueError, match="^anchor: "):
+    with pytest.raises(SpecError, match="^anchor: ") as raised:
         check_anchor(replace(STRATEGY, anchor=dt.date(2024, 3, 4)), panel)
+    assert (raised.value.code, raised.value.loc) == ("not_a_trading_day", ("anchor",))
     with pytest.raises(ValueError, match="^anchor: "):
         screen(replace(STRATEGY, anchor=dt.date(2024, 3, 4)), panel)
 
@@ -132,6 +140,12 @@ def test_a_universe_admitting_a_beijing_code_raises(tmp_path):
     store = build_store(tmp_path / "home", days, bars, boards={"830799.BJ": "bse"})
     panel = load_panel(store=store, cache_dir=tmp_path / "cache")
     factors = (Factor("c", CLOSE),)
-    with pytest.raises(ValueError, match="^universe admits 830799.BJ on 2024-01-02"):
+    with pytest.raises(SpecError, match="^universe: admits 830799.BJ on 2024-01-02") as raised:
         select(Strategy(universe=CLOSE > 0.0, factors=factors, top_n=1), panel, [0, 1])
-    assert select(Strategy(factors=factors, top_n=1), panel, [0, 1]).weight.tolist() == [[1, 0], [1, 0]]
+    assert (raised.value.code, raised.value.loc) == ("admits_beijing", ("universe",))
+    with pytest.raises(SpecError, match="^pool: admits 830799.BJ on 2024-01-03"):
+        select(Strategy(universe=CLOSE > 0.0, factors=factors, top_n=1, pool=Pool(min_list_days=2)), panel, [1])
+    assert select(Strategy(factors=factors, top_n=1), panel, [0, 1]).scored.tolist() == [[True, False]] * 2
+    assert select(Strategy(universe=CLOSE > 0.0, pool=Pool(boards=("main",))), panel, [1]).scored.tolist() == [
+        [True, False]
+    ]
