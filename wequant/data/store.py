@@ -54,7 +54,7 @@ else:
 
 
 class StoreLocked(RuntimeError):
-    """Another writer holds the store's lock."""
+    """Another writer holds a lock file of the data root: the store's or a strategy's."""
 
     def __init__(self, path: Path, holder: dict | None):
         super().__init__(f"{path} is held by {holder or 'an unknown writer'}")
@@ -175,23 +175,12 @@ class Store:
                 self._lock_depth -= 1
             return
         self.home.mkdir(parents=True, exist_ok=True)
-        path = self.home / ".lock"
-        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-        try:
-            _acquire(fd, path, timeout)
-        except BaseException:
-            os.close(fd)
-            raise
-        try:
-            holder = {"pid": os.getpid(), "host": socket.gethostname(), "started": _now()}
-            _write_fd(fd, json.dumps(holder))
+        with exclusive(self.home / ".lock", timeout):
             self._lock_depth = 1
-            yield
-        finally:
-            self._lock_depth = 0
-            _write_fd(fd, "")
-            _unlock(fd)
-            os.close(fd)
+            try:
+                yield
+            finally:
+                self._lock_depth = 0
 
     def commit(
         self,
@@ -312,6 +301,24 @@ class Store:
 
     def _manifest_path(self, version: int) -> Path:
         return self.home / "manifests" / f"manifest.v{version}.json"
+
+
+@contextmanager
+def exclusive(path: Path, timeout: float = 0) -> Iterator[None]:
+    """Hold the lock file at path, which names the holder; StoreLocked if it is not free within timeout seconds."""
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        _acquire(fd, path, timeout)
+    except BaseException:
+        os.close(fd)
+        raise
+    try:
+        _write_fd(fd, json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "started": _now()}))
+        yield
+    finally:
+        _write_fd(fd, "")
+        _unlock(fd)
+        os.close(fd)
 
 
 def _acquire(fd: int, path: Path, timeout: float) -> None:

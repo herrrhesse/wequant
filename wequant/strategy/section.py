@@ -87,8 +87,18 @@ def _scored(candidates: np.ndarray, factors: Iterable[np.ndarray], formula: np.n
     return scored if formula is None else scored & np.isfinite(formula) & (formula > 0)
 
 
+def weight_shares(strategy: Strategy) -> dict[str, float]:
+    """Each enabled factor's weight / the enabled factors' total weight, in factor order: its share of the score."""
+    enabled = [f for f in strategy.factors if f.enabled]
+    total = sum(f.weight for f in enabled)
+    return {f.name: f.weight / total for f in enabled}
+
+
 def _score(strategy: Strategy, factors: dict[str, np.ndarray], scored: np.ndarray) -> np.ndarray:
-    """The weighted mean of the factors' percentiles among the scored stocks; 1.0 for each without a factor."""
+    """The weighted mean of the factors' percentiles among the scored stocks; 1.0 for each without a factor.
+
+    Equal to the percentiles summed by weight_shares up to rounding; dividing once keeps archived scores bit-identical.
+    """
     enabled = [f for f in strategy.factors if f.enabled]
     if not enabled:
         return np.where(scored, 1.0, np.nan)

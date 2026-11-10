@@ -7,9 +7,11 @@ the JSON types, the choices and single-field ranges, strictly, so no value is ev
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from typing import Annotated, Literal
 
-from pydantic import BeforeValidator, ConfigDict, Field, JsonValue
+from pydantic import BeforeValidator, ConfigDict, Field, JsonValue, WrapValidator
+from pydantic_core import PydanticCustomError
 
 from wequant.account.execution import DELISTING, PRICES
 from wequant.backtest.data import ANOMALY_MODES
@@ -19,15 +21,25 @@ from wequant.strategy.strategy import MODES, PERIODS, POOL_BOARDS, PREFERS, WEIG
 
 
 def _iso_date(value: object) -> object:
-    if isinstance(value, str) and len(value) == 10:
-        return dt.date.fromisoformat(value)
     if isinstance(value, dt.datetime):
-        raise ValueError("a date, not a date and time")
-    return value
+        raise PydanticCustomError("wrong_type", "a date, not a date and time")
+    if not isinstance(value, str):
+        return value
+    try:
+        return dt.date.fromisoformat(value) if len(value) == 10 else value
+    except ValueError:
+        raise PydanticCustomError("wrong_type", "{value} is not a date YYYY-MM-DD", {"value": value}) from None
+
+
+def _expr_form(value: object, handler: Callable) -> object:
+    """A field name or a list; anything else is one not_a_form, not one error per union branch."""
+    if not isinstance(value, str | list):
+        raise PydanticCustomError("not_a_form", "an expression is a field name or [operator, arguments...]")
+    return handler(value)
 
 
 IsoDate = Annotated[dt.date, BeforeValidator(_iso_date)]  # a date object or "YYYY-MM-DD", never a timestamp
-ExprForm = str | list[JsonValue]  # a canonical expression form: a field name or [operator, arguments...]
+ExprForm = Annotated[str | list[JsonValue], WrapValidator(_expr_form)]  # a field name or [operator, arguments...]
 Name = Annotated[str, Field(min_length=1)]
 
 
@@ -79,6 +91,18 @@ class PoolSpec(Spec):
     """Leave out stocks listed for fewer trading days; null: no limit."""
 
 
+def _filter(value: object, handler: Callable) -> object:
+    """A group when it has conditions, else a condition: the errors of that one model, not of both."""
+    if isinstance(value, dict):
+        return (GroupSpec if "conditions" in value else ConditionSpec).model_validate(value)
+    if isinstance(value, ConditionSpec | GroupSpec):
+        return handler(value)
+    raise PydanticCustomError("wrong_type", "a filter is an object: a condition, or a group with conditions")
+
+
+Filter = Annotated[ConditionSpec | GroupSpec, WrapValidator(_filter)]
+
+
 class StrategySpec(Spec):
     """What a rebalance strategy holds and when; defaults are left out of its canonical form.
 
@@ -88,7 +112,7 @@ class StrategySpec(Spec):
 
     universe: ExprForm = ["NOT", "exchange@BJ"]
     """A condition expression: the scope, before the pool items."""
-    filters: list[ConditionSpec | GroupSpec] = []
+    filters: list[Filter] = []
     factors: list[FactorSpec] = []
     top_n: int | None = Field(None, ge=1)
     """Number of targets; null: every scored stock."""

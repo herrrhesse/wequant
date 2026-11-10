@@ -6,6 +6,7 @@ import datetime as dt
 from typing import Literal
 
 from pydantic import model_validator
+from pydantic_core import PydanticCustomError
 
 from wequant.service.base import Code, Model
 from wequant.service.outputs import Action, AnomalyUse, Op, OrderRow, Role, SellReason, Warning
@@ -31,7 +32,7 @@ class ExplainRequest(Model):
     @model_validator(mode="after")
     def _exactly_one(self) -> ExplainRequest:
         if sum(x is not None for x in (self.strategy, self.saved, self.run)) != 1:
-            raise ValueError("give exactly one of strategy, saved and run")
+            raise PydanticCustomError("requires", "give exactly one of strategy, saved and run")
         return self
 
 

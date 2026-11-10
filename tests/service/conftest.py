@@ -5,6 +5,7 @@ from tests.test_rules_tables import META, tables_v1
 from wequant.cli import main
 from wequant.data.store import Store
 from wequant.service import Context
+from wequant.strategy import Strategy
 
 
 @pytest.fixture(autouse=True)
@@ -56,3 +57,16 @@ def cli(capsys):
         return exited.value.code, out, err
 
     return run
+
+
+MOM = {"factors": [{"name": "mom", "expr": ["DIV", "close", ["REF", "close", 5]]}], "top_n": 2}
+
+
+@pytest.fixture
+def library_home(tmp_path):
+    """A data root whose strategy s has versions 1 (MOM) and 2 (MOM with top_n 3)."""
+    home = tmp_path / "library"
+    library = Context(home).library()
+    library.save(Strategy.from_form(MOM), "s", note="first")
+    library.save(Strategy.from_form({**MOM, "top_n": 3}), "s")
+    return home
