@@ -87,9 +87,14 @@ def identical(a, b) -> bool:
 def accessor(panel, name: str) -> np.ndarray:
     """The panel array behind a field name, read without wequant.expr."""
     family, _, param = name.partition("@")
+    if family == "member":
+        member = panel.member({"000300.SH": "399300.SZ"}.get(param, param))
+        return np.where(panel.traded & (member >= 0), member == 1, np.nan)
     if param:
         values = panel.boards if family == "board" else panel.exchanges
         return panel.on_bars(np.broadcast_to(values == param, panel.traded.shape))
+    if name == "list_days":
+        return np.where(panel.traded & (panel.list_days > 0), panel.list_days, np.nan)
     if name.startswith("adj_"):
         return panel.adjusted(name[4:])
     if name == "factor":

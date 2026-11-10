@@ -65,5 +65,5 @@ def test_classify_applies_the_first_matching_rule():
 
 
 def test_builders_cover_the_contract_keys():
-    keys = "dates codes boards exchanges open high low close preclose volume amount factor status st".split()
+    keys = "dates codes boards exchanges open high low close preclose volume amount factor status st list_days".split()
     assert list(build.BUILDERS) == keys

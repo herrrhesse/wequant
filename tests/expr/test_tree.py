@@ -95,6 +95,7 @@ FIELD_KINDS = {  # every field's kind
     "limit_up_price": NUM,
     "limit_down_price": NUM,
     **dict.fromkeys(["limit_up", "limit_down", "limit_locked", "limit_known", "st", "st_known"], BOOL),
+    "list_days": NUM,
 }
 COUNTS = [
     (name, i, int(role[1])) for name, (roles, _) in SIGNATURES.items() for i, role in enumerate(roles) if role[0] == "n"
@@ -117,10 +118,11 @@ def test_operators_are_the_ops_functions_with_their_roles():
 
 
 def test_fields_and_families_are_pinned():
-    assert {name: spec.kind for name, spec in FIELDS.items()} == FIELD_KINDS and len(FIELDS) == 21
+    assert {name: spec.kind for name, spec in FIELDS.items()} == FIELD_KINDS and len(FIELDS) == 22
     assert {name: (fam.params, fam.kind) for name, fam in FAMILIES.items()} == {
         "board": (BOARDS, BOOL),
         "exchange": (EXCHANGES, BOOL),
+        "member": (("000300.SH", "000905.SH", "000906.SH", "000852.SH", "000985.SH"), BOOL),
     }
     assert not any("@" in name for name in FIELDS)
     names = set(FIELDS) | set(OPERATORS)

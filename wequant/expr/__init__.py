@@ -50,7 +50,18 @@ from wequant.expr.build import (
 from wequant.expr.cache import Cache, panel_key
 from wequant.expr.evaluate import evaluate, evaluate_all
 from wequant.expr.tree import MAX_DEPTH, MAX_NODES, Expr, ExprError, Field, LookAheadError, Op, from_form
-from wequant.expr.vocab import BOOL, DESCRIPTIVE, EXPR_VERSION, FAMILIES, FIELDS, FUTURE, NUM, OPERATORS
+from wequant.expr.vocab import (
+    BOOL,
+    DESCRIPTIVE,
+    EXPR_VERSION,
+    FAMILIES,
+    FIELDS,
+    FUTURE,
+    INDEXES,
+    NUM,
+    OPERATORS,
+    STORED_AS,
+)
 
 __all__ = [
     "ABS",
@@ -116,6 +127,8 @@ __all__ = [
     "FAMILIES",
     "FIELDS",
     "FUTURE",
+    "INDEXES",
     "NUM",
     "OPERATORS",
+    "STORED_AS",
 ]
