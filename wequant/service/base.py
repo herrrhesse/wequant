@@ -98,5 +98,5 @@ def open_panel(request: PanelRequest, context: Context, history: bool = False) -
         return load_panel(
             start, request.end, request.codes, version=request.data_version, store=store, cache_dir=context.cache
         )
-    except LookupError as error:  # only these: a ValueError would be a bug, not missing data
+    except KeyError as error:  # load_panel's missing data; any other error is a bug, not missing data
         raise ServiceError(Exit.NOT_FOUND, error.args[0]) from None

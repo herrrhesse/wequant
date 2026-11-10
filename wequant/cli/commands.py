@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -97,14 +98,23 @@ def run(operation: Callable, request: BaseModel, common: Common) -> int:
         log.debug("%s %s", operation.__name__, request.model_dump_json())
         try:
             result = operation(request, Context(common.home, common.cache))
+            text = result.model_dump_json() if common.json else render(result)
         except ServiceError as error:
             log.error("%s", error)
             return error.exit
         except Exception:
             log.exception("internal error")
             return Exit.INTERNAL
-    print(result.model_dump_json() if common.json else render(result))
+    _print(text)
     return Exit.PROBLEMS if isinstance(result, Check) and not result.ok else Exit.OK
+
+
+def _print(text: str) -> None:
+    """text on stdout; a reader that closes the pipe early (| head) is not an error."""
+    try:
+        print(text, flush=True)
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())  # keeps the interpreter's last flush quiet
 
 
 @contextmanager

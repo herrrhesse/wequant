@@ -89,3 +89,9 @@ def test_no_such_version(context):
     with pytest.raises(ServiceError) as raised:
         data_issues(IssuesRequest(data_version=9), context)
     assert raised.value.exit == Exit.NOT_FOUND
+
+
+def test_a_pinned_version_reads_its_own_issues(limits_home):
+    data_check(CheckRequest(commit=True), Context(limits_home))
+    assert data_issues(IssuesRequest(kind="limit_breach"), Context(limits_home)).total == 1
+    assert data_issues(IssuesRequest(kind="limit_breach", data_version=1), Context(limits_home)).total == 0

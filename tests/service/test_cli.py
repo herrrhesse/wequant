@@ -3,6 +3,7 @@ from importlib.metadata import entry_points
 import pytest
 
 from wequant import service
+from wequant.cli import commands
 from wequant.service import Context
 from wequant.version import code_version
 
@@ -100,3 +101,13 @@ def test_cache_puts_panels_where_it_says(cli, home, tmp_path):
 def test_the_console_script():
     (script,) = entry_points(group="console_scripts", name="wequant")
     assert script.value == "wequant.cli:main"
+
+
+def test_a_reader_closing_the_pipe_early_is_not_an_error(monkeypatch, tmp_path):
+    def closed(*args, **kwargs):
+        raise BrokenPipeError
+
+    devnull = (tmp_path / "out").open("w")
+    monkeypatch.setattr("builtins.print", closed)
+    monkeypatch.setattr("sys.stdout", devnull)
+    commands._print("rows")  # no traceback, no exception

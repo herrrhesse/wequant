@@ -6,7 +6,7 @@ import pytest
 from wequant.data.store import Store
 from wequant.expr import evaluate, from_form
 from wequant.panel import load_panel
-from wequant.service import EvalRequest, Exit, ExprRequest, ServiceError, expr_check, expr_eval
+from wequant.service import Context, EvalRequest, Exit, ExprRequest, ServiceError, expr_check, expr_eval
 
 A, B, D = "600000.SH", "300001.SZ", "000001.SZ"
 GT = '["GT","close",["MA","close",2]]'
@@ -102,3 +102,13 @@ def test_errors(context, request_, exit, message):
     with pytest.raises(ServiceError, match=message) as raised:
         expr_eval(EvalRequest(**{"codes": [A], **request_}), context)
     assert raised.value.exit == exit
+
+
+def test_a_pinned_version_evaluates_its_own_data(home_v2, cache):
+    def close(**pin):
+        request = EvalRequest(form='"close"', codes=["600000.SH"], start="2024-01-03", end="2024-01-03", **pin)
+        result = expr_eval(request, Context(home_v2, cache))
+        return result.data_version, result.rows[0].values["value"]
+
+    assert close() == (2, 10.1)
+    assert close(data_version=1) == (1, 10.0)
