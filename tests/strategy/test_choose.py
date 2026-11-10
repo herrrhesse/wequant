@@ -44,7 +44,7 @@ def test_a_held_stock_stays_while_within_hold_rank_and_new_ones_fill_by_rank():
     got = choose(buffered, section(buffered, X), 0, held(3, 5))  # ranks 4 and 6
     assert got.target.tolist() == [True, False, False, True, False, False]  # rank 4 stays; rank 1 fills the slot
     assert got.backup.tolist() == [False, True, True, False, False, False]  # not held, not a target, by rank
-    assert not got.slots.any() and got.weight.tolist() == [0.5, 0, 0, 0.5, 0, 0]
+    assert not got.slots.any() and got.weight.tolist() == [0.5, 0.5]
 
 
 def test_held_stocks_beyond_top_n_within_hold_rank_are_left_out_for_slots():
@@ -72,45 +72,47 @@ def test_weights_follow_the_final_targets():
     by_score = Strategy(factors=BY_X.factors, top_n=2, weighting="score", hold_rank=5)
     got = choose(by_score, section(by_score, X), 0, held(4))  # rank 5 stays beside rank 1
     scores = section(by_score, X).score[0]
-    assert got.weight[[0, 4]] == pytest.approx(scores[[0, 4]] / scores[[0, 4]].sum())
+    assert got.target.tolist() == [True, False, False, False, True, False]
+    assert got.weight == pytest.approx(scores[[0, 4]] / scores[[0, 4]].sum())
     by_formula = Strategy(factors=BY_X.factors, top_n=3, weighting="formula", formula=CLOSE)
     raw = choose(by_formula, section(by_formula, X, [6, 3, 1, 9, 9, 9]), 0, held()).raw_weight
-    assert raw.tolist() == [0.6, 0.3, 0.1, 0, 0, 0]
+    assert raw.tolist() == [0.6, 0.3, 0.1]
 
 
 def test_the_excess_over_the_cap_goes_to_the_other_targets_in_proportion():
     capped = Strategy(factors=BY_X.factors, top_n=3, weighting="formula", formula=CLOSE, max_weight=0.4)
     got = choose(capped, section(capped, X, [6, 3, 1, 9, 9, 9]), 0, held())
     # A is cut to 0.4 and its 0.2 goes 3:1 to B and C (0.45, 0.15); B is cut to 0.4 and its 0.05 goes to C
-    assert got.raw_weight.tolist() == [0.6, 0.3, 0.1, 0, 0, 0]
-    assert got.weight[:3] == pytest.approx([0.4, 0.4, 0.2], abs=1e-15) and got.weight[3:].tolist() == [0, 0, 0]
+    assert got.raw_weight.tolist() == [0.6, 0.3, 0.1] and got.target.tolist() == [True] * 3 + [False] * 3
+    assert got.weight == pytest.approx([0.4, 0.4, 0.2], abs=1e-15)
     assert got.capped.tolist() == [True, True, False, False, False, False] and got.cash == 0.0
 
 
 def test_what_no_target_can_take_stays_in_cash():
     capped = Strategy(factors=BY_X.factors, top_n=2, weighting="score", max_weight=0.4)
     got = choose(capped, section(capped, X), 0, held())
-    assert got.weight.tolist() == [0.4, 0.4, 0, 0, 0, 0] and got.capped.tolist()[:2] == [True, True]
+    assert got.weight.tolist() == [0.4, 0.4] and got.capped.tolist()[:2] == [True, True]
     assert got.cash == pytest.approx(0.2, abs=1e-15) and got.raw_weight.sum() - got.weight.sum() == pytest.approx(0.2)
 
 
 def test_equal_weights_are_cut_only_below_one_slot():
     loose = Strategy(factors=BY_X.factors, top_n=4, max_weight=0.3)
-    assert choose(loose, section(loose, X), 0, held()).weight.tolist() == [0.25] * 4 + [0, 0]
+    assert choose(loose, section(loose, X), 0, held()).weight.tolist() == [0.25] * 4
     tight = Strategy(factors=BY_X.factors, top_n=4, max_weight=0.2)
     got = choose(tight, section(tight, X), 0, held())
-    assert got.weight.tolist() == [0.2] * 4 + [0, 0] and got.cash == pytest.approx(0.2)
+    assert got.weight.tolist() == [0.2] * 4 and got.cash == pytest.approx(0.2)
 
 
 def test_unfilled_slots_are_not_cap_cash_and_stack_keeps_every_row():
     capped = Strategy(factors=BY_X.factors, top_n=4, weighting="score", max_weight=0.5)
     got = choose(capped, section(capped, [2, 1, np.nan, np.nan, np.nan, np.nan]), 0, held())
-    assert got.weight[:2].tolist() == [0.25 * 2 * 2 / 3, 0.25 * 2 / 3] and got.cash == 0.0
+    assert got.weight.tolist() == [0.25 * 2 * 2 / 3, 0.25 * 2 / 3] and got.cash == 0.0
     both = stack([got, got])
-    assert both.weight.shape == (2, 6) and both.cash.tolist() == [0.0, 0.0]
+    assert both.target.shape == (2, 6) and both.cash.tolist() == [0.0, 0.0]
+    assert both.weight.tolist() == got.weight.tolist() * 2  # each row's targets in turn
 
 
 def test_a_cap_that_exactly_fits_every_target_leaves_no_cash():
     exact = Strategy(factors=BY_X.factors, top_n=4, weighting="score", max_weight=0.25)
     got = choose(exact, section(exact, [4, 3, 2, 1, np.nan, np.nan]), 0, held())
-    assert got.weight[:4] == pytest.approx([0.25] * 4) and got.cash == 0.0
+    assert got.weight == pytest.approx([0.25] * 4) and got.cash == 0.0

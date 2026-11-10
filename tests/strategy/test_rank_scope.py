@@ -29,6 +29,13 @@ def chosen(strategy, section):
     return stack([choose(strategy, section, i, nothing) for i in range(len(section.rows))])
 
 
+def weights(choice):
+    """The choice's target weights on its grid, 0 elsewhere."""
+    grid = np.zeros(choice.target.shape)
+    grid[choice.target] = choice.weight
+    return grid
+
+
 @pytest.fixture(scope="module")
 def panel(tmp_path_factory):
     home = tmp_path_factory.mktemp("rank_scope")
@@ -47,7 +54,7 @@ def test_a_rank_in_a_condition_counts_only_the_pool(panel):
     assert np.array_equal(got.factors["level"], [[2, NAN, 1, 3]], equal_nan=True)
     assert got.scored.tolist() == [[True, False, False, True]]
     assert np.array_equal(got.score, [[0.5, NAN, NAN, 1.0]], equal_nan=True)
-    assert got.rank.tolist() == [[2, 0, 0, 1]] and chosen(GOLDEN, got).weight.tolist() == [[0, 0, 0, 1.0]]
+    assert got.rank.tolist() == [[2, 0, 0, 1]] and weights(chosen(GOLDEN, got)).tolist() == [[0, 0, 0, 1.0]]
     funnel = screen(GOLDEN, panel, DAYS[1]).funnel.select("step", "passed", "left").rows()
     assert funnel == [
         ("listed", 4, 4),

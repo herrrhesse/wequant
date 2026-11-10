@@ -55,6 +55,13 @@ def chosen(strategy, got):
     return stack([choose(strategy, got, 0, np.zeros(got.scored.shape[1], dtype=bool))])
 
 
+def weights(choice):
+    """The choice's target weights on its grid, 0 elsewhere."""
+    grid = np.zeros(choice.target.shape)
+    grid[choice.target] = choice.weight
+    return grid
+
+
 def two(strategy=TWO, **extra):
     return section(strategy, conditions={"ok": [1] * 5}, x1=X1, x2=X2, **extra)
 
@@ -72,22 +79,22 @@ def test_scores_rank_backup_and_equal_weights():
     assert got.rank.tolist() == [[1, 2, 3, 0, 0]] and got.rank.dtype == np.int64
     assert got.order[0, :3].tolist() == [0, 1, 2]
     assert chosen(TWO, got).backup.tolist() == [[False, False, True, False, False]]
-    assert chosen(TWO, got).weight.tolist() == [[0.5, 0.5, 0, 0, 0]]
+    assert weights(chosen(TWO, got)).tolist() == [[0.5, 0.5, 0, 0, 0]]
     assert got.eligible.tolist() == [[True, True, True, True, False]]
 
 
 def test_score_and_formula_weights():
     by_score = replace(TWO, weighting="score")
-    assert chosen(by_score, two(by_score)).weight.tolist() == [[0.6296296296296297, 0.3703703703703703, 0, 0, 0]]
+    assert weights(chosen(by_score, two(by_score))).tolist() == [[0.6296296296296297, 0.3703703703703703, 0, 0, 0]]
     by_formula = replace(TWO, weighting="formula", formula=CLOSE)
-    assert chosen(by_formula, two(by_formula, formula=[2, 6, 1, 1, 1])).weight.tolist() == [[0.25, 0.75, 0, 0, 0]]
+    assert weights(chosen(by_formula, two(by_formula, formula=[2, 6, 1, 1, 1]))).tolist() == [[0.25, 0.75, 0, 0, 0]]
 
 
 def test_formula_weighting_leaves_a_stock_with_no_positive_formula_unscored():
     by_formula = replace(TWO, weighting="formula", formula=CLOSE)
     got = two(by_formula, formula=[2, -1, NAN, 1, 1])
     assert got.scored.tolist() == [[True, False, False, False, False]]
-    assert chosen(by_formula, got).weight.tolist() == [[0.5, 0, 0, 0, 0]]
+    assert weights(chosen(by_formula, got)).tolist() == [[0.5, 0, 0, 0, 0]]
 
 
 def test_ties_go_to_the_lower_column():
@@ -98,18 +105,18 @@ def test_ties_go_to_the_lower_column():
 
 def test_unfilled_slots_stay_in_cash():
     five = replace(TWO, top_n=5)
-    assert chosen(five, two(five)).weight.tolist() == [[0.2, 0.2, 0.2, 0, 0]]
+    assert weights(chosen(five, two(five))).tolist() == [[0.2, 0.2, 0.2, 0, 0]]
     by_score = replace(five, weighting="score")
-    assert chosen(by_score, two(by_score)).weight[0] == pytest.approx(
+    assert weights(chosen(by_score, two(by_score)))[0] == pytest.approx(
         [0.2833333333333334, 0.16666666666666666, 0.15000000000000002, 0, 0]
     )
     single = replace(five, factors=TWO.factors[:1], weighting="score")
-    assert chosen(single, two(single)).weight[0] == pytest.approx([0.25, 0.1, 0.25, 0, 0])
+    assert weights(chosen(single, two(single)))[0] == pytest.approx([0.25, 0.1, 0.25, 0, 0])
 
 
 def test_without_a_factor_every_scored_stock_is_held_in_column_order():
     got = section(Strategy())
-    assert chosen(Strategy(), got).weight.tolist() == [[0.25] * 4 + [0]] and got.rank.tolist() == [[1, 2, 3, 4, 0]]
+    assert weights(chosen(Strategy(), got)).tolist() == [[0.25] * 4 + [0]] and got.rank.tolist() == [[1, 2, 3, 4, 0]]
     assert got.score[0, :4].tolist() == [1.0] * 4
 
 
@@ -143,7 +150,7 @@ def test_a_group_combines_pass_and_fail_never_values():
     got = grouped([1] * 5)
     assert got.steps["either"].tolist() == [[1, 1, 1, 0, 1]] and got.steps["either"].dtype == np.int8
     assert got.eligible.tolist() == [[True, True, False, False, True]]
-    assert got.rank.tolist() == [[3, 2, 0, 0, 1]] and chosen(GROUP, got).weight.tolist() == [[0, 0, 0, 0, 1.0]]
+    assert got.rank.tolist() == [[3, 2, 0, 0, 1]] and weights(chosen(GROUP, got)).tolist() == [[0, 0, 0, 0, 1.0]]
     assert funnel_rows(got) == [
         ("listed", 5, 5),
         ("bar", 5, 5),
@@ -170,7 +177,7 @@ def test_a_group_combines_pass_and_fail_never_values():
 
 def test_a_group_counts_only_universe_stocks():
     got = grouped(UNIVERSE)
-    assert got.rank.tolist() == [[2, 1, 0, 0, 0]] and chosen(GROUP, got).weight.tolist() == [[0, 1.0, 0, 0, 0]]
+    assert got.rank.tolist() == [[2, 1, 0, 0, 0]] and weights(chosen(GROUP, got)).tolist() == [[0, 1.0, 0, 0, 0]]
     assert funnel_rows(got) == [
         ("listed", 5, 5),
         ("bar", 5, 5),
