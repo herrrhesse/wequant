@@ -17,7 +17,7 @@ from wequant.data.store import Store
 from wequant.runs import Archive, json_differences
 from wequant.runs.record import run_json
 
-ID = "06495349834344d8"
+ID = "0a001d6ea6cdea5c"
 REPO = Path(__file__).resolve().parents[2]
 HELD = {"cash": 100000.0, "code": "600000.SH", "end": "2024-03-05", "qty": 1000}
 CLOSE_UP = {  # version 2 of the golden store: 600000.SH closes at 10.40 instead of 10.30 on 2024-03-05

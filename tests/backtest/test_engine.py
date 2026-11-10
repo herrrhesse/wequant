@@ -115,7 +115,7 @@ def test_rotation_decision_frames(rotated):
 def test_rotation_identities_progress_and_warnings(rotated, rotation):
     result, calls = rotated
     backtest = Backtest(RET1, cash=100_000, execution=EX0)
-    assert result.warnings == {"limits_unchecked": LIMITS}
+    assert result.warnings == {"limits_unchecked": (LIMITS, {})}
     assert [call[:3] for call in calls] == [(0, 4, JAN[2]), (4, 4, JAN[8])]
     assert [call.equity for call in calls] == pytest.approx([100_000.0, 103_524.89])
     assert planned_id(backtest, rotation) == result.id
@@ -177,7 +177,7 @@ def test_a_backup_stands_in_for_a_target_refused_at_its_up_limit(tmp_path):
     ]
     assert column(result, "cash")[1:] == [1_269.40, 1_006.17]
     assert column(result, "equity")[1:] == pytest.approx([102_319.40, 104_046.17])
-    assert result.warnings == {"limits_unchecked": LIMITS, "st_band_fills": ST_BAND}
+    assert result.warnings == {"limits_unchecked": (LIMITS, {}), "st_band_fills": (ST_BAND, {"buys": 1, "sells": 0})}
 
 
 def test_a_backup_sold_at_the_open_buys_back_in_for_a_target_refused_again(tmp_path):
@@ -189,7 +189,7 @@ def test_a_backup_sold_at_the_open_buys_back_in_for_a_target_refused_again(tmp_p
     ]
     assert column(result, "cash")[-1] == 1_156.21
     assert column(result, "equity")[-1] == pytest.approx(102_676.21) == 1_156.21 + 4_700 * 21.60
-    assert result.warnings == {"limits_unchecked": LIMITS, "st_band_fills": ST_BAND}
+    assert result.warnings == {"limits_unchecked": (LIMITS, {}), "st_band_fills": (ST_BAND, {"buys": 1, "sells": 0})}
 
 
 def test_buy_and_hold_across_an_ex_date(tmp_path):

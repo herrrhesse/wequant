@@ -380,7 +380,7 @@ def strategy_lines(label: str, result: Run) -> list[str]:
         f"- **Orders:** {orders.height:,}: " + ", ".join(f"{s} ({r or 'in full'}) {n:,}" for s, r, n in counts),
         f"- **Picks:** {result.picks.height:,} rows on {result.funnel['date'].n_unique():,} decision days.",
         f"- **Funnel medians (passed/left):** {funnel}.",
-        *[f"- **Warning {code}:** {text}." for code, text in result.warnings.items()],
+        *[f"- **Warning {code}:** {text}." for code, (text, _) in result.warnings.items()],
         f"- **Detail rows:** {result.detail.height:,}; **Parquet bytes:** "
         + ", ".join(f"{name} {size / 1e6:.2f} MB" for name, size in sizes.items())
         + ".",

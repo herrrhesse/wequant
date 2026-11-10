@@ -1,0 +1,53 @@
+"""The English text of each run warning, filled from its params: every number and date of a text is one of them."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Callable
+
+Params = dict[str, int | float | str | None]  # dates as ISO text, shares as fractions; None: does not apply
+
+
+def _index_uncovered(p: Params) -> str:
+    """One clause per index: index, days and first, then index_2, days_2 and first_2, and so on."""
+    suffixes = ["", *(f"_{k}" for k in range(2, math.ceil(len(p) / 3) + 1))]
+    return "; ".join(_uncovered(*(p[f"{name}{suffix}"] for name in ("index", "days", "first"))) for suffix in suffixes)
+
+
+def _uncovered(index: str, days: int, first: str | None) -> str:
+    span = f" from {first}" if first is not None else ", which is empty"
+    return f"member@{index}: {days} decision days outside its index_members span{span}"
+
+
+TEXTS: dict[str, Callable[[Params], str]] = {
+    "limits_unchecked": lambda p: (
+        "the store's price limits are not checked against its bars; run tools.check_limits --commit"
+    ),
+    "st_unknown": lambda p: (
+        f"ST state known on {p['known_share']:.1%} of the universe cells on decision days; unknown reads as not ST"
+    ),
+    "st_band_fills": lambda p: (
+        f"{p['buys']} buys at the +ST-band price and {p['sells']} sells at the -ST-band price where ST is unknown"
+    ),
+    "stale_holdings": lambda p: (
+        f"{p['codes']} codes were held more than {p['stale_days']} trading days after their last bar, valued at their "
+        f"last close: at most {p['worst_share']:.1%} of equity on {p['worst_day']}, {p['share']:.1%} on the last day "
+        f"{p['day']}"
+    ),
+    "no_picks": lambda p: "no decision day selected a stock",
+    "index_uncovered": _index_uncovered,
+    "list_days_approximate": lambda p: (
+        "list_days counts trading days from securities.first_date, the first day of the source's data, not the "
+        f"listing date: a lower bound for the {p['codes_at_calendar_start']} codes whose data starts with the "
+        f"calendar, which min_list_days left out of {p['cells']} decision-day cells"
+    ),
+    "max_weight_cash": lambda p: (
+        f"{p['days']} decision days kept {p['mean_share']:.1%} of equity in cash on average: max_weight capped every "
+        "target"
+    ),
+}
+
+
+def warning(code: str, params: Params) -> tuple[str, Params]:
+    """(text, params) of a warning: its text filled from params."""
+    return TEXTS[code](params), params

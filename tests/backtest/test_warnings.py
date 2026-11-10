@@ -53,7 +53,8 @@ def test_st_unknown_reports_the_share_of_universe_cells_with_a_known_state(tmp_p
     result = run(Backtest(NOT_ST, execution=EX0, benchmark=None), panel)
     assert result.funnel["date"].unique().to_list() == [dt.date(2024, 3, 1), dt.date(2024, 3, 8)]
     assert result.warnings["st_unknown"] == (
-        "ST state known on 50.0% of the universe cells on decision days; unknown reads as not ST"
+        "ST state known on 50.0% of the universe cells on decision days; unknown reads as not ST",
+        {"known_share": 0.5},
     )
     assert "st_unknown" not in run(Backtest(ONE, execution=EX0, benchmark=None), panel).warnings
 
@@ -68,10 +69,30 @@ def test_a_holding_without_a_bar_for_more_than_20_days_is_reported(tmp_path):
     result = stale(tmp_path, 25)
     assert result.ledger.orders.select("date", "shares", "price").rows() == [(dt.date(2024, 1, 3), 9700.0, 10.3)]
     assert result.ledger.daily["equity"][-1] == pytest.approx(97_059.03)
-    assert result.warnings["stale_holdings"] == (
-        "1 codes held on 2024-02-05 last traded more than 20 trading days earlier, valued at their last close "
-        "(99.9% of equity)"
-    )
+    text, params = result.warnings["stale_holdings"]
+    assert text == (
+        "1 codes were held more than 20 trading days after their last bar, valued at their last close: at most 99.9% "
+        "of equity on 2024-02-02, 99.9% on the last day 2024-02-05"
+    )  # stale from row 23, the first row with no bar in the 21 rows up to it; the first worst day is named
+    share = 97_000 / 97_059.03
+    assert params == {
+        "codes": 1,
+        "stale_days": 20,
+        "share": pytest.approx(share),
+        "day": "2024-02-05",
+        "worst_share": pytest.approx(share),
+        "worst_day": "2024-02-02",
+    }
+
+
+def test_a_holding_stale_in_the_middle_of_the_run_is_reported_though_it_trades_again(tmp_path):
+    bars = {A: [(10.0, 10.0), (10.3, 10.0), (10.0, 10.0)] + [None] * 23 + [(10.0, 10.0)] * 5}
+    panel = panel_of(tmp_path, business_days(31), bars)
+    result = run(Backtest(ONE, cash=100_000, execution=EX0, benchmark=None), panel)
+    text, params = result.warnings["stale_holdings"]
+    assert (params["codes"], params["worst_day"], params["share"]) == (1, "2024-02-02", 0.0)  # rows 23 to 25
+    assert params["worst_share"] == pytest.approx(97_000 / 97_059.03) and params["day"] == "2024-02-13"
+    assert text.endswith("at most 99.9% of equity on 2024-02-02, 0.0% on the last day 2024-02-13")
 
 
 def test_twenty_days_without_a_bar_are_not_stale(tmp_path):
@@ -103,14 +124,15 @@ def test_index_uncovered_counts_the_decision_days_outside_each_index_span(tmp_pa
     csi500 = Strategy(pool=Pool(index="000905.SH"), period="day")
     result = run(Backtest(csi500, execution=EX0, benchmark=None), panel)
     assert result.picks.filter(pl.col("role") == "target")["date"].unique().sort().to_list() == [JAN4, JAN5]
-    assert (
-        result.warnings["index_uncovered"]
-        == "member@000905.SH: 2 decision days outside its index_members span from 2024-01-04"
+    assert result.warnings["index_uncovered"] == (
+        "member@000905.SH: 2 decision days outside its index_members span from 2024-01-04",
+        {"index": "000905.SH", "days": 2, "first": "2024-01-04"},
     )
     both = replace(csi500, universe=~Field("exchange@BJ") & Field("member@000852.SH"))
     assert run(Backtest(both, execution=EX0, benchmark=None), panel).warnings["index_uncovered"] == (
         "member@000852.SH: 4 decision days outside its index_members span, which is empty; "
-        "member@000905.SH: 2 decision days outside its index_members span from 2024-01-04"
+        "member@000905.SH: 2 decision days outside its index_members span from 2024-01-04",
+        {"index": "000852.SH", "days": 4, "first": None, "index_2": "000905.SH", "days_2": 2, "first_2": "2024-01-04"},
     )
     assert (
         "index_uncovered"
@@ -127,13 +149,13 @@ def test_list_days_approximate_counts_the_codes_starting_with_the_calendar_and_t
         "date: a lower bound for the 2 codes whose data starts with the calendar, which min_list_days left out of {} "
         "decision-day cells"
     )
-    assert result.warnings["list_days_approximate"] == text.format(4)
+    assert result.warnings["list_days_approximate"] == (text.format(4), {"codes_at_calendar_start": 2, "cells": 4})
     later = replace(seasoned, anchor=dt.date(2024, 1, 3))
     panel = load_panel(WEEK[1], store=store, cache_dir=tmp_path / "b")
-    assert run(Backtest(later, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"] == text.format(
-        2
+    assert run(Backtest(later, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"][0] == (
+        text.format(2)
     )
     seasoned_expr = Strategy(filters=(Condition("seasoned", Field("list_days") > 1),), period="day")
-    assert run(Backtest(seasoned_expr, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"] == (
+    assert run(Backtest(seasoned_expr, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"][0] == (
         text.format(0)
     )

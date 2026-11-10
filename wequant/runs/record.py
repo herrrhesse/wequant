@@ -48,7 +48,7 @@ def run_files(run: Run) -> dict[str, bytes]:
     return {
         "run.json": run_json(run),
         "metrics.json": metrics_json(run.metrics, run.spec),
-        "warnings.json": document([[code, text] for code, text in run.warnings.items()]),
+        "warnings.json": document([[code, text, params] for code, (text, params) in run.warnings.items()]),
         **{f"{name}.parquet": parquet_bytes(frame) for name, frame in zip(FRAMES, frames)},
     }
 
@@ -86,7 +86,7 @@ def read_run(directory: Path) -> Run:
         picks=picks,
         funnel=funnel,
         detail=detail,
-        warnings=dict(read_json(directory / "warnings.json")),
+        warnings={code: (text, params) for code, text, params in read_json(directory / "warnings.json")},
     )
     if not run.id == doc["id"] == directory.name:
         raise ValueError(f"{directory} is not the run it holds: run.json names {doc['id']}, its inputs {run.id}")
