@@ -14,6 +14,7 @@ from tests.service.conftest import SCREENED
 from wequant.data.store import Store
 from wequant.service import Context, Exit, ServiceError
 from wequant.service.backtest import BacktestRequest, backtest
+from wequant.service.explain import ExplainRequest, explain
 from wequant.service.runs import (
     AnomaliesRequest,
     OrdersRequest,
@@ -143,3 +144,26 @@ def test_what_the_archive_does_not_have(archived, call, code, loc):
     with pytest.raises(ServiceError) as raised:
         call(context, a.run_id)
     assert raised.value.exit == Exit.NOT_FOUND and [(d.code, d.loc) for d in raised.value.detail] == [(code, loc)]
+
+
+EXITING = {  # 000001.SZ closes 10.60 on 2024-01-05, leaves the pool and is sold whole at the next open
+    "filters": [{"name": "cheap", "expr": ["LT", "close", 10.5]}],
+    "factors": [{"name": "level", "expr": "close", "prefer": "low"}],
+    "top_n": 2,
+    "period": "day",
+}
+
+
+def test_a_full_exit_asks_for_the_whole_holding_in_every_reader(market_home):
+    """F-24: the engine archives a full exit as requested inf; runs orders, runs day, explain and runs show give null."""
+    context = Context(market_home)
+    run_id = backtest(BacktestRequest(strategy=EXITING), context).run_id
+    sold = runs_orders(OrdersRequest(id=run_id, side="sell"), context).rows
+    assert [(r.date, r.code, r.status, r.requested) for r in sold] == [
+        (dt.date(2024, 1, 8), "000001.SZ", "filled", None)
+    ]
+    day = runs_day(RunDayRequest(id=run_id, date="2024-01-08"), context)
+    found = explain(ExplainRequest(run=run_id, code="000001.SZ", date="2024-01-05"), context)
+    assert [o.requested for o in day.orders if o.side == "sell"] == [None] == [o.requested for o in found.execution]
+    for result in (day, found, runs_show(RunRequest(id=run_id), context)):
+        assert type(result).model_validate_json(result.model_dump_json()) == result

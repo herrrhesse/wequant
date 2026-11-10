@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections.abc import Mapping
 from typing import Literal
 
@@ -73,8 +74,8 @@ class OrderRow(Model):
     code: str
     side: Literal["buy", "sell"]
     status: Literal["filled", "partial", "rejected"]
-    requested: float
-    """Shares asked for (the whole holding for a full exit)."""
+    requested: float | None
+    """Shares asked for; null: the whole holding (a full exit)."""
     shares: float
     """Shares filled."""
     price: float | None
@@ -202,3 +203,9 @@ def data_anomaly(uses: pl.DataFrame, excluded: tuple[str, ...], sample: int | No
 def anomaly_use(row: Mapping) -> AnomalyUse:
     """The AnomalyUse of an ANOMALY_USES row."""
     return AnomalyUse(**{key: value for key, value in row.items() if key != "class"}, anomaly_class=row["class"])
+
+
+def order_row(row: Mapping) -> OrderRow:
+    """The OrderRow of an archived orders row; a full exit, archived as requested inf, asks for null."""
+    requested = row["requested"]
+    return OrderRow(**{**row, "requested": None if math.isinf(requested) else requested})
