@@ -37,7 +37,9 @@ app = App(
     default_parameter=Parameter(negative=(), consume_multiple=True),  # no --no-x or --empty-x flags; --codes A B
     error_formatter=error_panel,
 )
-data = app.command(App(name="data", help="The store: status, bars, data issues and the price-limit check."))
+data = app.command(
+    App(name="data", help="The store: status, bars, data issues, the price-limit check, delistings, index members.")
+)
 expr = app.command(App(name="expr", help="Signal expressions in canonical JSON form."))
 strategies = app.command(App(name="strategy", help="Strategies and their saved versions."))
 runs = app.command(App(name="runs", help="The run archive: list, show, rerun, diff, orders, a day, anomalous data."))
@@ -93,6 +95,38 @@ def issues(
 def check(*, request: Annotated[service.CheckRequest, FLAT] = service.CheckRequest(), common: Common = COMMON) -> int:
     """Price-limit check of the current version; exit 1 unless the store records it."""
     return run(service.data_check, request, common)
+
+
+@data.command
+def delistings(
+    *,
+    delisting: Literal[DELISTING] | None = None,
+    failure_recovery: float | None = None,
+    data_version: int | None = None,
+    common: Common = COMMON,
+) -> int:
+    """Every delisted code: its kind and the basis for it (the rule or an override), and how a holding is treated.
+
+    Parameters
+    ----------
+    delisting
+        The treatment rule: auto (default), write_down, sell_at_last_close or hold.
+    failure_recovery
+        Share of its last close a written-down holding returns as cash (default 0).
+    data_version
+        Store version to read (default: the current one).
+    """
+    given = {"delisting": delisting, "failure_recovery": failure_recovery}
+    fields = {"data_version": data_version, "execution": {k: v for k, v in given.items() if v is not None}}
+    return run(service.data_delistings, lambda: validated(service.DelistingsRequest, fields), common)
+
+
+@data.command(name="index-check")
+def index_check(
+    *, request: Annotated[service.IndexCheckRequest, FLAT] = service.IndexCheckRequest(), common: Common = COMMON
+) -> int:
+    """Each index's daily member count against its nominal size; exit 1 when any run of days is off."""
+    return run(service.data_index_check, request, common)
 
 
 @expr.command(name="check")

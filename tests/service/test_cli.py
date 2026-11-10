@@ -22,6 +22,13 @@ CASES = [
     (["data", "issues"], "data_issues", service.IssuesRequest(), "home"),
     (["data", "check"], "data_check", service.CheckRequest(), "limits_home"),
     (
+        ["data", "delistings", "--delisting", "hold"],
+        "data_delistings",
+        service.DelistingsRequest(execution={"delisting": "hold"}),
+        "market_home",
+    ),
+    (["data", "index-check"], "data_index_check", service.IndexCheckRequest(), "market_home"),
+    (
         ["expr", "check", "--form", '["MA","close",2]'],
         "expr_check",
         service.ExprRequest(form='["MA","close",2]'),

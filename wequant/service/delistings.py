@@ -5,8 +5,12 @@ from __future__ import annotations
 import datetime as dt
 from typing import Literal
 
-from wequant.data.delistings import KINDS, SOURCES
-from wequant.service.base import DataRequest, Model
+from wequant.account.delisting import delisting_plan
+from wequant.data.delistings import KINDS, SOURCES, overrides_text
+from wequant.panel import load_panel
+from wequant.service.base import Context, DataRequest, Model, manifest
+from wequant.service.details import to_execution
+from wequant.service.errors import Exit, ServiceError
 from wequant.service.specs import ExecutionSpec
 
 
@@ -50,3 +54,18 @@ class Delistings(Model):
     overrides: bool
     """An overrides file exists in the data root."""
     rows: list[DelistingRow]
+
+
+def data_delistings(request: DelistingsRequest, context: Context = Context()) -> Delistings:
+    """Every delisted code of a store version: its classification and the basis for it, and the treatment a holding of
+    it gets under the execution block."""
+    store = context.store()
+    manifest(store, request.data_version)
+    execution = to_execution(request.execution)
+    panel = load_panel(version=request.data_version, store=store, cache_dir=context.cache)
+    try:
+        plan = delisting_plan(panel, execution)
+    except ValueError as error:  # a malformed overrides file names its entry
+        raise ServiceError(Exit.USAGE, str(error)) from None
+    rows = [DelistingRow(**row) for row in plan.iter_rows(named=True)]
+    return Delistings(data_version=panel.version, overrides=overrides_text(store.home) is not None, rows=rows)

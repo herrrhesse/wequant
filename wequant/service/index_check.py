@@ -5,7 +5,12 @@ from __future__ import annotations
 import datetime as dt
 from typing import Literal
 
-from wequant.service.base import Check, DataRequest, Model
+import numpy as np
+
+from wequant.expr.vocab import INDEXES, STORED_AS
+from wequant.panel import Panel, load_panel
+from wequant.panel.coverage import NOMINAL, count_spans
+from wequant.service.base import Check, Context, DataRequest, Model, manifest
 
 
 class IndexCheckRequest(DataRequest):
@@ -40,7 +45,38 @@ class IndexCoverage(Model):
 
 
 class IndexCheck(Check):
-    """Each index's coverage; ok is False when any index has an anomalous span."""
+    """Each index's coverage, counting the members member@ reads (a member code the store does not list is not
+    counted); ok is False when any index has an anomalous span."""
 
     data_version: int
     indexes: list[IndexCoverage]
+
+
+def data_index_check(request: IndexCheckRequest, context: Context = Context()) -> IndexCheck:
+    """Each index's daily member count over its stored span against its nominal size; ok False when any is off."""
+    store = context.store()
+    manifest(store, request.data_version)
+    panel = load_panel(version=request.data_version, store=store, cache_dir=context.cache)
+    indexes = [found for index in INDEXES if (found := _coverage(panel, index)) is not None]
+    return IndexCheck(ok=not any(i.spans for i in indexes), data_version=panel.version, indexes=indexes)
+
+
+def _coverage(panel: Panel, index: str) -> IndexCoverage | None:
+    """One index's coverage, None when the store has no member of it."""
+    stored = STORED_AS.get(index, index)
+    member = panel.member(stored)
+    inside = np.flatnonzero((member >= 0).any(axis=1))
+    if not inside.size:
+        return None
+    rows = slice(inside[0], inside[-1] + 1)
+    nominal, dates = NOMINAL[index], panel.dates[rows]
+    spans = count_spans(dates, (member[rows] == 1).sum(axis=1), nominal)
+    return IndexCoverage(
+        index=index,
+        stored_as=stored,
+        nominal=nominal,
+        first=dates[0].item(),
+        last=dates[-1].item(),
+        days=len(dates),
+        spans=[CountSpan(**span._asdict(), nominal=nominal) for span in spans],
+    )

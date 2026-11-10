@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from pydantic import BaseModel, ValidationError
 
+from wequant.account import Execution
 from wequant.backtest import DataOptions
 from wequant.expr import ExprError
 from wequant.service.base import ErrorDetail
@@ -82,5 +83,13 @@ def to_data(spec: BaseModel, loc: Loc = ("data",)) -> DataOptions:
     """The core data options of a DataSpec; USAGE located under loc otherwise (exclude_suspicious without exclude_day)."""
     try:
         return DataOptions(**spec.model_dump())
+    except SpecError as error:
+        raise usage(spec_details(error, loc)) from None
+
+
+def to_execution(spec: BaseModel, loc: Loc = ("execution",)) -> Execution:
+    """The core execution block of an ExecutionSpec; USAGE located under loc otherwise."""
+    try:
+        return Execution(**spec.model_dump())
     except SpecError as error:
         raise usage(spec_details(error, loc)) from None
