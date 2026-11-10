@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from wequant import service
 from wequant.account.execution import DELISTING, PRICES
 from wequant.backtest import ANOMALY_MODES, Progress
+from wequant.backtest.anomalies import CHANNELS
 from wequant.cli.render import error_panel, refused, render, render_schema, table
 from wequant.service import Check, Context, ErrorBody, ErrorDetail, Exit, ServiceError
 from wequant.service.base import error_body
@@ -39,6 +40,7 @@ app = App(
 data = app.command(App(name="data", help="The store: status, bars, data issues and the price-limit check."))
 expr = app.command(App(name="expr", help="Signal expressions in canonical JSON form."))
 strategies = app.command(App(name="strategy", help="Strategies and their saved versions."))
+runs = app.command(App(name="runs", help="The run archive: list, show, rerun, diff, orders, a day, anomalous data."))
 StrategyArg = Annotated[
     str, Parameter(name="--strategy", allow_leading_hyphen=True, help="A JSON file, - for JSON on stdin, or ID[@N].")
 ]
@@ -309,6 +311,137 @@ def backtest(
     return run(service.backtest, request, common, human=lambda result: result.report or render(result))
 
 
+@runs.command(name="list")
+def runs_list(
+    *, request: Annotated[service.RunsListRequest, FLAT] = service.RunsListRequest(), common: Common = COMMON
+) -> int:
+    """Archived runs, newest first."""
+    return run(service.runs_list, request, common)
+
+
+@runs.command(name="show")
+def runs_show(id: str, /, *, common: Common = COMMON) -> int:
+    """One run: inputs, metrics, orders, delisted holdings, anomalous data, warnings, fee rules, periods (with --json
+    also every day).
+
+    Parameters
+    ----------
+    id
+        A run id.
+    """
+    return run(service.runs_show, lambda: validated(service.RunRequest, {"id": id}), common, human=_run_detail)
+
+
+@runs.command(name="rerun")
+def runs_rerun(id: str, /, *, common: Common = COMMON) -> int:
+    """Run an archived run again on its store version and compare it byte for byte.
+
+    Parameters
+    ----------
+    id
+        A run id.
+    """
+    return run(service.runs_rerun, lambda: validated(service.RunRequest, {"id": id}), common)
+
+
+@runs.command(name="diff")
+def runs_diff(a: str, b: str, /, *, common: Common = COMMON) -> int:
+    """How two runs' inputs and metrics differ.
+
+    Parameters
+    ----------
+    a
+        A run id.
+    b
+        Another run id.
+    """
+    return run(service.runs_diff, lambda: validated(service.RunDiffRequest, {"a": a, "b": b}), common)
+
+
+@runs.command(name="orders")
+def runs_orders(
+    id: str,
+    /,
+    *,
+    code: str | None = None,
+    status: Literal["filled", "partial", "rejected"] | None = None,
+    side: Literal["buy", "sell"] | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    common: Common = COMMON,
+) -> int:
+    """A run's orders in archive order.
+
+    Parameters
+    ----------
+    id
+        A run id.
+    code
+        Only this code.
+    status
+        Only this status.
+    side
+        Only this side.
+    start
+        From this fill day, YYYY-MM-DD.
+    end
+        To this fill day, YYYY-MM-DD.
+    limit
+        Rows per page, 1 to 500.
+    offset
+        Rows to skip.
+    """
+    fields = {"id": id, "code": code, "status": status, "side": side, "start": start, "end": end}
+    page = {"limit": limit, "offset": offset}
+    return run(service.runs_orders, lambda: validated(service.OrdersRequest, fields | page), common)
+
+
+@runs.command(name="day")
+def runs_day(id: str, date: str, /, *, common: Common = COMMON) -> int:
+    """One day of a run: holdings at the close, the decisions taken then, the orders filled that day.
+
+    Parameters
+    ----------
+    id
+        A run id.
+    date
+        A day of the run, YYYY-MM-DD.
+    """
+    return run(service.runs_day, lambda: validated(service.RunDayRequest, {"id": id, "date": date}), common)
+
+
+@runs.command(name="anomalies")
+def runs_anomalies(
+    id: str,
+    /,
+    *,
+    channel: Literal[CHANNELS] | None = None,
+    code: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    common: Common = COMMON,
+) -> int:
+    """A run's uses of anomalous data in archive order.
+
+    Parameters
+    ----------
+    id
+        A run id.
+    channel
+        Only signal, fill or valuation uses.
+    code
+        Only this code.
+    limit
+        Rows per page, 1 to 500.
+    offset
+        Rows to skip.
+    """
+    fields = {"id": id, "channel": channel, "code": code, "limit": limit, "offset": offset}
+    return run(service.runs_anomalies, lambda: validated(service.AnomaliesRequest, fields), common)
+
+
 @app.command
 def schema(
     *, request: Annotated[service.SchemaRequest, FLAT] = service.SchemaRequest(), common: Common = COMMON
@@ -385,6 +518,13 @@ def saved_ref(text: str) -> dict:
         detail = ErrorDetail(code="bad_ref", message=f"{text!r} is not ID or ID@N", loc=["saved"])
         raise ServiceError(Exit.USAGE, detail.message, [detail])
     return {"id": id, "n": int(n) if at else None}
+
+
+def _run_detail(result: service.RunDetail) -> str:
+    """A run without its daily rows, then its years and months."""
+    periods = result.periods.model_dump(mode="json", by_alias=True)
+    tables = [table(rows) for rows in periods.values() if rows]
+    return "\n\n".join([render(result.model_copy(update={"daily": None, "periods": None})), *tables])
 
 
 def _profile(report: ProfileReport, as_json: bool) -> None:

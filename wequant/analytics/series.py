@@ -24,8 +24,10 @@ def runs(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def period_keys(dates: np.ndarray, period: str) -> np.ndarray:
-    """The period each date falls in: "week" gives its Monday, "month" its datetime64[M]."""
+    """The period each date falls in: "week" gives its Monday, "month" its datetime64[M], "year" its datetime64[Y]."""
     dates = np.asarray(dates, dtype="datetime64[D]")
+    if period == "year":
+        return dates.astype("datetime64[Y]")
     if period == "month":
         return dates.astype("datetime64[M]")
     if period == "week":
@@ -46,3 +48,19 @@ def compound(returns: np.ndarray, keys: np.ndarray) -> np.ndarray:
 def annualize(growth: float, periods: int, periods_per_year: int) -> float:
     """The yearly return of growing by the factor growth over periods periods."""
     return float(growth ** (periods_per_year / periods) - 1)
+
+
+def relative_levels(levels: np.ndarray) -> np.ndarray:
+    """levels / levels[0]: 1 on the first day; NaN where a level, or the first, is NaN."""
+    levels = np.asarray(levels, dtype=np.float64)
+    return levels / levels[0]
+
+
+def excess(growth: np.ndarray, benchmark_growth: np.ndarray) -> np.ndarray:
+    """growth / benchmark_growth - 1 of growth factors (nav or 1 + return); NaN with the benchmark's."""
+    return np.asarray(growth, dtype=np.float64) / np.asarray(benchmark_growth, dtype=np.float64) - 1
+
+
+def exposure(invested: np.ndarray, equity: np.ndarray) -> np.ndarray:
+    """invested / equity: the share of equity held in stocks."""
+    return np.asarray(invested, dtype=np.float64) / np.asarray(equity, dtype=np.float64)

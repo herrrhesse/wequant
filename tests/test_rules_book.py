@@ -5,7 +5,7 @@ from fractions import Fraction
 import pytest
 
 from wequant.data.codes import BOARDS
-from wequant.rules.book import Band, default_book, load_book
+from wequant.rules.book import Band, Rate, RuleBook, default_book, fees_in_force, load_book
 
 LAUNCH = {
     "main": dt.date(1996, 12, 16),
@@ -111,3 +111,35 @@ def test_every_board_has_a_band_lot_and_listing_rule_from_its_launch_through_202
     for exchange in ("SH", "SZ"):
         for table in ("stamp_tax", "transfer_fee"):
             assert exchange in book.in_force(table, exchange, dt.date(2000, 1, 4)).exchanges
+
+
+def test_the_fee_rules_in_force_over_a_window_end_where_the_next_rule_for_their_exchanges_starts():
+    def rate(id, exchanges, since):
+        return Rate(id, exchanges, dt.date.fromisoformat(since), Fraction(1, 1000), Fraction(1, 1000), "amount")
+
+    book = RuleBook(
+        "digest",
+        (),
+        (),
+        (),
+        (rate("s1", ("SH", "SZ"), "2020-01-01"), rate("s2", ("SH", "SZ"), "2024-02-01")),
+        (
+            rate("t-sh", ("SH",), "2019-01-01"),
+            rate("t-sz", ("SZ",), "2019-01-01"),
+            rate("t", ("SH", "SZ"), "2025-01-01"),
+        ),
+    )
+    found = [
+        (table, rule.id, until) for table, rule, until in fees_in_force(book, dt.date(2024, 1, 15), dt.date(2024, 3, 1))
+    ]
+    assert found == [
+        ("stamp_tax", "s1", dt.date(2024, 1, 31)),
+        ("stamp_tax", "s2", None),
+        ("transfer_fee", "t-sh", None),
+        ("transfer_fee", "t-sz", None),
+    ]
+    assert [rule.id for _, rule, _ in fees_in_force(book, dt.date(2023, 1, 1), dt.date(2023, 6, 1))] == [
+        "s1",
+        "t-sh",
+        "t-sz",
+    ]

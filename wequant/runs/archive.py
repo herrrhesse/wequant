@@ -70,6 +70,10 @@ class Archive:
         """The archived run; KeyError when there is none."""
         return read_run(self._directory(run_id))
 
+    def row(self, run_id: str) -> dict:
+        """The run's INDEX row by column; KeyError when there is none."""
+        return dict(zip(INDEX, _row(self._directory(run_id))))
+
     def path(self, run_id: str) -> Path:
         """The run's directory; ValueError for a name that is not a run id."""
         if not (isinstance(run_id, str) and ID.fullmatch(run_id)):
