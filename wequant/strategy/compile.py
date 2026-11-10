@@ -49,6 +49,11 @@ def wrap(expr: Expr, pool: Expr) -> Expr:
     return Op(expr.name, *args)
 
 
+def contains(expr: Expr, node: Expr) -> bool:
+    """node is expr or one of its subexpressions, by key."""
+    return expr == node or (isinstance(expr, Op) and any(isinstance(a, Expr) and contains(a, node) for a in expr.args))
+
+
 def expressions(strategy: Strategy) -> dict[str, Expr]:
     """The roots by name: "universe", each pool item, "pool", each enabled step's condition, each enabled factor and
     "formula", the last three wrapped in the pool."""

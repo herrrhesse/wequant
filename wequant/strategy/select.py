@@ -10,7 +10,7 @@ import polars as pl
 
 from wequant.expr import Cache, Expr, evaluate, evaluate_all
 from wequant.strategy.choose import choose, stack
-from wequant.strategy.compile import comparison, expressions, pool_items
+from wequant.strategy.compile import comparison, contains, expressions, pool_items
 from wequant.strategy.errors import SpecError
 from wequant.strategy.frames import detail_frame, funnel_frame, picks_frame, rejects_frame, stocks_frame
 from wequant.strategy.section import Section, cross_section, verdicts
@@ -47,9 +47,8 @@ def select(
     of the rows."""
     rows, roots, report = np.asarray(rows, dtype=np.int64), expressions(strategy), on_root or (lambda name: None)
     family = {name: roots[name] for name in ("universe", *pool_items(strategy), "pool")}
-    grids = evaluate_all(family, panel, cache)
-    seed = {family["pool"].key: grids["pool"]}
-    kept = {name: verdicts(grid[rows]) for name, grid in grids.items()}  # 1 byte a cell instead of 8
+    wrapped = any(contains(expr, family["pool"]) for name, expr in roots.items() if name not in family)
+    kept, seed = _pool_family(family, panel, rows, cache, wrapped)
     for name in family:
         report(name)
     _check_beijing(panel, rows, kept["pool"], "pool" if len(family) > 2 else "universe")
@@ -85,6 +84,16 @@ def check_anchor(strategy: Strategy, panel: Panel) -> None:
     if strategy.anchor is not None and panel.dates[0] != np.datetime64(strategy.anchor, "D"):
         message = f"the strategy counts from {strategy.anchor}, the panel from {panel.dates[0]}"
         raise SpecError("not_a_trading_day", ("anchor",), message)
+
+
+def _pool_family(
+    family: dict[str, Expr], panel: Panel, rows: np.ndarray, cache: Cache | None, wrapped: bool
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """The universe's, the pool items' and the pool's verdicts on rows, and the pool's grid as a seed when wrapped
+    says a later root needs it; no other full grid outlives the call."""
+    grids = evaluate_all(family, panel, cache)
+    seed = {family["pool"].key: grids["pool"]} if wrapped else {}
+    return {name: verdicts(grid[rows]) for name, grid in grids.items()}, seed  # 1 byte a cell instead of 8
 
 
 def _evaluate(
