@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from wequant.data.delistings import classify, delisted, overrides_digest, overrides_text, parse_overrides
 from wequant.data.store import Store
 from wequant.panel.build import PRICE_FIELDS, PRICE_SCALE, RAW_FIELDS, limits, members
 from wequant.panel.cache import PanelCache
@@ -46,13 +47,16 @@ class Panel:
     """Date × stock matrices of one store version; arrays load on first use and are read-only.
 
     status, listed, suspended and missing are descriptive where daily_status has no row; traded is point-in-time.
-    manifest is the store manifest the panel reads; never change it.
+    manifest is the store manifest the panel reads; never change it. key names the data the panel serves: the store
+    version's, and the delisting overrides when there are any.
     """
 
     def __init__(self, src: PanelCache, rows: slice, columns: np.ndarray | None) -> None:
         self._src, self._rows, self._columns = src, rows, columns
         self._memo: dict[str, np.ndarray] = {}
-        self.version, self.key, self.manifest = src.version, src.key, src.manifest
+        self._overrides = overrides_text(src.store.home)
+        self.version, self.manifest = src.version, src.manifest
+        self.key = src.key + overrides_digest(self._overrides)
         self.dates = np.asarray(src.array("dates")[rows])
         self.codes = self._vector("codes")
 
@@ -151,6 +155,18 @@ class Panel:
         spans = self._src.scan("index_members").filter(pl.col("index_code") == index).collect()
         return None if spans.is_empty() else (spans["start_date"].min(), spans["end_date"].max())
 
+    @cached_property
+    def delistings(self) -> pl.DataFrame:
+        """DELISTINGS of the panel's codes that left the market or look as if they did, from the store's securities,
+        calendar and last bars and the user's overrides (wequant.data.delistings)."""
+        securities = self._src.scan("securities").sort("code").collect()
+        full = np.arange(securities.height) if self._columns is None else self._columns
+        securities, calendar = securities[full], np.asarray(self._src.array("dates"))
+        chosen = np.flatnonzero(delisted(securities, calendar))
+        last_bar, last_close = _last_bars(self._src, full[chosen])
+        codes = securities[chosen].with_columns(last_bar=pl.Series(last_bar, dtype=pl.Date), last_close=last_close)
+        return classify(codes, calendar, parse_overrides(self._overrides))
+
     def on_bars(self, mask: np.ndarray) -> np.ndarray:
         """mask as an ops condition: float64 1.0/0.0 on traded cells, NaN elsewhere."""
         mask = np.asarray(mask)
@@ -231,6 +247,14 @@ class Panel:
     def _vector(self, name: str) -> np.ndarray:
         vector = np.asarray(self._src.array(name))
         return vector if self._columns is None else _frozen(vector[self._columns])
+
+
+def _last_bars(src: PanelCache, cols: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The day and raw close of each column's last bar in the store's calendar; NaT and NaN where it has none."""
+    traded = np.asarray(src.array("status")[:, cols]) == TRADED
+    row, ever = len(traded) - 1 - np.argmax(traded[::-1], axis=0), traded.any(axis=0)
+    close = np.where(ever, src.array("close")[row, cols], np.nan)
+    return np.where(ever, src.array("dates")[row], np.datetime64("NaT", "D")), close
 
 
 def _row_range(dates: np.ndarray, start: Day | None, end: Day | None) -> slice:
