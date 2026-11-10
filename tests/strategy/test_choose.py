@@ -108,3 +108,9 @@ def test_unfilled_slots_are_not_cap_cash_and_stack_keeps_every_row():
     assert got.weight[:2].tolist() == [0.25 * 2 * 2 / 3, 0.25 * 2 / 3] and got.cash == 0.0
     both = stack([got, got])
     assert both.weight.shape == (2, 6) and both.cash.tolist() == [0.0, 0.0]
+
+
+def test_a_cap_that_exactly_fits_every_target_leaves_no_cash():
+    exact = Strategy(factors=BY_X.factors, top_n=4, weighting="score", max_weight=0.25)
+    got = choose(exact, section(exact, [4, 3, 2, 1, np.nan, np.nan]), 0, held())
+    assert got.weight[:4] == pytest.approx([0.25] * 4) and got.cash == 0.0

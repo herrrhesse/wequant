@@ -10,6 +10,8 @@ import numpy as np
 from wequant.strategy.section import Section
 from wequant.strategy.strategy import Strategy
 
+ROUNDING = 1e-12  # targets x cap equal to the total leaves ~1e-16 of excess, not cash
+
 
 class Choice(NamedTuple):
     """One decision row's choice, (N,) arrays over the panel's columns; stack() makes them (R, N) and cash (R,)."""
@@ -80,7 +82,7 @@ def _capped(weight: np.ndarray, cap: float | None) -> tuple[np.ndarray, np.ndarr
         weight[over], capped = cap, capped | over
         free = (weight > 0) & ~capped
         if not free.any():
-            return weight, capped, excess
+            return weight, capped, excess if excess > ROUNDING else 0.0
         weight[free] += excess * weight[free] / weight[free].sum()
     return weight, capped, 0.0
 
