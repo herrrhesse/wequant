@@ -36,27 +36,27 @@ def rows(frame: pl.DataFrame) -> list[tuple]:
 
 def test_parse_adjust_factor_takes_the_back_factor():
     frame = pl.DataFrame(
-        {"code": ["sh.600519"], "dividOperateDate": ["2002-07-25"], "foreAdjustFactor": ["0.145813"]}
-        | {"backAdjustFactor": ["1.118280"], "adjustFactor": ["1.118280"]}
+        {"code": ["sh.600000"], "dividOperateDate": ["2002-07-25"], "foreAdjustFactor": ["0.400000"]}
+        | {"backAdjustFactor": ["1.250000"], "adjustFactor": ["1.250000"]}
     )
-    assert parse_adjust_factor(frame).rows() == [("600519.SH", d("2002-07-25"), 1.11828)]
+    assert parse_adjust_factor(frame).rows() == [("600000.SH", d("2002-07-25"), 1.25)]
 
 
 def test_normalize_starts_each_code_at_its_first_bar():
-    moutai = adj("600519.SH", [("2001-08-27", 1.0), ("2002-07-25", 1.118280), ("2003-07-14", 1.239853)])
-    got = normalize(moutai, spans(("600519.SH", "2003-01-06")))
-    assert rows(got) == [(d("2003-01-06"), 1.118280), (d("2003-07-14"), 1.239853)]
-    assert rows(normalize(adj("600519.SH", []), spans(("600519.SH", "2010-01-04")))) == [(d("2010-01-04"), 1.0)]
+    three = adj("600001.SH", [("2001-08-27", 1.0), ("2002-07-25", 1.25), ("2003-07-14", 1.5)])
+    got = normalize(three, spans(("600001.SH", "2003-01-06")))
+    assert rows(got) == [(d("2003-01-06"), 1.25), (d("2003-07-14"), 1.5)]
+    assert rows(normalize(adj("600001.SH", []), spans(("600001.SH", "2010-01-04")))) == [(d("2010-01-04"), 1.0)]
     same_day = adj("600000.SH", [("2005-03-01", 1.0), ("2010-01-04", 2.0)])
     assert rows(normalize(same_day, spans(("600000.SH", "2010-01-04")))) == [(d("2010-01-04"), 2.0)]
-    assert normalize(moutai, spans(("600000.SH", "2003-01-06"))).filter(pl.col("code") == "600519.SH").is_empty()
+    assert normalize(three, spans(("600000.SH", "2003-01-06"))).filter(pl.col("code") == "600001.SH").is_empty()
 
 
 def test_events_map_to_the_next_bar():
-    moutai = adj("600519.SH", [("2003-01-06", 1.118280), ("2003-07-14", 1.239853)])
-    got = events(moutai, bar_dates("600519.SH", ["2003-01-06", "2003-07-11", "2003-07-15"]))
+    two = adj("600001.SH", [("2003-01-06", 1.25), ("2003-07-14", 1.5)])
+    got = events(two, bar_dates("600001.SH", ["2003-01-06", "2003-07-11", "2003-07-15"]))
     assert got.select("day", "ex_date").rows() == [(d("2003-07-15"), d("2003-07-14"))]
-    assert round(got["step"][0], 6) == 1.108714
+    assert got["step"][0] == pytest.approx(1.2)  # 1.5 / 1.25
 
 
 def test_two_ex_dates_in_one_suspension_make_one_event():

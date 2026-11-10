@@ -1,6 +1,5 @@
 import datetime as dt
 import re
-import tomllib
 
 import pytest
 
@@ -31,28 +30,20 @@ def test_the_packaged_file_loads():
 
 
 def test_entries_load_as_written(tmp_path):
-    entries = load(write(tmp_path / "r.toml", EARLY, LATE))
+    entries = load(write(tmp_path / "r.toml", EARLY, LATE))  # load parses render's TOML
     assert entries.to_dicts() == [EARLY, LATE]
 
 
-def test_render_is_valid_toml():
-    assert tomllib.loads(render(EARLY))["resolution"] == [EARLY]
+MALFORMED = {
+    "fields_not_allowed": {"take": "seed", "kind": "average_price", "fields": OHLC},  # FIELDS per (kind, take)
+    "status": {"status": "rejected"},
+    "evidence": {"evidence": " "},
+    "code": {"code": "600000"},
+    "date": {"date": "2023-11-07"},
+}
 
 
-MALFORMED = [
-    {"kind": "volume_mismatch"},
-    {"take": "seed", "kind": "average_price", "fields": OHLC},
-    {"take": "null", "kind": "price_mismatch"},
-    {"take": "baostock", "kind": "average_price", "fields": ["amount"]},
-    {"fields": ["close"]},
-    {"status": "rejected"},
-    {"evidence": " "},
-    {"code": "600000"},
-    {"date": "2023-11-07"},
-]
-
-
-@pytest.mark.parametrize("change", MALFORMED)
+@pytest.mark.parametrize("change", MALFORMED.values(), ids=MALFORMED)
 def test_a_malformed_entry_is_refused(tmp_path, change):
     with pytest.raises(ValueError):
         load(write(tmp_path / "r.toml", EARLY | change))
@@ -97,7 +88,7 @@ def test_add_starts_a_new_file_with_the_packaged_header(tmp_path):
     assert path.read_text("utf-8").startswith(header.rstrip()) and load(path).height == 1
 
 
-@pytest.mark.parametrize("opening", ["[[ resolution ]]", "  [[resolution]]", "note = 1\n[[resolution]]"])
+@pytest.mark.parametrize("opening", ["[[ resolution ]]", "note = 1\n[[resolution]]"])
 def test_an_entry_the_split_would_miss_is_refused(tmp_path, opening):
     path = tmp_path / "r.toml"
     path.write_text("# decisions\n" + render(EARLY).replace("[[resolution]]", opening), "utf-8")

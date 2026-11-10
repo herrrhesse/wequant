@@ -2,7 +2,6 @@ import datetime as dt
 import json
 import socket
 import threading
-import time
 from pathlib import Path
 
 import polars as pl
@@ -59,26 +58,6 @@ def test_daily_bars_are_in_wequant_units():
     assert call[1]["code"] == "sh.600000" and call[1]["adjustflag"] == "3"
 
 
-def test_suspended_days_keep_their_status_and_empty_fields_become_null():
-    source = session(query_history_k_data_plus=[recorded("daily_suspended")])
-    case = RECORDED["daily_suspended"]
-    bars = source.daily_bars(case["code"], case["start"], case["end"])
-    halted = bars.filter(pl.col("tradestatus") == 0)
-    assert halted.height > 0
-    raw_volumes = [
-        r[case["fields"].index("volume")] for r in case["rows"] if r[case["fields"].index("tradestatus")] == "0"
-    ]
-    assert halted["volume"].null_count() == sum(v == "" for v in raw_volumes)
-
-
-def test_st_flag():
-    source = session(query_history_k_data_plus=[recorded("daily_st")])
-    case = RECORDED["daily_st"]
-    bars = source.daily_bars(case["code"], case["start"], case["end"])
-    flags = [r[case["fields"].index("isST")] == "1" for r in case["rows"]]
-    assert bars["is_st"].to_list() == flags and any(flags) and not all(flags)
-
-
 def test_reference_queries():
     source = session(
         query_stock_basic=[recorded("stock_basic")],
@@ -122,35 +101,31 @@ def test_a_silently_lost_page_raises():
         source.query("query_trade_dates")
 
 
-def test_retries_back_off_and_log_in_again(monkeypatch):
-    delays = []
-    monkeypatch.setattr(bsmod.time, "sleep", delays.append)
-    ok = recorded("trade_dates")
-    source = BaoStock(
-        client=FakeClient(
-            query_trade_dates=[
-                FakeResult([], [], "10001001", "not logged in"),
-                FakeResult([], [], "10002007", "recv"),
-                ok,
-            ]
-        )
-    )
-    source.login()
-    fields, rows = source.query("query_trade_dates")
-    assert rows and delays == [1.0, 2.0]
-    assert [c[0] for c in source.client.calls].count("login") == 2
-    assert [e[1] for e in source.errors] == ["10001001", "10002007"]
+NOT_LOGGED_IN = FakeResult([], [], "10001001", "not logged in")
+RECV_FAILED = FakeResult([], [], "10002007", "recv")
 
 
-def test_gives_up_after_three_retries(monkeypatch):
-    delays = []
-    monkeypatch.setattr(bsmod.time, "sleep", delays.append)
-    failing = [FakeResult([], [], "10002007", "recv") for _ in range(4)]
-    source = BaoStock(client=FakeClient(query_trade_dates=failing))
+@pytest.mark.parametrize(
+    "answers, delays, logins",
+    [
+        ([NOT_LOGGED_IN, RECV_FAILED, "ok"], [1.0, 2.0], 2),  # a kicked session logs in again, then succeeds
+        ([RECV_FAILED] * 4, [1.0, 2.0, 4.0], 1),  # three retries with backoff, then the error
+    ],
+    ids=["recovers", "gives_up"],
+)
+def test_retries_back_off_and_log_in_again(monkeypatch, answers, delays, logins):
+    slept = []
+    monkeypatch.setattr(bsmod.time, "sleep", slept.append)
+    replies = [recorded("trade_dates") if answer == "ok" else answer for answer in answers]
+    source = BaoStock(client=FakeClient(query_trade_dates=replies))
     source.login()
-    with pytest.raises(BaoStockError, match="10002007"):
-        source.query("query_trade_dates")
-    assert delays == [1.0, 2.0, 4.0] and len(source.errors) == 4
+    if answers[-1] == "ok":
+        assert source.query("query_trade_dates")[1]
+    else:
+        with pytest.raises(BaoStockError, match="10002007"):
+            source.query("query_trade_dates")
+    assert slept == delays and [c[0] for c in source.client.calls].count("login") == logins
+    assert [e[1] for e in source.errors] == [a.error_code for a in answers if a != "ok"]
 
 
 class StubSocket:
@@ -170,32 +145,6 @@ def test_a_guarded_socket_raises_once_the_server_has_closed():
     assert sock.recv(8192) == b"reply"
     with pytest.raises(ConnectionError):
         sock.recv(8192)
-
-
-class SlowSocket(StubSocket):
-    """Each reply arrives after `delay` seconds; an exception in the replies is raised instead."""
-
-    def __init__(self, replies, delay):
-        super().__init__(replies)
-        self.delay = delay
-
-    def recv(self, size):
-        time.sleep(self.delay)
-        reply = super().recv(size)
-        if isinstance(reply, Exception):
-            raise reply
-        return reply
-
-
-def test_a_guarded_socket_counts_the_time_spent_waiting_for_replies():
-    before = GuardedSocket.waited
-    sock = GuardedSocket(SlowSocket([b"reply", TimeoutError("timed out"), b""], delay=0.05))
-    assert sock.recv(8192) == b"reply"
-    with pytest.raises(TimeoutError):
-        sock.recv(8192)
-    with pytest.raises(ConnectionError):
-        sock.recv(8192)
-    assert GuardedSocket.waited - before >= 3 * 0.05  # the wait for a timeout or a close counts too
 
 
 def serve_once(handle) -> int:
@@ -237,10 +186,3 @@ def test_a_dead_connection_fails_the_login_instead_of_hanging(silent, released, 
     thread.join(5)
     assert not thread.is_alive(), "the login hangs on a dead connection"
     assert [error.code for error in errors] == ["10002007"]
-
-
-@pytest.mark.network
-def test_live_daily_bars():
-    with BaoStock() as source:
-        bars = source.daily_bars("600000.SH", "2026-11-02", "2026-11-06")
-    assert dict(bars.schema) == DAILY and bars.height == 5

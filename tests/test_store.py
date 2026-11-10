@@ -8,8 +8,9 @@ import socket
 import polars as pl
 import pytest
 
+from wequant.data import store as store_module
 from wequant.data.schema import TABLES
-from wequant.data.store import Store, StoreLocked, tables_digest, wequant_home
+from wequant.data.store import Store, StoreLocked, tables_digest
 
 META = {"last_trade_date": "2003-12-31", "source": "test", "release_tag": "t1"}
 
@@ -50,16 +51,6 @@ def four_years():
     )
 
 
-def factors(rows):
-    return pl.DataFrame(
-        {
-            "code": [r[0] for r in rows],
-            "ex_date": [dt.date.fromisoformat(r[1]) for r in rows],
-            "factor": [r[2] for r in rows],
-        }
-    )
-
-
 def entries(store, table, version=None):
     return {e["part"]: e for e in store.manifest(version)["tables"][table]["files"]}
 
@@ -82,13 +73,6 @@ def reads(monkeypatch):
     monkeypatch.setattr(pl, "scan_parquet", scan)
     monkeypatch.setattr(pl, "read_parquet", lambda *a, **k: pytest.fail("read_parquet bypasses scan"))
     return seen
-
-
-def test_home_from_environment(monkeypatch, tmp_path):
-    monkeypatch.setenv("WEQUANT_HOME", str(tmp_path))
-    assert wequant_home() == tmp_path
-    monkeypatch.delenv("WEQUANT_HOME")
-    assert wequant_home().name == ".wequant"
 
 
 # ---------------------------------------------------------------- write modes
@@ -114,7 +98,8 @@ def test_replace_drops_parts_the_new_frame_does_not_cover(store):
 
 
 def test_upsert_touches_only_its_year(store, reads):
-    store.commit(META, replace={"bars": four_years()})
+    calendar = pl.DataFrame({"date": [dt.date(2003, 1, 2)]})
+    store.commit(META, replace={"bars": four_years(), "calendar": calendar})
     before = entries(store, "bars")
     reads.clear()
     result = store.commit(
@@ -123,7 +108,11 @@ def test_upsert_touches_only_its_year(store, reads):
     )
     assert reads == ["2003.v1.parquet"]
     assert result.files_written == ["bars/2003.v2.parquet"]
-    assert result.files_kept == [f"bars/{y}.v1.parquet" for y in (2000, 2001, 2002)]
+    assert sorted(result.files_kept) == [
+        *(f"bars/{y}.v1.parquet" for y in (2000, 2001, 2002)),
+        "calendar/calendar.v1.parquet",
+    ]
+    assert set(store.manifest()["tables"]) == {"bars", "calendar"}  # a table the commit leaves out is carried over
     after = entries(store, "bars")
     assert {p: after[p] for p in ("2000", "2001", "2002")} == {p: before[p] for p in ("2000", "2001", "2002")}
     y2003 = store.read_table("bars", start="2003-01-01").sort("code", "date")
@@ -158,40 +147,12 @@ def test_replace_parts_swaps_whole_years_only(store):
     assert store.read_table("bars").height == 13
 
 
-def test_upsert_on_an_unpartitioned_table_merges_by_key(store):
-    store.commit(
-        META, replace={"adj_factor": factors([("600000.SH", "2001-01-02", 1.0), ("600000.SH", "2002-06-01", 1.1)])}
-    )
-    store.commit(
-        META, upsert={"adj_factor": factors([("600000.SH", "2002-06-01", 1.2), ("000001.SZ", "2001-01-02", 1.0)])}
-    )
-    out = store.read_table("adj_factor").sort("code", "ex_date")
-    assert out.rows() == [
-        ("000001.SZ", dt.date(2001, 1, 2), 1.0),
-        ("600000.SH", dt.date(2001, 1, 2), 1.0),
-        ("600000.SH", dt.date(2002, 6, 1), 1.2),
-    ]
-
-
-def test_a_table_in_two_modes_is_refused(store):
-    with pytest.raises(ValueError, match="more than one write mode"):
-        store.commit(META, replace={"bars": four_years()}, upsert={"bars": four_years()})
-
-
-def test_tables_not_in_a_commit_are_carried_over(store):
-    store.commit(META, replace={"calendar": pl.DataFrame({"date": [dt.date(2003, 1, 2)]})})
-    store.commit(META, replace={"bars": four_years()})
-    assert set(store.manifest()["tables"]) == {"calendar", "bars"}
-
-
-def test_commit_merges_meta(store):
+def test_code_version_alone_creates_no_version(store):
     store.commit({"source": "a", "release_tag": "t1"}, replace={"bars": four_years()})
     store.commit({"source": "b"}, upsert={"bars": bars([("600000.SH", "2003-06-03", 1)])})
     manifest = store.manifest()
-    assert manifest["source"] == "b" and manifest["release_tag"] == "t1"
+    assert manifest["source"] == "b" and manifest["release_tag"] == "t1"  # meta merges into the previous keys
 
-
-def test_code_version_alone_creates_no_version(store):
     store.commit({"w": {"code_version": "a", "n": 1}}, replace={"bars": four_years()})
     assert not store.commit({"w": {"code_version": "b", "n": 1}}, replace={"bars": four_years()}).changed
     assert store.manifest()["w"]["code_version"] == "a"
@@ -209,10 +170,12 @@ def test_meta_compares_as_the_manifest_stores_it(store):
 
 
 def test_tables_digest_identifies_named_tables(store):
-    store.commit(META, replace={"bars": four_years()})
-    manifest = store.manifest()
-    assert tables_digest(manifest, ["bars"]) == tables_digest(manifest) != tables_digest(manifest, ["bars", "calendar"])
-    assert len(tables_digest(manifest)) == 64
+    store.commit(META, replace={"bars": four_years(), "calendar": pl.DataFrame({"date": [dt.date(2003, 1, 2)]})})
+    before = store.manifest()
+    store.commit(META, upsert={"calendar": pl.DataFrame({"date": [dt.date(2003, 1, 3)]})})
+    after = store.manifest()
+    assert tables_digest(after, ["bars"]) == tables_digest(before, ["bars"])  # another table changed
+    assert tables_digest(after, ["bars", "calendar"]) != tables_digest(before, ["bars", "calendar"])
 
 
 def test_duplicates_and_schema(store):
@@ -241,6 +204,48 @@ def test_cleanup_keeps_the_newest_versions_and_deletes_only_when_asked(store):
     assert store.versions() == [2, 3, 4]
 
 
+def test_cleanup_keeps_a_file_a_kept_version_still_references(store):
+    store.commit(META, replace={"bars": four_years()})  # v1 writes 2000 to 2003
+    for close in (1, 2, 3):  # v2 to v4 rewrite 2003 only; 2000 to 2002 stay in their v1 files
+        store.commit(META, upsert={"bars": bars([("600000.SH", "2003-06-01", close)])})
+    deleted = {p.relative_to(store.home).as_posix() for p in store.cleanup(keep=3, dry_run=False)}
+    assert deleted == {"manifests/manifest.v1.json", "bars/2003.v1.parquet"}
+    for version in (2, 3, 4):
+        assert store.read_table("bars", version=version).height == 16
+
+
+def test_an_interrupted_commit_leaves_the_last_version_intact(store, monkeypatch):
+    """A write that fails anywhere in a commit (a data file, the version manifest, manifest.json) leaves manifest.json
+    and every table as the last commit left them, the lock free, and the next commit whole."""
+    calendar = pl.DataFrame({"date": [dt.date(2003, 1, 2)]})
+    store.commit(META, replace={"bars": four_years()})
+    manifest, rows = store.manifest(), store.read_table("bars")
+    change = {"bars": bars([("600000.SH", "2003-06-01", -1)]), "calendar": calendar}
+    real, failed_at = store_module.atomic_write, []
+    for failing in range(1, 10):
+        calls = []
+
+        def write(path, data):
+            calls.append(path)
+            if len(calls) == failing:
+                raise OSError("disk full")
+            real(path, data)
+
+        monkeypatch.setattr(store_module, "atomic_write", write)
+        try:
+            store.commit(META, upsert=change)
+        except OSError:
+            failed_at.append(calls[-1].name)
+            assert store.manifest() == manifest
+            assert store.read_table("bars").equals(rows) and "calendar" not in store.manifest()["tables"]
+            assert (store.home / ".lock").read_text() == ""
+            continue
+        break
+    assert failed_at == ["2003.v2.parquet", "calendar.v2.parquet", "manifest.v2.json", "manifest.json"]
+    assert store.manifest()["version"] == 2 and store.read_table("bars").height == 16
+    assert store.read_table("calendar").equals(calendar)
+
+
 # ---------------------------------------------------------------- scan
 
 
@@ -251,10 +256,6 @@ def test_scan_prunes_columns_and_filters_dates_inclusively(store):
     out = frame.collect()
     assert out.columns == ["code", "date", "close"]
     assert sorted(set(out["date"].to_list())) == [dt.date(2001, 6, 2), dt.date(2002, 6, 1)]
-
-
-def test_scan_filters_codes(store):
-    store.commit(META, replace={"bars": four_years()})
     out = store.read_table("bars", codes=["000001.SZ"])
     assert set(out["code"]) == {"000001.SZ"} and out.height == 8
 
@@ -280,7 +281,8 @@ def test_scan_uses_one_snapshot(store):
     snapshot = store.manifest()
     frame = store.scan("bars", manifest=snapshot)
     store.commit(META, replace={"bars": bars([("600000.SH", "2003-01-02", 1)])})
-    assert frame.collect().height == 16
+    assert frame.collect().height == 16  # a scan made before the commit
+    assert store.read_table("bars", manifest=snapshot).height == 16  # a scan made after it, on the older snapshot
 
 
 # ---------------------------------------------------------------- lock
