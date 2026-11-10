@@ -1,4 +1,5 @@
-"""Engine invariants over random strategies on a six-code market with gaps and a Beijing code."""
+"""Engine invariants over random strategies, pools and cross-sectional ranks on a six-code market with gaps and a
+Beijing code."""
 
 from dataclasses import replace
 
@@ -11,14 +12,16 @@ from hypothesis import strategies as st
 from tests.backtest.market import MIXED_BOARDS, build_store, mixed_market
 from wequant.account import Execution
 from wequant.backtest import Backtest, run
-from wequant.expr import REF, STD, Cache, Field
+from wequant.expr import CS_PCT, CS_ZSCORE, REF, STD, Cache, Field
 from wequant.panel import load_panel
 from wequant.strategy import (
     MODES,
     PERIODS,
+    POOL_BOARDS,
     Condition,
     Factor,
     Group,
+    Pool,
     Strategy,
     choose,
     picks_frame,
@@ -35,6 +38,10 @@ FACTORS = (
 )
 LIQUID = Condition("liquid", Field("amount") > 1e6)
 TRADABLE = (Condition("rising", CLOSE > OPEN), Condition("not_up", ~Field("limit_up")))
+CROSS_SECTIONAL = {  # ranked within the pool
+    "factor": Factor("relative", CS_ZSCORE(ADJ / REF(ADJ, 1)), prefer="low"),
+    "condition": Condition("upper", CS_PCT(CLOSE) > 0.3),
+}
 HOLDINGS = [
     "held",
     "action",
@@ -53,15 +60,28 @@ def panel(tmp_path_factory):
 
 
 @st.composite
+def pools(draw) -> Pool:
+    boards = draw(st.none() | st.lists(st.sampled_from(POOL_BOARDS), min_size=1, max_size=3, unique=True))
+    return Pool(
+        boards=None if boards is None else tuple(boards),
+        exclude_st=draw(st.booleans()),
+        min_list_days=draw(st.none() | st.integers(2, 8)),
+    )
+
+
+@st.composite
 def strategies(draw) -> Strategy:
-    flag = st.booleans()
+    flag, cross = st.booleans(), draw(st.sampled_from(sorted(CROSS_SECTIONAL)))
     factors = tuple(replace(f, enabled=draw(flag)) for f in FACTORS)
+    factors += (CROSS_SECTIONAL["factor"],) if cross == "factor" else ()
     ranked = any(f.enabled for f in factors)
     top_n = draw(st.none() | st.integers(1, 5)) if ranked else None
     weighting = draw(st.sampled_from(["equal", "formula", *(["score"] if ranked else [])]))
     tradable = Group("tradable", tuple(replace(c, enabled=draw(flag)) for c in TRADABLE), draw(st.sampled_from(MODES)))
+    filters = (replace(LIQUID, enabled=draw(flag)), replace(tradable, enabled=draw(flag)))
+    filters += (CROSS_SECTIONAL["condition"],) if cross == "condition" else ()
     return Strategy(
-        filters=(replace(LIQUID, enabled=draw(flag)), replace(tradable, enabled=draw(flag))),
+        filters=filters,
         factors=factors,
         top_n=top_n,
         backups=draw(st.integers(0, 2)) if top_n else 0,
@@ -72,6 +92,7 @@ def strategies(draw) -> Strategy:
         band=draw(st.none() | st.sampled_from([0.0, 0.05, 0.5])),
         hold_rank=draw(st.none() | st.integers(top_n + 1, top_n + 3)) if top_n else None,
         max_weight=draw(st.none() | st.sampled_from([0.15, 0.3, 0.6])),
+        pool=draw(pools()),
     )
 
 
