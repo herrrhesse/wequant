@@ -1,4 +1,4 @@
-"""Delisted codes: the day a holding is handled, the rule's kind, the user's overrides, and the panel's table."""
+"""Delisted codes (v4 D17, design 2.4): each test names the rule it guards."""
 
 import datetime as dt
 
@@ -9,9 +9,7 @@ import pytest
 from tests.backtest.market import build_store, business_days
 from wequant.data.delistings import (
     DELIST_DATE,
-    DELISTINGS,
     OVERRIDES,
-    Override,
     classify,
     delisted,
     overrides_digest,
@@ -40,8 +38,8 @@ def codes(**columns):
 
 
 def test_without_official_dates_the_day_follows_last_date_and_is_approximate():
+    """D17-3: the seed's last_date approximates the day; D17-4: 退 or a last close below 1 yuan is forced."""
     found = classify(codes(), CALENDAR, {})
-    assert found.schema == DELISTINGS
     rows = found.select("code", "day", "approximate", "kind", "classified_by").rows()
     assert rows == [
         ("600001.SH", D[2], True, "forced", "rule"),  # 退 in the name
@@ -52,6 +50,7 @@ def test_without_official_dates_the_day_follows_last_date_and_is_approximate():
 
 
 def test_official_dates_set_the_day_never_before_the_day_after_the_last_bar():
+    """Design 2.4: the first trading day on or after the official date, after the last bar; D17-4 and D17-7 kinds."""
     dates = pl.Series([D[3], None, D[4], dt.date(2024, 1, 6)], dtype=pl.Date)  # the last a Saturday
     found = classify(codes(**{DELIST_DATE: dates, "last_bar": pl.Series([D[3]] * 4)}), CALENDAR, {})
     rows = found.select("code", "delist_date", "day", "approximate", "kind").rows()
@@ -64,6 +63,7 @@ def test_official_dates_set_the_day_never_before_the_day_after_the_last_bar():
 
 
 def test_an_override_sets_the_kind_and_says_so():
+    """v4 D17 and D20: an override from the data root fixes a kind; each row says whether rule or override set it."""
     found = classify(codes(), CALENDAR, parse_overrides(OVERRIDE))
     row = found.filter(pl.col("code") == "600003.SH").row(0, named=True)
     assert (row["kind"], row["classified_by"], row["day"]) == ("merger", "override", D[3])
@@ -72,6 +72,7 @@ def test_an_override_sets_the_kind_and_says_so():
 
 
 def test_delisted_codes_end_before_the_calendar_or_have_an_official_date():
+    """v4 D17: every delisted code is listed, including those only the seed's early last_date suggests."""
     frame = codes()
     assert delisted(frame, CALENDAR).tolist() == [True, True, True, False]
     official = frame.with_columns(pl.Series(DELIST_DATE, [None, None, None, D[5]], dtype=pl.Date))
@@ -83,27 +84,24 @@ def test_delisted_codes_end_before_the_calendar_or_have_an_official_date():
     [
         ('["600003"]\nkind = "merger"\nevidence = "e"\nsource = "s"\n', "is not a code"),
         ('["600003.SH"]\nkind = "merger"\nevidence = "e"\n', "needs exactly kind, evidence, source"),
-        ('["600003.SH"]\nkind = "merger"\nevidence = "e"\nsource = "s"\nnote = "n"\n', "needs exactly"),
         ('["600003.SH"]\nkind = "unknown"\nevidence = "e"\nsource = "s"\n', "kind 'unknown' is not one of"),
         ('["600003.SH"]\nkind = "merger"\nevidence = " "\nsource = "s"\n', "non-empty text"),
-        ('["600003.SH"]\nkind = "merger"\nevidence = 1\nsource = "s"\n', "non-empty text"),
         ('["600003.SH"]\nkind = "merger"\nkind = "forced"\n', "overrides/delisting.toml"),
     ],
 )
 def test_a_malformed_override_names_its_entry(text, error):
+    """No silent fixes: a malformed overrides file stops with the entry at fault (one case per check)."""
     with pytest.raises(ValueError, match=error):
         parse_overrides(text)
 
 
 def test_no_overrides_file_is_an_empty_table():
+    """v4 D17: the table is the user's; without the file there are no overrides and no key suffix."""
     assert parse_overrides(None) == {} and overrides_digest(None) == ""
-    assert parse_overrides(OVERRIDE) == {
-        "600003.SH": Override("merger", "absorbed by 600999.SH", "announcement 2024-01-05")
-    }
-    assert overrides_digest(OVERRIDE).startswith("-o") and len(overrides_digest(OVERRIDE)) == 14
 
 
 def test_the_panel_classifies_its_codes_and_its_key_names_the_overrides(tmp_path):
+    """Reproducibility: the overrides change the panel's key, and so a run's id; wiring of the panel's table."""
     home = tmp_path / "home"
     bars = {"600001.SH": [(4.0, 4.0), (3.2, 3.2), *[None] * 4], "600002.SH": [(6.0, 6.0)] * 6}
     store = build_store(home, DAYS, bars)

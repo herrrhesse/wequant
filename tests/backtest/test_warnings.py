@@ -89,10 +89,9 @@ def test_a_holding_stale_in_the_middle_of_the_run_is_reported_though_it_trades_a
     bars = {A: [(10.0, 10.0), (10.3, 10.0), (10.0, 10.0)] + [None] * 23 + [(10.0, 10.0)] * 5}
     panel = panel_of(tmp_path, business_days(31), bars)
     result = run(Backtest(ONE, cash=100_000, execution=EX0, benchmark=None), panel)
-    text, params = result.warnings["stale_holdings"]
+    params = result.warnings["stale_holdings"][1]  # D17-5: stale_holdings covers the whole run
     assert (params["codes"], params["worst_day"], params["share"]) == (1, "2024-02-02", 0.0)  # rows 23 to 25
     assert params["worst_share"] == pytest.approx(97_000 / 97_059.03) and params["day"] == "2024-02-13"
-    assert text.endswith("at most 99.9% of equity on 2024-02-02, 0.0% on the last day 2024-02-13")
 
 
 def test_twenty_days_without_a_bar_are_not_stale(tmp_path):

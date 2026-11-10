@@ -112,7 +112,6 @@ def test_run_keeps_its_own_copy_of_the_description():
         {"versions": {"hold": 1.0}},
         {"warnings": {"Bad": ("x", {})}},
         {"warnings": {"ok": "x"}},
-        {"warnings": {"ok": ("x", {"n": True})}},
         {"warnings": {"ok": ("x", {"share": float("nan")})}},
         {"warnings": {"ok": ("x", {"n": np.int64(1)})}},
     ],

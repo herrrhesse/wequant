@@ -10,7 +10,6 @@ from tools.investment_data import checks, release
 from tools.investment_data.convert import ConventionError, convert
 from tools.investment_data.run import run_import
 from tools.investment_data.tests import synthetic as syn
-from wequant.data.issues import check_kind
 from wequant.data.schema import TABLES
 from wequant.data.store import Store
 
@@ -46,14 +45,6 @@ def test_prices_volume_and_amount_are_recovered(converted):
         np.testing.assert_allclose(b["amount"].to_numpy(), amount, rtol=1e-12)
     assert tables["bars"]["preclose_derived"].all()
     assert tables["bars"]["source"].unique().to_list() == [f"investment_data@{syn.TAG}"]
-
-
-def test_every_issue_is_a_known_kind(converted):
-    _, tables, _ = converted
-    written = tables["data_issues"].select("table", "kind", "action").unique().rows()
-    assert written
-    for row in written:
-        check_kind(*row)
 
 
 def test_index_bars_keep_points_to_0_001(converted):

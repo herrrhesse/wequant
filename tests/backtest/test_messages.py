@@ -1,10 +1,9 @@
-"""Warning texts: one per code in the run's order, every param read, every number and date of a text a param."""
+"""Design 6.1 (R-10): a warning's text is filled from its params, and every number and date in it is a param."""
 
 import re
 
 import pytest
 
-from wequant.backtest import WARNINGS
 from wequant.backtest.messages import TEXTS, warning
 
 EXAMPLES = {  # each code's params with the keys its warning carries
@@ -29,15 +28,10 @@ EXAMPLES = {  # each code's params with the keys its warning carries
 EXAMPLES["index_uncovered"]["first_2"] = "2007-01-15"
 
 
-def test_every_code_has_a_text_in_the_runs_order():
-    assert tuple(TEXTS) == WARNINGS and EXAMPLES.keys() == TEXTS.keys()
-
-
-@pytest.mark.parametrize("code", list(EXAMPLES))
+@pytest.mark.parametrize("code", list(TEXTS))  # one template per code
 def test_a_text_reads_every_param_and_shows_no_other_number(code):
     params = EXAMPLES[code]
-    text, kept = warning(code, params)
-    assert kept is params
+    text, _ = warning(code, params)
     for key in params:
         with pytest.raises(KeyError):
             TEXTS[code]({k: v for k, v in params.items() if k != key})

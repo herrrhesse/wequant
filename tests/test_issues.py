@@ -48,7 +48,8 @@ def test_no_detail_columns_give_null_details():
     assert issues["detail"].null_count() == 2
 
 
-def test_a_kind_outside_issue_kinds_is_refused():
+def test_issue_rows_checks_its_kind_against_issue_kinds():
+    """Wiring of A-1: the shared writer refuses an unclassified kind."""
     with pytest.raises(ValueError, match="add it to ISSUE_KINDS"):
         issue_rows(ROWS, "bars", "k", "flagged", [], "s")
 
