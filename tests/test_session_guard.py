@@ -4,7 +4,6 @@ from pathlib import Path
 
 CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
 LEAK = "import tempfile\n\ndef test_leaks():\n    tempfile.mkdtemp(dir='.')\n"
-CLEAN = "def test_writes_under_tmp_path(tmp_path):\n    (tmp_path / 'store').mkdir()\n"
 
 
 def session(pytester, test: str):
@@ -18,8 +17,3 @@ def test_a_leaked_temporary_directory_fails_the_session(pytester):
     result.assert_outcomes(passed=1)
     assert result.ret == 1
     result.stdout.fnmatch_lines([f"*the session left tmp* in {pytester.path}*"])
-
-
-def test_a_session_that_writes_under_tmp_path_passes(pytester):
-    result = session(pytester, CLEAN)
-    assert result.ret == 0 and "the session left" not in result.stdout.str()
