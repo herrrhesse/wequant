@@ -201,6 +201,16 @@ def test_a_cached_root_serves_the_roots_that_contain_it(panel, calls):
     assert calls == {"MA": 1, "GT": 1} and (cache.hits, cache.misses) == (1, 2)
 
 
+def test_a_seeded_node_is_taken_from_the_seed_and_never_computed(panel, calls):
+    ma = MA(close, 2)
+    plain = evaluate(ma > 10, panel)
+    calls.clear()
+    seeded = evaluate_all({"a": ma > 10, "b": ma - 1}, panel, seed={ma.key: evaluate(ma, panel)})
+    assert calls == {"MA": 1, "GT": 1, "SUB": 1}  # the one MA call made the seed
+    assert identical(seeded["a"], plain)
+    assert evaluate(ma, panel, seed={ma.key: plain}) is plain  # a seeded root is the seed's grid
+
+
 # ---------------------------------------------------------------- cache
 
 

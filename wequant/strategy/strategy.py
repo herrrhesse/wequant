@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import ClassVar, NamedTuple
 
 from wequant.canonical import canonical
-from wequant.expr import INDEXES, NOT, Expr, Field
+from wequant.expr import INDEXES, NOT, Expr, ExprError, Field
 from wequant.strategy.checks import (
     Checked,
     Rule,
@@ -24,10 +24,11 @@ from wequant.strategy.checks import (
     optional,
     wrong_type,
 )
+from wequant.strategy.compile import pool_expr, wrap
 from wequant.strategy.errors import Loc, SpecError
 from wequant.strategy.form import parse_form, to_form
 
-STRATEGY_VERSION = 1  # bump when a field's meaning, a default, the calendar or how a cross-section is picked changes
+STRATEGY_VERSION = 2  # bump when a field's meaning, a default, the calendar or how a cross-section is picked changes
 SH_SZ = NOT(Field("exchange@BJ"))  # the default universe: every code the rule book can trade
 MODES = ("all", "any")
 PREFERS = ("high", "low")
@@ -172,6 +173,7 @@ class Strategy(Checked):
     def check(self) -> None:
         _check_unique(self)
         _check_selection(self)
+        _check_compiled(self)
 
     def steps(self) -> tuple[Step, ...]:
         """The enabled filter steps in funnel order: a condition, or a group's enabled conditions then the group."""
@@ -210,6 +212,22 @@ def _names(strategy: Strategy) -> Iterator[tuple[str, Loc]]:
         yield factor.name, ("factors", i, "name")
 
 
+def _wrapped(strategy: Strategy) -> Iterator[tuple[Expr, Loc]]:
+    """Each expression the compiler wraps in the pool, with its location: enabled conditions, factors and formula."""
+    for i, item in enumerate(strategy.filters):
+        if item.enabled and isinstance(item, Condition):
+            yield item.expr, ("filters", i, "expr")
+        elif item.enabled:
+            for k, member in enumerate(item.conditions):
+                if member.enabled:
+                    yield member.expr, ("filters", i, "conditions", k, "expr")
+    for i, factor in enumerate(strategy.factors):
+        if factor.enabled:
+            yield factor.expr, ("factors", i, "expr")
+    if strategy.formula is not None:
+        yield strategy.formula, ("formula",)
+
+
 def _check_unique(strategy: Strategy) -> None:
     seen = set()
     for name, loc in _names(strategy):
@@ -234,3 +252,16 @@ def _check_selection(strategy: Strategy) -> None:
         raise SpecError("requires", ("hold_rank",), "hold_rank needs an int top_n")
     if strategy.hold_rank is not None and strategy.hold_rank <= top_n:
         raise SpecError("out_of_range", ("hold_rank",), f"{strategy.hold_rank} is not above top_n {top_n}")
+
+
+def _check_compiled(strategy: Strategy) -> None:
+    """too_large where the pool, copied into each cross-sectional operator, makes an expression exceed MAX_NODES."""
+    try:
+        pool = pool_expr(strategy)
+    except ExprError as error:
+        raise SpecError(error.code, ("pool",), str(error)) from None
+    for expr, loc in _wrapped(strategy):
+        try:
+            wrap(expr, pool)
+        except ExprError as error:
+            raise SpecError(error.code, loc, str(error)) from None

@@ -8,6 +8,7 @@ from typing import NamedTuple
 import numpy as np
 
 from wequant import ops
+from wequant.strategy.compile import pool_items
 from wequant.strategy.strategy import Strategy
 
 
@@ -20,11 +21,11 @@ class Section(NamedTuple):
     """A strategy's cross-section on decision rows; every array is (R, N) over the rows and the panel's columns."""
 
     rows: np.ndarray  # (R,) int64 panel rows
-    steps: dict[str, np.ndarray]  # int8 verdicts: "universe" then each enabled step
+    steps: dict[str, np.ndarray]  # int8 verdicts: "universe", each pool item, then each enabled step
     factors: dict[str, np.ndarray]  # float64: each enabled factor's value
     formula: np.ndarray | None  # float64: the weight formula's value, for weighting "formula"
     traded: np.ndarray  # bool: a bar on the decision row
-    eligible: np.ndarray  # bool: universe and every chain step pass
+    eligible: np.ndarray  # bool: the universe, every pool item and every chain step pass
     scored: np.ndarray  # bool: eligible, traded, every factor finite, a finite positive formula
     score: np.ndarray  # float64 in (0, 1] where scored, NaN elsewhere
     rank: np.ndarray  # int64 1-based among scored by (score desc, column asc), 0 elsewhere
@@ -33,8 +34,8 @@ class Section(NamedTuple):
 
 
 def cross_section(strategy: Strategy, grids: Mapping[str, np.ndarray], traded: np.ndarray, rows: np.ndarray) -> Section:
-    """The Section of decision rows from grids keyed as expressions(strategy) on those rows: verdicts for the universe and
-    conditions, float64 for factors and the formula; traded is the bar mask of those rows."""
+    """The Section of decision rows from grids keyed as expressions(strategy) on those rows: verdicts for the universe,
+    pool items and conditions, float64 for factors and the formula; traded is the bar mask of those rows."""
     steps = _steps(strategy, grids)
     eligible = _eligible(strategy, steps)
     factors = {f.name: grids[f.name] for f in strategy.factors if f.enabled}
@@ -51,8 +52,9 @@ def cross_section(strategy: Strategy, grids: Mapping[str, np.ndarray], traded: n
 
 
 def _steps(strategy: Strategy, grids: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
-    """The universe and each step's verdicts; a group combines its members' pass and fail, never their values."""
-    steps = {"universe": grids["universe"]}
+    """The universe's, each pool item's and each step's verdicts; a group combines its members' pass and fail, never
+    their values."""
+    steps = {name: grids[name] for name in ("universe", *pool_items(strategy))}
     for step in strategy.steps():
         if step.expr is not None:
             steps[step.name] = grids[step.name]
@@ -63,11 +65,10 @@ def _steps(strategy: Strategy, grids: Mapping[str, np.ndarray]) -> dict[str, np.
 
 
 def _eligible(strategy: Strategy, steps: dict[str, np.ndarray]) -> np.ndarray:
-    """The universe and every chain step pass."""
+    """The universe, every pool item and every chain step pass."""
     eligible = steps["universe"] == 1
-    for step in strategy.steps():
-        if step.chain:
-            eligible = eligible & (steps[step.name] == 1)
+    for name in (*pool_items(strategy), *(step.name for step in strategy.steps() if step.chain)):
+        eligible = eligible & (steps[name] == 1)
     return eligible
 
 

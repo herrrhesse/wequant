@@ -116,7 +116,7 @@ def test_rotation_identities_progress_and_warnings(rotated, rotation):
     assert result.versions == versions("rebalance", 1)
     assert result.versions == {
         "rebalance": 1,
-        "strategy": 1,
+        "strategy": 2,
         "expr": EXPR_VERSION,
         "execution": EXECUTION_VERSION,
         "metrics": METRICS_VERSION,
@@ -258,7 +258,7 @@ def test_a_cancel_inside_select_stops_after_the_root_it_follows(rotation):
     cancel, calls = counting(2)
     with pytest.raises(Cancelled, match="run cancelled"):
         run(Backtest(RET1, execution=EX0), rotation, cache=cache, progress=progress.append, cancel=cancel)
-    assert len(calls) == 3 and progress == [] and cache.misses == 2  # before select, then universe and ret1
+    assert len(calls) == 3 and progress == [] and cache.misses == 1  # before select, then universe and pool, one root
 
 
 def test_a_cancel_between_checkpoints_stops_the_day_loop(tmp_path):

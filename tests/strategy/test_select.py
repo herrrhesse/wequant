@@ -66,7 +66,7 @@ def test_select_is_cross_section_of_the_evaluated_rows(panel):
 def test_on_root_follows_expressions_and_a_cache_serves_the_second_select(panel):
     names, cache = [], Cache()
     select(STRATEGY, panel, [3, 8], cache, on_root=names.append)
-    assert names == list(expressions(STRATEGY)) == ["universe", "cheap", "up", "big", "mom", "level", "formula"]
+    assert names == list(expressions(STRATEGY)) == ["universe", "pool", "cheap", "up", "big", "mom", "level", "formula"]
     assert (cache.hits, cache.misses) == (0, 7)
     select(STRATEGY, panel, [3, 8], cache)
     assert cache.hits == 7

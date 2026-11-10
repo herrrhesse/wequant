@@ -1,4 +1,4 @@
-"""A strategy's cross-section on a panel: its expressions evaluated once on the whole panel, kept on decision rows."""
+"""A strategy's cross-section on a panel: its compiled roots evaluated once on the whole panel, kept on decision rows."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 import polars as pl
 
-from wequant.expr import Cache, Expr, evaluate
+from wequant.expr import Cache, evaluate, evaluate_all
+from wequant.strategy.compile import expressions, pool_items
 from wequant.strategy.section import Section, cross_section, verdicts
 from wequant.strategy.strategy import Strategy
 
@@ -37,16 +38,6 @@ class Screen(NamedTuple):
     stocks: pl.DataFrame
 
 
-def expressions(strategy: Strategy) -> dict[str, Expr]:
-    """The roots by name: "universe", each enabled condition, each enabled factor, "formula"."""
-    roots = {"universe": strategy.universe}
-    roots |= {step.name: step.expr for step in strategy.steps() if step.expr is not None}
-    roots |= {f.name: f.expr for f in strategy.factors if f.enabled}
-    if strategy.weighting == "formula":
-        roots["formula"] = strategy.formula
-    return roots
-
-
 def select(
     strategy: Strategy,
     panel: Panel,
@@ -54,18 +45,24 @@ def select(
     cache: Cache | None = None,
     on_root: Callable[[str], None] | None = None,
 ) -> Section:
-    """Each root evaluated on the whole panel and kept on rows, on_root(name) after each; ValueError when the universe
-    admits a Beijing code on one of them."""
-    rows = np.asarray(rows, dtype=np.int64)
+    """Each root of expressions(strategy) evaluated on the whole panel and kept on rows, on_root(name) after each: the
+    pool and its parts together, then every other root seeded with the pool's grid, so it is computed once; ValueError
+    when the pool admits a Beijing code on one of the rows."""
+    rows, roots, report = np.asarray(rows, dtype=np.int64), expressions(strategy), on_root or (lambda name: None)
+    family = {name: roots[name] for name in ("universe", *pool_items(strategy), "pool")}
+    grids = evaluate_all(family, panel, cache)
+    seed = {family["pool"].key: grids["pool"]}
+    kept = {name: verdicts(grid[rows]) for name, grid in grids.items()}  # 1 byte a cell instead of 8
+    for name in family:
+        report(name)
+    _check_beijing(panel, rows, kept["pool"], "pool" if len(family) > 2 else "universe")
     values = {f.name for f in strategy.factors if f.enabled} | {"formula"}
-    grids = {}
-    for name, expr in expressions(strategy).items():
-        grid = evaluate(expr, panel, cache)[rows]
-        grids[name] = grid if name in values else verdicts(grid)  # 1 byte a cell instead of 8
-        if on_root is not None:
-            on_root(name)
-    _check_beijing(panel, rows, grids["universe"])
-    return cross_section(strategy, grids, panel.traded[rows], rows)
+    for name, expr in roots.items():
+        if name not in family:
+            grid = evaluate(expr, panel, cache, seed)[rows]
+            kept[name] = grid if name in values else verdicts(grid)
+            report(name)
+    return cross_section(strategy, kept, panel.traded[rows], rows)
 
 
 def screen(strategy: Strategy, panel: Panel, day: Day | None = None, cache: Cache | None = None) -> Screen:
@@ -118,9 +115,9 @@ def funnel_frame(strategy: Strategy, section: Section, panel: Panel) -> pl.DataF
 
 
 def detail_frame(strategy: Strategy, section: Section, panel: Panel) -> pl.DataFrame:
-    """Each decision row's universe codes: step verdicts, scored and rank."""
+    """Each decision row's universe codes: pool item and step verdicts, scored and rank."""
     i, j = np.nonzero(section.steps["universe"] == 1)
-    steps = [step.name for step in strategy.steps()]
+    steps = [*pool_items(strategy), *(step.name for step in strategy.steps())]
     columns = {
         "date": pl.Series(panel.dates[section.rows], dtype=pl.Date).gather(i),
         "code": pl.Series(panel.codes, dtype=pl.String).gather(j),
@@ -133,7 +130,7 @@ def detail_frame(strategy: Strategy, section: Section, panel: Panel) -> pl.DataF
 
 def stocks_frame(strategy: Strategy, section: Section, panel: Panel, i: int = 0) -> pl.DataFrame:
     """Every code's full row on decision row i."""
-    steps = ["universe", *(step.name for step in strategy.steps())]
+    steps = ["universe", *pool_items(strategy), *(step.name for step in strategy.steps())]
     target, backup = section.weight[i] > 0, section.backup[i]
     values = dict(section.factors)
     if section.formula is not None:
@@ -152,12 +149,18 @@ def stocks_frame(strategy: Strategy, section: Section, panel: Panel, i: int = 0)
 
 
 def _funnel(strategy: Strategy, section: Section) -> Iterator[tuple[str, np.ndarray, np.ndarray]]:
-    """(step, passed, left) per decision row: passed alone within the universe, left along the chain (NaN in a group)."""
+    """(step, passed, left) per decision row, left along the chain (NaN in a group): a pool item's passed alone within
+    the universe, a condition's or group's alone within the pool."""
     universe = section.steps["universe"] == 1
     left = universe
     yield "universe", universe.sum(axis=1), universe.sum(axis=1)
+    for name in pool_items(strategy):
+        passes = universe & (section.steps[name] == 1)
+        left = left & passes
+        yield name, passes.sum(axis=1), left.sum(axis=1)
+    pool = left
     for step in strategy.steps():
-        passes = universe & (section.steps[step.name] == 1)
+        passes = pool & (section.steps[step.name] == 1)
         if step.chain:
             left = left & passes
             yield step.name, passes.sum(axis=1), left.sum(axis=1)
@@ -167,12 +170,12 @@ def _funnel(strategy: Strategy, section: Section) -> Iterator[tuple[str, np.ndar
         yield name, mask.sum(axis=1), mask.sum(axis=1)
 
 
-def _check_beijing(panel: Panel, rows: np.ndarray, universe: np.ndarray) -> None:
+def _check_beijing(panel: Panel, rows: np.ndarray, pool: np.ndarray, name: str) -> None:
     beijing = panel.exchanges == "BJ"
-    i, j = np.nonzero(universe[:, beijing] == 1)
+    i, j = np.nonzero(pool[:, beijing] == 1)
     if i.size:
         code, day = panel.codes[beijing][j[0]], panel.dates[rows[i[0]]]
-        raise ValueError(f"universe admits {code} on {day}: the rule book has no Beijing rules; add ~exchange@BJ")
+        raise ValueError(f"{name} admits {code} on {day}: the rule book has no Beijing rules; add ~exchange@BJ")
 
 
 def _floats(values: np.ndarray) -> pl.Series:

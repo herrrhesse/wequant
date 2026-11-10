@@ -1,5 +1,6 @@
 """Strategy descriptions and their cross-section on a day: universe, filters, ranked factors, top N and weights."""
 
+from wequant.strategy.compile import CROSS_SECTIONAL, expressions, pool_expr, pool_items, wrap
 from wequant.strategy.errors import SpecError, SpecErrors
 from wequant.strategy.form import parse_form, to_form
 from wequant.strategy.schedule import decision_rows
@@ -10,7 +11,6 @@ from wequant.strategy.select import (
     Screen,
     check_anchor,
     detail_frame,
-    expressions,
     funnel_frame,
     picks_frame,
     screen,
@@ -36,6 +36,7 @@ from wequant.strategy.strategy import (
 )
 
 __all__ = [
+    "CROSS_SECTIONAL",
     "FUNNEL",
     "MODES",
     "PERIODS",
@@ -65,9 +66,12 @@ __all__ = [
     "funnel_frame",
     "parse_form",
     "picks_frame",
+    "pool_expr",
+    "pool_items",
     "screen",
     "select",
     "stocks_frame",
     "to_form",
     "verdicts",
+    "wrap",
 ]
