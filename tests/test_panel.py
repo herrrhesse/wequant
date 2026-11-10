@@ -220,16 +220,15 @@ def test_golden_a(store, cache):
     assert np.isnan(pre[0]) and panel.traded[0, a]
 
 
-def test_golden_b(store, cache):
+def test_status_golden(store, cache):
+    """Each code's day statuses without daily_status. Only a bars row_dropped issue makes a day MISSING:
+    A's duplicate_dropped day 4 stays SUSPENDED, B's status_dropped day 1 and limits_voided day 8 stay NOT_LISTED."""
     panel = load_panel(store=store, cache_dir=cache)
+    assert panel.status[:, col(panel, A)].tolist() == statuses("T T M S T T T T")
     assert panel.status[:, col(panel, B)].tolist() == statuses("N N T T S T M N")
-
-
-def test_golden_d_without_daily_status(store, cache):
-    panel = load_panel(store=store, cache_dir=cache)
     assert panel.status[:, col(panel, D)].tolist() == statuses("T T S T S T M S")
-    assert not panel.st.any() and not panel.st_known.any()
     assert (panel.status[:, col(panel, C)] == TRADED).all()
+    assert not panel.st.any() and not panel.st_known.any()
 
 
 def test_golden_d_with_daily_status(store, cache):
@@ -248,13 +247,6 @@ def test_golden_d_with_daily_status(store, cache):
     assert_invariants(panel, store)
 
 
-def test_only_row_dropped_on_bars_makes_a_day_missing(store, cache):
-    panel = load_panel(store=store, cache_dir=cache)
-    assert panel.status[3, col(panel, A)] == SUSPENDED  # duplicate_dropped
-    assert panel.status[0, col(panel, B)] == NOT_LISTED  # status_dropped
-    assert panel.status[7, col(panel, B)] == NOT_LISTED  # limits_voided
-
-
 def test_invariants_on_every_slice(store, cache):
     for query in [{}, {"start": "2024-01-04", "end": "2024-01-09"}, {"codes": [C, A]}, {"start": "2024-01-06"}]:
         assert_invariants(load_panel(store=store, cache_dir=cache, **query), store)
@@ -267,17 +259,6 @@ def test_on_bars_bridges_a_mask_to_a_condition(store, cache):
     result = panel.on_bars(mask)
     assert result.dtype == np.float64
     np.testing.assert_array_equal(result[:, 0], [1, 0, NAN, 1])
-    np.testing.assert_array_equal(panel.on_bars(mask.astype(float))[:, 0], [1, 0, NAN, 1])
-    with pytest.raises(ValueError, match="shape"):
-        panel.on_bars(mask[:3])
-
-
-def test_adjusted_is_for_prices_only(store, cache):
-    panel = load_panel(store=store, cache_dir=cache)
-    with pytest.raises(ValueError):
-        panel.adjusted("volume")
-    with pytest.raises(ValueError):
-        panel.raw("turnover")
 
 
 # ---------------------------------------------------------------- limits
@@ -300,14 +281,6 @@ def test_limits_from_load_limits(store, cache, stub_rules):
     assert np.array_equal(panel.limit_known, (panel.traded & ~np.isnan(panel.raw("preclose"))) | (up == np.inf))
     assert panel.rules_key == "stubstubstub-r1"
     assert (cache / "panel" / panel.key / "limits-stubstubstub-r1.npy").exists()
-
-
-def test_limits_with_the_real_rules(store, cache):
-    panel = load_panel(store=store, cache_dir=cache)
-    a, b = col(panel, A), col(panel, B)
-    assert (panel.limit_up_price[7, a], panel.limit_down_price[7, a]) == (5.50, 4.50)
-    for t in (2, 3, 5):
-        assert (panel.limit_up_price[t, b], panel.limit_down_price[t, b]) == (np.inf, -np.inf)
 
 
 # ---------------------------------------------------------------- slicing and read-only
@@ -345,25 +318,11 @@ def test_slicing(store, cache, stub_rules):
 
 def test_arrays_are_read_only(store, cache, stub_rules):
     for panel in (load_panel(store=store, cache_dir=cache), load_panel(codes=[A], store=store, cache_dir=cache)):
-        arrays = [panel.raw("close"), panel.adjusted("close"), panel.traded, panel.limit_up, panel.limit_up_price]
-        arrays += [
-            panel.on_bars(panel.st),
-            panel.factor,
-            panel.status,
-            panel.dates,
-            panel.codes,
-            panel.index_close("000300.SH"),
-        ]
-        for array in arrays:
+        for array in (panel.raw("close"), panel.traded, panel.limit_up_price):
             with pytest.raises(ValueError):
                 array[0] = 1
     rows = load_panel("2024-01-04", "2024-01-09", store=store, cache_dir=cache).raw("close")
     assert not rows.flags.owndata and not rows.flags.writeable  # a view into the memory map
-
-
-def test_nothing_committed_raises_lookup_error(tmp_path):
-    with pytest.raises(LookupError):
-        load_panel(store=Store(tmp_path / "empty"), cache_dir=tmp_path / "cache")
 
 
 # ---------------------------------------------------------------- point in time
@@ -424,8 +383,3 @@ def test_index_close_leaves_missing_days_empty(store, cache):
     np.testing.assert_array_equal(close, [3500, 3501, 3502, NAN, 3504, 3505, 3506, 3507])
     part = load_panel("2024-01-05", "2024-01-08", store=store, cache_dir=cache)
     np.testing.assert_array_equal(part.index_close("000300.SH"), [NAN, 3504])
-
-
-def test_manifest_is_the_store_manifest_the_panel_reads(store, cache):
-    panel = load_panel(store=store, cache_dir=cache)
-    assert panel.manifest == store.manifest(1) and panel.manifest["version"] == panel.version

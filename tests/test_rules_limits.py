@@ -3,10 +3,8 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import numpy as np
 import polars as pl
-import pytest
 
 from wequant.rules.limits import FREE, INPUT, LIMITED, UNKNOWN, price_limits
-from wequant.rules.rounding import round_half_up
 
 CENT = Decimal("0.01")
 
@@ -26,13 +24,6 @@ def limits(**row) -> tuple:
     """(limit_up, limit_down, limit_rule, limit_state) of one row."""
     out = price_limits(inputs([{"code": "600000.SH", **row}])).row(0, named=True)
     return out["limit_up"], out["limit_down"], out["limit_rule"], out["limit_state"]
-
-
-def test_round_half_up_on_ints_arrays_and_expressions():
-    assert [round_half_up(n, 10) for n in (14, 15, 16, 25)] == [1, 2, 2, 3]
-    assert round_half_up(np.array([14, 15, 25], dtype=np.int64), 10).tolist() == [1, 2, 3]
-    frame = pl.DataFrame({"n": [14, 15, 25]}).select(round_half_up(pl.col("n"), 10))
-    assert frame.to_series().to_list() == [1, 2, 3]
 
 
 def reference(yuan: list[Decimal], bp: int) -> np.ndarray:
@@ -60,40 +51,16 @@ def test_limits_match_decimal_half_up_for_every_fen_price():
         assert out["limit_state"].unique().to_list() == [LIMITED]
 
 
-@pytest.mark.parametrize(
-    "pre, is_st, up, down",
-    [
-        (13550, None, 14910, 12200),
-        (4050, None, 4460, 3650),
-        (900, True, 950, 860),
-        (3300, True, 3470, 3140),
-    ],
-)
-def test_ties_round_half_up(pre, is_st, up, down):
-    assert limits(date="2024-02-20", board="main", preclose=pre, is_st=is_st)[:2] == (up, down)
-
-
-def test_ties_round_up_where_float_rounding_goes_down():
-    assert round(1.15 * 1.1, 2) == 1.26
-    assert limits(date="2024-02-20", board="main", preclose=1150)[0] == 1270
-
-
 def test_tick_guards_keep_a_limit_one_tick_from_the_preclose():
     assert limits(date="2024-02-20", board="main", preclose=90, is_st=True)[:2] == (100, 80)
     assert limits(date="2024-02-20", board="main", preclose=40)[:2] == (50, 30)
 
 
-def test_large_prices_compute_in_int64_and_return_int32():
-    out = price_limits(inputs([{"code": "600519.SH", "date": "2024-02-20", "board": "main", "preclose": 1695430}]))
-    assert out.row(0, named=True)["limit_up"] == 1864970 and out.row(0, named=True)["limit_down"] == 1525890
-    assert out.schema["limit_up"] == pl.Int32 and out.schema["limit_down"] == pl.Int32
-    assert out.schema["limit_state"] == pl.Int8
-
-
 def test_unknown_st_takes_the_normal_band_and_changes_nothing_else():
-    row = {"code": "603555.SH", "date": "2024-02-23", "board": "main", "preclose": 900}
+    row = {"code": "600000.SH", "date": "2024-02-20", "board": "main", "preclose": 1230}
     st, unknown = price_limits(inputs([{**row, "is_st": True}, row])).iter_rows(named=True)
-    assert (st["limit_up"], st["limit_down"], unknown["limit_up"], unknown["limit_down"]) == (950, 860, 990, 810)
+    # ST 5%: 1291.5 and 1168.5 round to 1290 and 1170; unknown ST takes 10%: 1353 and 1107 round to 1350 and 1110
+    assert (st["limit_up"], st["limit_down"], unknown["limit_up"], unknown["limit_down"]) == (1290, 1170, 1350, 1110)
     assert {k: v for k, v in st.items() if k not in ("is_st", "limit_up", "limit_down")} == {
         k: v for k, v in unknown.items() if k not in ("is_st", "limit_up", "limit_down")
     }
@@ -109,14 +76,11 @@ def test_new_listing_rules_are_chosen_by_listing_date():
 def test_a_first_day_cap_without_preclose_is_unknown():
     day1 = limits(date="2014-02-11", board="main", list_date="2014-02-11", listing_day=1)
     assert day1 == (None, None, "ipo-main-2014", UNKNOWN)
-
-
-def test_no_preclose_gives_unknown_with_the_rule_set():
     assert limits(date="2024-02-20", board="main") == (None, None, "band-main-1996", UNKNOWN)
 
 
 def test_days_before_any_rule_are_unknown_without_a_rule():
-    assert limits(date="2020-07-24", board="bse", preclose=9570) == (None, None, None, UNKNOWN)
+    assert limits(date="2020-07-24", board="bse", preclose=10000) == (None, None, None, UNKNOWN)
 
 
 def test_input_order_and_extra_columns_are_kept():

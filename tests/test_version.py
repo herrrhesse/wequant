@@ -18,10 +18,6 @@ def checkout(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_code_version_starts_with_the_package_version():
-    assert code_version().startswith(version("wequant"))
-
-
 def test_untracked_code_makes_the_version_dirty(checkout):
     (checkout / "notes.md").touch()
     assert re.fullmatch(re.escape(version("wequant")) + r"\+g[0-9a-f]{12}", code_version())

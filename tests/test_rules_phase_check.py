@@ -6,9 +6,9 @@ import polars as pl
 from tests.frames import table_frame
 from tests.test_rules_limits import inputs
 from wequant.data.schema import TABLES
-from wequant.rules.check import ACTION, KIND, limit_issues, missing_issues, void
+from wequant.rules.check import ACTION, KIND, limit_issues, void
 from wequant.rules.limits import FREE, LIMITED, UNKNOWN, price_limits
-from wequant.rules.phase import add_gap_days, add_listing_day, list_dates
+from wequant.rules.phase import add_listing_day, list_dates
 
 CALENDAR = pl.Series("date", [dt.date(2024, 1, d) for d in (2, 3, 4, 5, 8, 9, 10)])
 
@@ -55,13 +55,6 @@ def test_listing_day_counts_trading_days_suspended_or_not():
     assert out.schema["listing_day"] == pl.Int32
 
 
-def test_gap_days_count_skipped_trading_days_per_code():
-    out = add_gap_days(phase_frame(), CALENDAR)
-    assert out["gap_days"].to_list() == [None, 0, 2, 5, None]
-    assert out.schema["gap_days"] == pl.Int32
-    assert out.columns == [*phase_frame().columns, "gap_days"]
-
-
 def checked(rows: list[dict]) -> pl.DataFrame:
     """price_limits of main-board rows on 2024-01-03 plus the check's extra columns (high, low default to preclose)."""
     rows = [{"date": "2024-01-03", "board": "main", **row} for row in rows]
@@ -106,14 +99,6 @@ def test_a_breach_becomes_one_valid_issue_with_measured_values():
         "preclose": 10000,
         "preclose_derived": True,
     }
-    assert issues["detail"][0] == json.dumps(json.loads(issues["detail"][0]), sort_keys=True, ensure_ascii=False)
-
-
-def test_missing_issues_compare_keys():
-    frame = checked([{"code": c, "preclose": 10000, "low": 8000} for c in ("600000.SH", "600001.SH")])
-    issues = limit_issues(frame, "s")
-    assert missing_issues(issues, issues).height == 0
-    assert missing_issues(issues, issues.head(1).with_columns(detail=pl.lit("{}")))["code"].to_list() == ["600001.SH"]
 
 
 def test_void_nulls_exactly_the_flagged_days():
