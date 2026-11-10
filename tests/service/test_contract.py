@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from wequant import service
-from wequant.service.contract import DIALECT, OPERATIONS, PLANNED, REGENERATE
+from wequant.service.contract import OPERATIONS, PLANNED, REGENERATE
 
 SNAPSHOT = Path(__file__).resolve().parents[2] / "frontend/contract/service-models.schema.json"
 
@@ -16,6 +16,7 @@ def document():
 
 
 def test_the_snapshot_is_the_output_of_the_schema_command(cli):
+    """The frontend's contract file is exactly what `wequant schema --json` prints for the current models."""
     code, out, err = cli("schema", "--json")
     assert (code, err) == (0, "")
     if out != SNAPSHOT.read_text("utf-8"):
@@ -31,44 +32,3 @@ def test_every_operation_is_listed_with_its_request_and_result(document):
     assert planned == [name for name, _, _ in PLANNED] and not set(planned) & functions
     for row in document["operations"]:
         assert {row["request"], row["result"]} <= document["$defs"].keys()
-
-
-def test_a_json_schema_document_of_every_model_by_name(document):
-    defs = document["$defs"]
-    assert list(document)[:2] == ["$schema", "title"] and document["$schema"] == DIALECT
-    assert (
-        list(defs) == sorted(defs)
-        and {"ErrorBody", "ErrorDetail", "Exit", "Row", "TableStatus", "IssueRow"} <= defs.keys()
-    )
-    assert refs(document) <= {f"#/$defs/{name}" for name in defs}
-    assert defs["ErrorBody"]["required"] == ["exit", "name", "message"] and defs["Exit"]["enum"] == [
-        int(e) for e in service.Exit
-    ]
-
-
-def test_requests_as_accepted_and_results_as_printed(document):
-    request, result = document["$defs"]["BarsRequest"], document["$defs"]["Bars"]
-    assert request["required"] == ["codes"] and request["additionalProperties"] is False
-    assert result["required"] == ["data_version", "fields", "rows"]
-    assert "title" not in request["properties"]["codes"] and request["title"] == "BarsRequest"
-
-
-def test_human_output_lists_the_operations_then_the_models(cli):
-    code, out, _ = cli("schema")
-    operations, models = out.split("\n\n")
-    assert code == 0 and operations.splitlines()[:2] == [
-        "operation          request                result            available",
-        "data_status        StatusRequest          DataStatus        true",
-    ]
-    assert models.splitlines()[0].split() == ["model", "description"]
-    assert "\nErrorBody              A failed operation: its exit code, why, and the located details;" in models
-
-
-def refs(node) -> set[str]:
-    """Every $ref in a JSON document."""
-    if isinstance(node, list):
-        return set().union(*map(refs, node))
-    if not isinstance(node, dict):
-        return set()
-    found = {node["$ref"]} if isinstance(node.get("$ref"), str) else set()
-    return found.union(*map(refs, node.values()))

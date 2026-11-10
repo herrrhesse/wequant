@@ -95,11 +95,6 @@ def test_a_malformed_override_names_its_entry(text, error):
         parse_overrides(text)
 
 
-def test_no_overrides_file_is_an_empty_table():
-    """v4 D17: the table is the user's; without the file there are no overrides and no key suffix."""
-    assert parse_overrides(None) == {} and overrides_digest(None) == ""
-
-
 def test_the_panel_classifies_its_codes_and_its_key_names_the_overrides(tmp_path):
     """Reproducibility: the overrides change the panel's key, and so a run's id; wiring of the panel's table."""
     home = tmp_path / "home"

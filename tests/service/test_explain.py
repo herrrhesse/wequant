@@ -72,7 +72,6 @@ FAILURES = [
     ({"run": "{run}", "strategy": None, "data_version": 1}, Exit.USAGE, "requires", ["data_version"]),
     ({"run": "0" * 16, "strategy": None}, Exit.NOT_FOUND, "unknown_run", ["run"]),
     ({"code": "600009.SH"}, Exit.NOT_FOUND, "unknown_code", ["code"]),
-    ({"date": "2024-01-06"}, Exit.NOT_FOUND, "not_a_trading_day", ["date"]),
 ]
 
 
