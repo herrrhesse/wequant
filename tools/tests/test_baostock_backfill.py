@@ -2,18 +2,16 @@ import datetime as dt
 import json
 import os
 import signal
-from pathlib import Path
 from types import SimpleNamespace
 
 import polars as pl
 import pytest
 
-from tests.baostock_fake import FakeResult
+from tests.baostock_fake import FakeResult, recording
 from tools import baostock_backfill as bf
 from wequant.data.raw import META_COLUMNS, BaoStockRaw
 from wequant.data.sources.baostock import BaoStock
 
-RECORDED = json.loads((Path(__file__).parents[2] / "tests" / "data" / "baostock.json").read_text("utf-8"))
 TODAY = dt.date(2026, 11, 7)  # a Saturday
 DAYS = [d for d in (TODAY - dt.timedelta(days=n) for n in range(1, 15)) if d.weekday() < 5]  # 10 trading days
 
@@ -43,7 +41,7 @@ class Server:
 
     def query_stock_basic(self, **params):
         self.calls.append(("stock_basic", None))
-        return FakeResult(RECORDED["stock_basic"]["fields"], RECORDED["stock_basic"]["rows"])
+        return FakeResult(recording()["stock_basic"]["fields"], recording()["stock_basic"]["rows"])
 
     def query_trade_dates(self, start_date, end_date):
         self.calls.append(("trade_dates", None))
@@ -76,14 +74,14 @@ class Server:
         if self.fail_days.get(day, 0) > 0:
             self.fail_days[day] -= 1
             return FakeResult([], [], "10002007", "网络接收错误")
-        fields = RECORDED["daily_snapshot"]["fields"]
+        fields = recording()["daily_snapshot"]["fields"]
         stamp = "2000-01-01" if day in self.bad_days else date
-        return FakeResult(fields, [[stamp, *row[1:]] for row in RECORDED["daily_snapshot"]["rows"]])
+        return FakeResult(fields, [[stamp, *row[1:]] for row in recording()["daily_snapshot"]["rows"]])
 
     def query_adjust_factor(self, code, start_date, end_date):
         self.calls.append(("adjust_factor", code))
-        fields = RECORDED["adjust_factor"]["fields"]
-        return FakeResult(fields, [[code, *row[1:]] for row in RECORDED["adjust_factor"]["rows"][:3]])
+        fields = recording()["adjust_factor"]["fields"]
+        return FakeResult(fields, [[code, *row[1:]] for row in recording()["adjust_factor"]["rows"][:3]])
 
     def snapshots(self):
         return [item for name, item in self.calls if name == "snapshot"]
@@ -159,7 +157,7 @@ def test_failures_are_listed_and_retried_once_at_the_end(home):
     ],
 )
 def test_snapshot_checks(change, problem):
-    case = RECORDED["daily_snapshot"]
+    case = recording()["daily_snapshot"]
     frame = pl.DataFrame(case["rows"], schema={c: pl.String for c in case["fields"]}, orient="row")
     day = dt.date.fromisoformat(case["params"]["date"])
     assert bf.snapshot_problem(frame, day) is None
@@ -256,7 +254,7 @@ def test_a_run_refuses_to_start_while_another_run_holds_the_lock(home, monkeypat
 
 def test_an_adjust_factor_answer_without_rows_is_still_written(home):
     server = Server()
-    server.query_adjust_factor = lambda **params: FakeResult(RECORDED["adjust_factor"]["fields"], [])
+    server.query_adjust_factor = lambda **params: FakeResult(recording()["adjust_factor"]["fields"], [])
     backfill(home, server).run([0, 2])
     raw = BaoStockRaw.at(home)
     assert len(raw.adjust_factor_codes()) == 11  # a stock without factors is done, not fetched again next run

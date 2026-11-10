@@ -1,5 +1,8 @@
 """A fake baostock client that mimics its paging; responses come from recorded data."""
 
+import functools
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from wequant.data.sources.baostock import PAGE_ROWS
@@ -50,3 +53,9 @@ class FakeClient:
             return self.responses[method].pop(0)
 
         return query
+
+
+@functools.cache
+def recording() -> dict:
+    """tests/data/baostock.json, read on first use rather than at import."""
+    return json.loads((Path(__file__).parent / "data" / "baostock.json").read_text("utf-8"))

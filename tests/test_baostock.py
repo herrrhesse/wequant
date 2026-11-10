@@ -1,13 +1,11 @@
 import datetime as dt
-import json
 import socket
 import threading
-from pathlib import Path
 
 import polars as pl
 import pytest
 
-from tests.baostock_fake import FakeClient, FakeResult
+from tests.baostock_fake import FakeClient, FakeResult, recording
 from wequant.data.schema import TABLES
 from wequant.data.sources import baostock as bsmod
 from wequant.data.sources.baostock import (
@@ -20,11 +18,9 @@ from wequant.data.sources.baostock import (
 )
 from wequant.data.sources.base import CORPORATE_ACTIONS, DAILY, SECURITIES_ON
 
-RECORDED = json.loads((Path(__file__).parent / "data" / "baostock.json").read_text("utf-8"))
-
 
 def recorded(name):
-    case = RECORDED[name]
+    case = recording()[name]
     return FakeResult(case["fields"], case["rows"])
 
 
@@ -45,8 +41,8 @@ def test_daily_bars_are_in_wequant_units():
     source = session(query_history_k_data_plus=[recorded("daily_traded")])
     bars = source.daily_bars("600000.SH", "2026-11-02", "2026-11-06")
     assert dict(bars.schema) == DAILY
-    raw = RECORDED["daily_traded"]["rows"][-1]
-    f = RECORDED["daily_traded"]["fields"]
+    raw = recording()["daily_traded"]["rows"][-1]
+    f = recording()["daily_traded"]["fields"]
     last = bars.row(-1, named=True)
     assert last["date"] == dt.date.fromisoformat(raw[f.index("date")])
     assert last["close"] == round(float(raw[f.index("close")]) * 100) * 10
@@ -64,7 +60,7 @@ def test_reference_queries():
         query_all_stock=[recorded("all_stock")],
         query_trade_dates=[recorded("trade_dates")],
         query_adjust_factor=[recorded("adjust_factor")],
-        query_dividend_data=[recorded("dividend"), FakeResult(RECORDED["dividend"]["fields"], [])],
+        query_dividend_data=[recorded("dividend"), FakeResult(recording()["dividend"]["fields"], [])],
     )
     securities = source.securities()
     assert dict(securities.schema) == TABLES["securities"].schema
