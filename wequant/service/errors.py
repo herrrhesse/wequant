@@ -19,8 +19,8 @@ class Exit(IntEnum):
 
 
 class ServiceError(Exception):
-    """A failure the caller can act on; exit is the code the command ends with."""
+    """A failure the caller can act on: exit is the code the command ends with, detail its located ErrorDetails."""
 
-    def __init__(self, exit: Exit, message: str) -> None:
+    def __init__(self, exit: Exit, message: str, detail: tuple = ()) -> None:
         super().__init__(message)
-        self.exit = exit
+        self.exit, self.detail = exit, tuple(detail)

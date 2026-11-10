@@ -28,11 +28,32 @@ class Check(Model):
     """True when the check found nothing to act on."""
 
 
-class Failure(Model):
-    """A failed operation: the exit code its command ends with and why; the error body of the HTTP API."""
+class ErrorDetail(Model):
+    """One located reason an operation failed."""
+
+    code: str
+    """A stable code, only ever added to: e.g. unknown_field, out_of_range, version_not_kept."""
+    message: str
+    """English; names the item when names repeat."""
+    loc: list[str | int] = []
+    """Where in the request, pydantic style: e.g. ["strategy", "filters", 2, "expr"]; empty for the whole request."""
+    path: list[int] = []
+    """Where inside an expression form ([name, arg0, arg1, ...]: argument i at index i + 1); empty for all of it."""
+
+
+class ErrorBody(Model):
+    """A failed operation: its exit code, why, and the located details; the error body of the HTTP API."""
 
     exit: Exit
+    name: str
+    """The Exit member's name, e.g. USAGE."""
     message: str
+    detail: list[ErrorDetail] = []
+
+
+def error_body(error: ServiceError) -> ErrorBody:
+    """The ErrorBody of a ServiceError."""
+    return ErrorBody(exit=error.exit, name=error.exit.name, message=str(error), detail=list(error.detail))
 
 
 def _code(code: str) -> str:
