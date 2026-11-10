@@ -1,23 +1,15 @@
-"""Price-limit check: every bar against its exchange limits; breaches void that day's limits through data_issues.
-
-Run: python -m tools.check_limits [--home H] [--commit] [--out FILE]
-"""
+"""The markdown report of a price-limit check: limit states, free listings, breaches, records, rules and evidence."""
 
 from __future__ import annotations
 
-import argparse
-import sys
-from pathlib import Path
-
 import polars as pl
 
-from wequant.data.files import atomic_write
 from wequant.data.store import Store
-from wequant.rules.book import NewListing, RuleBook, default_book
-from wequant.rules.check import ACTION, KIND, missing_issues, void
+from wequant.rules.book import NewListing, RuleBook
+from wequant.rules.check import ACTION, KIND, void
 from wequant.rules.limits import FREE, LIMITED, LIMITS_FORMAT, UNKNOWN, down_price, up_price
 from wequant.rules.rounding import round_half_up
-from wequant.rules.tables import CheckResult, check_store, limit_check_current
+from wequant.rules.tables import CheckResult, limit_check_current
 from wequant.version import code_version
 
 STATES = (("LIMITED", LIMITED), ("FREE", FREE), ("UNKNOWN", UNKNOWN))
@@ -38,48 +30,8 @@ UNMODELLED_OTHER = (
 )
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    store, book = Store(args.home), default_book()
-    result = check_store(store, commit=args.commit, book=book)
-    version = result.committed or result.version
-    if args.commit:
-        verify(store, result, version, book)
-    text = "\n".join(report(store, result, book, version, args.commit)) + "\n"
-    if args.commit:
-        path = report_path(store, version)
-        atomic_write(path, text.encode("utf-8"))
-        print(path)
-    if args.out:
-        Path(args.out).write_text(text, "utf-8")
-    elif not args.commit:
-        sys.stdout.write(text)
-    return 0
-
-
-def parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="python -m tools.check_limits", description=__doc__.splitlines()[0])
-    parser.add_argument("--home", type=Path, default=None, help="store home (default: WEQUANT_HOME)")
-    parser.add_argument("--commit", action="store_true", help="record breaches and the limit_check block")
-    parser.add_argument("--out", type=Path, default=None, help="write the report here instead of stdout")
-    return parser.parse_args(argv)
-
-
-def verify(store: Store, result: CheckResult, version: int, book: RuleBook) -> None:
-    """Fail unless the committed version records exactly the breaches found and a current limit_check block."""
-    manifest = store.manifest(version)
-    recorded = store.read_table("data_issues", manifest=manifest).filter(pl.col("kind") == KIND)
-    differ = missing_issues(result.issues, recorded).height or missing_issues(recorded, result.issues).height
-    if differ or not limit_check_current(manifest, book):
-        raise RuntimeError(f"version {version} does not hold the limit check just committed")
-
-
-def report_path(store: Store, version: int) -> Path:
-    last = store.read_table("calendar", columns=["date"], version=version)["date"].max()
-    return store.home / "reports" / f"check_limits_{last.isoformat()}_v{version}.md"
-
-
 def report(store: Store, result: CheckResult, book: RuleBook, version: int, commit: bool) -> list[str]:
+    """The lines of the markdown report of a limit check; version is the one committed, else the one checked."""
     issues = store.read_table("data_issues", version=version)
     frame = result.frame
     return [
@@ -364,7 +316,3 @@ def guarded(row: dict, book: RuleBook) -> bool:
     up = round_half_up(pre * (10000 + up_bp), 10000 * tick) * tick
     down = round_half_up(pre * (10000 - down_bp), 10000 * tick) * tick
     return (up, down) != (row["limit_up"], row["limit_down"])
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
