@@ -92,7 +92,7 @@ def test_detail_keeps_its_schema_on_a_day_with_an_empty_universe(panel):
     assert screen(nobody, panel).picks.is_empty() and screen(nobody, panel).picks.schema == pl.Schema(PICKS)
 
 
-def test_stocks_frame_holds_every_code_in_contract_order(panel):
+def test_stocks_frame_holds_every_code_in_column_order(panel):
     stocks = screen(STRATEGY, panel, golden.DAYS[5]).stocks  # 688001.SH has no bar that day
     assert stocks.columns == ["code", "universe", "cheap", "up", "big", "g", "scored", "mom", "level", "formula"] + [
         "score",

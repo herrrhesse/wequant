@@ -90,7 +90,10 @@ def _check_window(start: object, end: object, anchor: dt.date | None) -> None:
 
 def _cash(cash: object) -> float:
     """cash as a float + 0.0; ValueError unless it is a positive, finite whole number of fen."""
-    value = finite_number("cash", cash)
+    try:
+        value = finite_number("cash", cash)
+    except OverflowError:  # an int too large for a float
+        raise ValueError(f"cash: {cash!r} is not a finite number") from None
     if value <= 0 or exact(value) * LI % FEN:
         raise ValueError(f"cash: {cash!r} is not a positive whole number of fen")
     return value

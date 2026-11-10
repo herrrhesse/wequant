@@ -32,6 +32,7 @@ JAN = {n: dt.date(2024, 1, n) for n in range(1, 32)}
         ({"cash": -100.0}, "cash"),
         ({"cash": math.nan}, "cash"),
         ({"cash": True}, "cash"),
+        ({"cash": 10**400}, "cash"),
         ({"benchmark": ""}, "benchmark"),
         ({"benchmark": 300}, "benchmark"),
         ({"strategy": {"top_n": 1}}, "strategy"),

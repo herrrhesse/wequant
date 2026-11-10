@@ -264,7 +264,7 @@ def speed_section(report: Report) -> list[str]:
     return [
         "## 3. Speed",
         "",
-        f"M (weekly top 50 with 10 backups of {len(report.dates):,} days × all codes), start {report.start}, cash "
+        f"M (weekly top 50 with 10 backups, all codes), start {report.start}, cash "
         f"{CASH:,.0f}, {EX0}. Each time is panel_for + run, whole, after one untimed warm-up; the split is the time to "
         "the first progress call (panel, benchmark and select), then the day loop, ledger and metrics. The best of "
         f"{REPEATS} must stay below {SPEED_LIMIT:.1f} s; a run is busy when the 1-minute load exceeds half the CPUs.",

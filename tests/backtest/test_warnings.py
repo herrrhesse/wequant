@@ -8,7 +8,7 @@ import pytest
 from tests.backtest.market import A, build_store, business_days
 from wequant.account import Execution
 from wequant.backtest import WARNINGS, Backtest, run
-from wequant.backtest import warnings as run_warnings
+from wequant.backtest import warnings as warnings_module
 from wequant.backtest.warnings import st_band_fills
 from wequant.expr import Field
 from wequant.panel import load_panel
@@ -79,7 +79,7 @@ def test_twenty_days_without_a_bar_are_not_stale(tmp_path):
 def test_limits_unchecked_goes_once_the_limits_are_checked(tmp_path, monkeypatch):
     result = stale(tmp_path / "before", 23)
     assert list(result.warnings) == ["limits_unchecked"]
-    monkeypatch.setattr(run_warnings, "limit_check_current", lambda manifest: True)
+    monkeypatch.setattr(warnings_module, "limit_check_current", lambda manifest: True)
     assert stale(tmp_path / "after", 23).warnings == {}
 
 

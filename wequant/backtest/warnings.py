@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -101,7 +102,7 @@ def _st_known_share(strategy: Strategy, panel: Panel, section: Section) -> float
     return float(panel.st_known[section.rows][cells].mean())
 
 
-def _reads_st(roots) -> bool:
+def _reads_st(roots: Iterable[Expr]) -> bool:
     """Some expression among roots reads the field st or st_known."""
     stack = list(roots)
     while stack:
