@@ -7,7 +7,7 @@ import json
 
 import polars as pl
 
-from wequant.data.issues import encode
+from wequant.data.issues import check_kind, encode
 from wequant.data.merge.conflicts import KEY, REFERENCE, SEEDED, average_conflicts
 from wequant.data.merge.daily import paid
 from wequant.data.merge.resolutions import ENTRY_KEY
@@ -163,5 +163,6 @@ def _reference(row: dict, close: int) -> dict:
 
 
 def _issue(row: dict, kind: str, action: str, detail: dict, source: str) -> dict:
+    check_kind("bars", kind, action)
     cell = {"code": row["code"], "date": row["date"]}
     return {"table": "bars", **cell, "kind": kind, "action": action, "detail": encode(detail), "source": source}
