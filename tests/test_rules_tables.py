@@ -4,15 +4,12 @@ from importlib import resources
 import polars as pl
 import pytest
 
-import wequant.rules.tables as tables
 from tests.frames import table_frame
-from tests.test_rules_limits import inputs
-from tools.check_limits import guard_rows, main
 from wequant.data.schema import TABLES
 from wequant.data.store import Store
-from wequant.rules.book import default_book, load_book
+from wequant.rules.book import load_book
 from wequant.rules.check import KIND
-from wequant.rules.limits import FREE, LIMITED, UNKNOWN, price_limits
+from wequant.rules.limits import FREE, LIMITED, UNKNOWN
 from wequant.rules.tables import check_store, limit_check_current, limit_inputs, load_limits
 
 META = {"last_trade_date": "2024-01-08", "source": "test", "release_tag": "t1"}
@@ -67,40 +64,10 @@ def recorded(store: Store) -> pl.DataFrame:
     return store.read_table("data_issues").filter(pl.col("kind") == KIND)
 
 
-def test_a_dry_run_reports_the_missing_breach_and_writes_nothing(store, capsys):
-    before = files(store)
-    assert main(["--home", str(store.home)]) == 0
-    text = capsys.readouterr().out
-    assert "- **Missing (found, not recorded):** 1\n" in text
-    assert "| no rule | 0 |" in text and "other cannot occur" in text
-    assert files(store) == before and store.versions() == [1]
-
-
-def test_a_commit_records_the_breach_and_a_current_check(store):
-    assert main(["--home", str(store.home), "--commit"]) == 0
-    manifest = store.manifest()
-    assert store.versions() == [1, 2] and limit_check_current(manifest)
-    text = (store.home / "reports" / "check_limits_2024-01-08_v2.md").read_text()
-    assert "- **Missing (found, not recorded):** 1\n" in text and "v2 records every breach found" in text
-    assert "| LIMITED | 5 |" in text and "| UNKNOWN | 3 |" in text
-    assert "| no preclose | 2 |" in text and "| voided | 1 |" in text
-    assert recorded(store).select("code", "date").rows() == [BREACH]
-    assert check_store(store).missing.height == 0
-    assert {k: manifest[k] for k in META} == META
-
-
 def test_other_issue_kinds_are_untouched(store):
     before = store.read_table("data_issues")
     check_store(store, commit=True)
     assert store.read_table("data_issues").filter(pl.col("kind") != KIND).equals(before)
-
-
-def test_an_unchanged_rerun_creates_no_version(store, monkeypatch):
-    main(["--home", str(store.home), "--commit"])
-    assert check_store(store, commit=True).committed is None
-    monkeypatch.setattr(tables, "code_version", lambda: "0.0.0+gother")
-    assert main(["--home", str(store.home), "--commit"]) == 0
-    assert store.versions() == [1, 2]
 
 
 def test_new_inputs_make_the_check_stale_until_it_runs_again(store):
@@ -168,17 +135,3 @@ def test_st_and_adjustment_events_plug_in_through_daily_status_and_adj_factor(st
     ]
     limits = load_limits(store).filter(pl.col("code") == "600000.SH")
     assert limits.select("limit_up", "limit_down").rows()[1:] == [(11000, 9000), (10500, 9500), (10500, 9500)]
-
-
-def test_guard_rows_find_every_limit_a_tick_guard_moved():
-    frame = price_limits(
-        inputs(
-            [
-                {"code": "600000.SH", "date": "2024-02-20", "board": "main", "preclose": 100, "is_st": True},
-                {"code": "600001.SH", "date": "2024-02-20", "board": "main", "preclose": 50},
-                {"code": "600002.SH", "date": "2024-02-20", "board": "main", "preclose": 200, "is_st": True},
-            ]
-        )
-    )
-    assert frame.select("limit_up", "limit_down").rows() == [(110, 90), (60, 40), (210, 190)]
-    assert guard_rows(frame, default_book())[0] == "Bars where a tick guard moved a limit: 2."

@@ -339,7 +339,7 @@ def test_slicing(store, cache, stub_rules):
         load_panel(codes=[A, "600009.SH"], store=store, cache_dir=cache)
     with pytest.raises(ValueError):
         load_panel(codes=[A, A], store=store, cache_dir=cache)
-    with pytest.raises(ValueError):
+    with pytest.raises(KeyError):
         load_panel("2024-01-06", "2024-01-07", store=store, cache_dir=cache)
 
 

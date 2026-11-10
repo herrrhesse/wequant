@@ -210,7 +210,7 @@ def _row_range(dates: np.ndarray, start: Day | None, end: Day | None) -> slice:
     lo = 0 if start is None else int(np.searchsorted(dates, np.datetime64(start, "D"), "left"))
     hi = len(dates) if end is None else int(np.searchsorted(dates, np.datetime64(end, "D"), "right"))
     if lo >= hi:
-        raise ValueError(f"no trading day in [{start}, {end}]")
+        raise KeyError(f"no trading day in [{start}, {end}]")
     return slice(lo, hi)
 
 

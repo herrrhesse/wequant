@@ -21,8 +21,61 @@ uv sync --extra baostock     # BaoStock data source
 - `wequant/account/`: cash, positions and order execution on raw prices: lots, T+1, fees, corporate actions and one order
   validation.
 - `wequant/analytics/`: the metrics of a run.
+- `wequant/service/`: the operations: one function each, pydantic models in and out.
+- `wequant/cli/`: the `wequant` command; it only calls the service.
 - `tools/`: command-line jobs: fetch, merge, data checks and reports. `tools/investment_data/` is a temporary seed
   import and not part of the package.
+
+## The wequant command
+
+```bash
+uv sync                      # the dev group includes the cli extra
+uv sync --no-dev --extra cli # the command without the test tools
+uv run wequant --help
+```
+
+```text
+wequant data status [--data-version N]
+wequant data bars --codes C... [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--fields F...] [--data-version N]
+wequant data issues [--table T] [--kind K] [--codes C...] [--start D] [--end D] [--limit N] [--data-version N]
+wequant data check [--commit]
+wequant expr check --form JSON
+wequant expr eval --form JSON --codes C... [--start D] [--end D] [--data-version N]
+```
+
+```bash
+uv run wequant data bars --codes 600000.SH 000001.SZ --start 2024-01-02 --fields close adj_close
+uv run wequant expr eval --form '["MA","adj_close",20]' --codes 600000.SH --start 2024-01-02 --json
+```
+
+Every command also takes `--json`, `-v`/`--verbose` (`-vv` for debug), `--home PATH` (the data root, default
+`$WEQUANT_HOME`) and `--cache PATH` (panels go under `PATH/panel/`, default `HOME/cache`), after the command name.
+
+- **Output:** stdout carries the result. `--json` prints the result model exactly as `model_dump_json()` gives it, the
+  same JSON the HTTP API will return; NaN and infinity are `null`. Logs and errors go to stderr, and stdout is empty
+  when a command fails.
+- **Python:** the commands are thin wrappers over `wequant.service`, e.g.
+  `data_bars(BarsRequest(codes=["600000.SH"], start="2024-01-02")).rows`.
+- **`data bars`** gives the panel's values as an expression reads them: prices and amount in yuan, volume in shares,
+  `adj_*` back-adjusted, masks as 1.0/0.0. A limit price is null both where the bar has no limit and where it is
+  unknown; `limit_known` tells them apart (1.0 and 0.0).
+- **`expr eval`** always computes from the store's first trading day, so the value on a day never depends on `--start`.
+  `CS_*` operators rank among the given codes only.
+- **`data check`** is read-only. `--commit` records the breaches and the check in a new store version under the writer
+  lock and writes its report to `reports/check_limits_<last trade date>_v<version>.md`.
+
+Exit codes (`wequant.service.Exit`):
+
+| Code | Name | Meaning |
+| --- | --- | --- |
+| 0 | `OK` | success |
+| 1 | `PROBLEMS` | a check found something to act on: `data check` found breaches the store does not record, recorded breaches that are gone, or no current limit check |
+| 2 | `USAGE` | bad arguments or input, a refused expression included |
+| 3 | `NOT_FOUND` | no store, store version, code or trading day |
+| 4 | `UNREACHABLE` | a data source cannot be reached |
+| 5 | `LOCKED` | another writer holds the store lock; try again later |
+| 70 | `INTERNAL` | a bug (the traceback is on stderr), or the cli extra is not installed |
+| 130 | `INTERRUPTED` | Ctrl-C |
 
 ## Fetching BaoStock raw data
 
@@ -51,13 +104,14 @@ systemd-inhibit --what=sleep --why="baostock backfill" uv run --extra baostock p
 ## Data checks and reports
 
 These tools read the store under `$WEQUANT_HOME` (or `--home`). Without `--commit` they write nothing there: the report
-goes to stdout or `--out FILE`. `--commit` writes a new store version under the writer lock and its report to
-`reports/<tool>_<last trade date>_v<version>.md`, so never run it while another writer (an import or a merge) is running.
+goes to stdout (redirect it to keep it), or to `--out FILE` for the `tools` jobs. `--commit` writes a new store version
+under the writer lock and its report to `reports/<tool>_<last trade date>_v<version>.md`, so never run it while another
+writer (an import or a merge) is running.
 
 ```bash
 uv run python -m tools.baostock_merge copy-store /tmp/wequant-copy   # copy the current snapshot, no lock
 uv run python -m tools.baostock_merge run --home /tmp/wequant-copy --raw $WEQUANT_HOME/raw/baostock   # dry run
-uv run python -m tools.check_limits                                  # price-limit check, dry run
+uv run wequant data check                                            # price-limit check, dry run
 uv run python -m tools.panel_report --cache /tmp/wequant-cache       # panel timings, day status, limit masks
 uv run python -m tools.ops_report --cache /tmp/wequant-cache         # operator speed and TDX comparison values
 uv run python -m tools.metrics_report                                # metrics of index buy-and-hold
@@ -65,8 +119,8 @@ uv run python -m tools.expr_report --cache /tmp/wequant-cache        # expressio
 uv run python -m tools.account_report --cache /tmp/wequant-cache     # buy-and-hold through ex-dates, account invariants, speed
 ```
 
-Run `check_limits --commit` again after every import: the panel applies the voids it records. Panels are cached by store
-version under `$WEQUANT_HOME/cache/panel/`. The cache is derived data and can be deleted at any time.
+Run `wequant data check --commit` again after every import: the panel applies the voids it records. Panels are cached
+by store version under `$WEQUANT_HOME/cache/panel/`. The cache is derived data and can be deleted at any time.
 
 ## Backtest assumptions
 
