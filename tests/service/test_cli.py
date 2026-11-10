@@ -1,6 +1,7 @@
 import io
 import json
 from importlib.metadata import entry_points
+from typing import get_type_hints
 
 import pytest
 
@@ -172,3 +173,26 @@ def test_profile_times_the_stages_on_stderr_and_leaves_stdout_alone(cli, market_
     report = service.ProfileReport.model_validate_json(err)
     assert code == 0 and out == plain and report.operation == "screen"
     assert {"open_panel", "evaluate:mom", "frames", "result", "render"} <= {stage.name for stage in report.stages}
+
+
+RUNS = [
+    (["runs", "list", "--limit", "5"], "runs_list", {"limit": 5}),
+    (["runs", "show", "{id}"], "runs_show", {"id": "{id}"}),
+    (["runs", "rerun", "{id}"], "runs_rerun", {"id": "{id}"}),
+    (["runs", "diff", "{id}", "{id}"], "runs_diff", {"a": "{id}", "b": "{id}"}),
+    (["runs", "orders", "{id}", "--side", "buy"], "runs_orders", {"id": "{id}", "side": "buy"}),
+    (["runs", "day", "{id}", "2024-01-08"], "runs_day", {"id": "{id}", "date": "2024-01-08"}),
+    (["runs", "anomalies", "{id}", "--channel", "fill"], "runs_anomalies", {"id": "{id}", "channel": "fill"}),
+]
+
+
+@pytest.mark.parametrize("argv, name, fields", RUNS, ids=[" ".join(case[0][:2]) for case in RUNS])
+def test_runs_json_is_exactly_the_result_model(cli, market_home, argv, name, fields):
+    context = Context(market_home)
+    run_id = service.backtest(service.BacktestRequest(saved={"id": "m"}), context).run_id
+    operation = getattr(service, name)
+    model = get_type_hints(operation)["request"]
+    fields = {key: value.format(id=run_id) if isinstance(value, str) else value for key, value in fields.items()}
+    expected = operation(model.model_validate(fields), context)
+    code, out, _ = cli(*[arg.format(id=run_id) for arg in argv], "--json", "--home", market_home)
+    assert (code, type(expected).model_validate_json(out)) == (0, expected)

@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
+import json
 from typing import Literal
 
+import polars as pl
 from pydantic import ConfigDict, Field
 
+from wequant.analytics import daily_view, period_view
+from wequant.backtest import Backtest, Cancelled, run_form
 from wequant.backtest.anomalies import CHANNELS
-from wequant.service.base import Model
+from wequant.canonical import digest
+from wequant.rules.book import Rate, default_book, fees_in_force
+from wequant.runs.archive import HEADLINE, RUNS, Archive
+from wequant.runs.compare import json_differences
+from wequant.runs.run import Run
+from wequant.service.backtest import metrics_out, order_counts
+from wequant.service.base import Context, Model, not_found
+from wequant.service.errors import Exit, ServiceError
 from wequant.service.outputs import (
     Action,
     AnomalyUse,
@@ -21,9 +33,13 @@ from wequant.service.outputs import (
     SavedRef,
     SellReason,
     Warning,
+    anomaly_use,
+    data_anomaly,
+    warnings_out,
 )
 from wequant.service.specs import DataSpec, ExecutionSpec, IsoDate, MetricSpecModel, Name, StrategySpec
 from wequant.service.strategies import Hash
+from wequant.strategy.library import Library
 
 Limit = Field(100, ge=1, le=500)
 
@@ -249,6 +265,7 @@ class DecisionRow(Model):
     rank: int | None
     """null: no score."""
     score: float | None
+    """null: not a target or backup (the archive keeps the picks' scores), or no score."""
     weight: float | None
     """null: not a target."""
     raw_weight: float | None
@@ -286,3 +303,205 @@ class AnomaliesPage(Page):
     """Uses in archive order (date, code, channel, anomaly_date, kind, seq)."""
 
     rows: list[AnomalyUse]
+
+
+def runs_list(request: RunsListRequest, context: Context = Context()) -> RunsPage:
+    """Archived runs, newest first, optionally of one strategy content."""
+    store = context.store()
+    index = Archive(store.home / RUNS).index().sort("created_at", "id", descending=[True, False])
+    refs, kept = saved_refs(context.library()), set(store.versions())
+    rows = [_run_row(row, refs, kept) for row in index.iter_rows(named=True)]
+    if request.strategy_hash is not None:
+        rows = [row for row in rows if row.strategy_hash == request.strategy_hash]
+    window = rows[request.offset : request.offset + request.limit]
+    return RunsPage(total=len(rows), offset=request.offset, limit=request.limit, rows=window)
+
+
+def runs_show(request: RunRequest, context: Context = Context()) -> RunDetail:
+    """One archived run: its inputs, metrics, orders, delisted holdings, anomalies, warnings, fee rules, daily rows
+    and periods."""
+    archive, run = _load(context, request.id)
+    store = context.store()
+    row = _run_row(archive.row(request.id), saved_refs(context.library()), set(store.versions()))
+    spec = Backtest.from_form(run.description)
+    start, end = run.ledger.daily["date"][0], run.ledger.daily["date"][-1]
+    return RunDetail(
+        **row.model_dump(),
+        strategy=StrategySpec.model_validate(spec.strategy.form),
+        execution=ExecutionSpec.model_validate(spec.execution.to_dict()),
+        data=DataSpec.model_validate(spec.data.to_dict()),
+        cash=spec.cash,
+        benchmark=spec.benchmark,
+        metrics_spec=MetricSpecModel.model_validate(dataclasses.asdict(spec.metrics)),
+        versions=run.versions,
+        metrics=metrics_out(run.metrics),
+        orders=order_counts(run.ledger.orders),
+        delisted=[DelistedRow(**r) for r in run.ledger.delisted.iter_rows(named=True)],
+        anomalies=data_anomaly(run.anomalies, spec.data.excluded),
+        warnings=warnings_out(run.warnings),
+        fees=[_fee(table, rule, until) for table, rule, until in fees_in_force(default_book(), start, end)],
+        daily=[DailyRow(**r) for r in daily_view(run.ledger.daily, run.ledger.positions).iter_rows(named=True)],
+        periods=Periods(**{p: _periods(run.ledger.daily, p) for p in ("year", "month")}),
+    )
+
+
+def runs_rerun(request: RunRequest, context: Context = Context()) -> RunComparison:
+    """Run an archived run again on its store version and compare the bytes."""
+    archive, run = _load(context, request.id)
+    store = context.store()
+    if run.store_version not in store.versions():
+        message = f"run {request.id} read store version {run.store_version}, which is no longer kept"
+        raise not_found("version_not_kept", message, ["id"])
+    hooks = {"cache": context.expr_cache, "progress": context.progress, "cancel": context.cancel}
+    try:
+        found = archive.rerun(
+            request.id, lambda form, version: run_form(form, version, store=store, cache_dir=context.cache, **hooks)
+        )
+    except Cancelled as error:
+        raise ServiceError(Exit.INTERRUPTED, str(error)) from None
+    return RunComparison(
+        id=request.id, identical=found.identical, differences=found.differences, notes=list(found.notes)
+    )
+
+
+def runs_diff(request: RunDiffRequest, context: Context = Context()) -> RunDiff:
+    """How two archived runs' inputs and metrics differ."""
+    (_, a), (_, b) = _load(context, request.a, ["a"]), _load(context, request.b, ["b"])
+    names = [*a.metrics, *(name for name in b.metrics if name not in a.metrics)]
+    metrics = [
+        MetricDiff(name=name, unit=(a.metrics.get(name) or b.metrics[name]).unit, a=_value(a, name), b=_value(b, name))
+        for name in names
+        if _value(a, name) != _value(b, name)
+    ]
+    return RunDiff(a=request.a, b=request.b, inputs=json_differences(a.inputs, b.inputs), metrics=metrics)
+
+
+def runs_orders(request: OrdersRequest, context: Context = Context()) -> OrdersPage:
+    """A run's orders in archive order, filtered and paged."""
+    _, run = _load(context, request.id)
+    orders = run.ledger.orders.filter(
+        *[pl.col(name) == getattr(request, name) for name in ("code", "status", "side") if getattr(request, name)],
+        *([pl.col("date") >= request.start] if request.start else []),
+        *([pl.col("date") <= request.end] if request.end else []),
+    )
+    window = orders.slice(request.offset, request.limit)
+    rows = [OrderRow(**row) for row in window.iter_rows(named=True)]
+    return OrdersPage(total=orders.height, offset=request.offset, limit=request.limit, rows=rows)
+
+
+def runs_day(request: RunDayRequest, context: Context = Context()) -> RunDay:
+    """One day of a run: its holdings at the close, the decisions taken at that close and the orders filled that day."""
+    _, run = _load(context, request.id)
+    day = run.ledger.daily.filter(pl.col("date") == request.date)
+    if day.is_empty():
+        raise not_found("not_a_trading_day", f"{request.date} is not a day of run {request.id}", ["date"])
+    equity = day["equity"].item()
+    held = run.ledger.positions.filter(pl.col("date") == request.date).sort("value", "code", descending=[True, False])
+    positions = [
+        PositionRow(code=r["code"], shares=r["shares"], value=r["value"], weight=r["value"] / equity)
+        for r in held.iter_rows(named=True)
+    ]
+    orders = run.ledger.orders.filter(pl.col("date") == request.date)
+    return RunDay(
+        id=request.id,
+        date=request.date,
+        equity=equity,
+        cash=day["cash"].item(),
+        positions=positions,
+        decision_day=bool((run.funnel["date"] == request.date).any()),
+        decisions=_decisions(run, request.date),
+        orders=[OrderRow(**row) for row in orders.iter_rows(named=True)],
+    )
+
+
+def runs_anomalies(request: AnomaliesRequest, context: Context = Context()) -> AnomaliesPage:
+    """A run's uses of anomalous data in archive order, filtered and paged."""
+    _, run = _load(context, request.id)
+    uses = run.anomalies.filter(
+        *([pl.col("channel").cast(pl.String) == request.channel] if request.channel else []),
+        *([pl.col("code") == request.code] if request.code else []),
+    )
+    rows = [anomaly_use(row) for row in uses.slice(request.offset, request.limit).iter_rows(named=True)]
+    return AnomaliesPage(total=uses.height, offset=request.offset, limit=request.limit, rows=rows)
+
+
+def saved_refs(library: Library) -> dict[str, list[SavedRef]]:
+    """Every saved version by its strategy hash."""
+    found: dict[str, list[SavedRef]] = {}
+    for entry in library.entries():
+        for version in entry.versions:
+            found.setdefault(version.strategy_hash, []).append(SavedRef(id=entry.id, n=version.n))
+    return found
+
+
+def _load(context: Context, run_id: str, loc: list = ("id",)) -> tuple[Archive, Run]:
+    """The archive and its run run_id; NOT_FOUND unknown_run at loc when there is none."""
+    archive = Archive(context.store().home / RUNS)
+    if run_id not in archive:
+        raise not_found("unknown_run", f"no run {run_id} in {archive.root}", list(loc))
+    return archive, archive.load(run_id)
+
+
+def _run_row(row: dict, refs: dict[str, list[SavedRef]], kept: set[int]) -> RunRow:
+    """The RunRow of an archive index row."""
+    found = digest(json.loads(row["description"])["strategy"])
+    headline = {name: row[name] for name in HEADLINE}
+    fields = ("id", "engine", "created_at", "code_version", "store_version", "anchor", "start", "end")
+    return RunRow(
+        **{name: row[name] for name in fields},
+        **headline,
+        strategy_hash=found,
+        saved_as=refs.get(found, []),
+        rerunnable=row["store_version"] in kept,
+    )
+
+
+def _fee(table: str, rule: Rate, until: dt.date | None) -> FeeRule:
+    stamp = table == "stamp_tax"
+    return FeeRule(
+        table=table,
+        id=rule.id,
+        since=rule.since,
+        until=until,
+        exchanges=None if stamp else list(rule.exchanges),
+        buy_rate=float(rule.buy),
+        sell_rate=float(rule.sell),
+        basis=None if stamp else rule.basis,
+        note=rule.confirm,
+    )
+
+
+def _periods(daily: pl.DataFrame, period: str) -> list[PeriodRow]:
+    return [PeriodRow.model_validate(row) for row in period_view(daily, period).iter_rows(named=True)]
+
+
+def _value(run: Run, name: str) -> float | int | dt.date | None:
+    metric = run.metrics.get(name)
+    return None if metric is None else metric.value
+
+
+def _decisions(run: Run, day: dt.date) -> list[DecisionRow]:
+    """The day's targets, backups and held stocks: by rank, the unranked after by code."""
+    picks = run.picks.filter(pl.col("date") == day).select("code", "role", "score", "weight", "raw_weight")
+    detail = run.detail.filter(pl.col("date") == day).join(picks, on="code", how="left")
+    chosen = detail.filter(pl.col("role").is_not_null() | pl.col("held")).sort("rank", "code", nulls_last=True)
+    rows = []
+    for r in chosen.iter_rows(named=True):
+        sold = r["action"] == "sell"
+        reason = sold and SellReason(
+            kind=r["sell_kind"], step=r["sell_step"], rank=r["sell_rank"], limit=r["sell_limit"]
+        )
+        rows.append(
+            DecisionRow(
+                code=r["code"],
+                role=r["role"] or "none",
+                rank=r["rank"],
+                score=r["score"],
+                weight=r["weight"],
+                raw_weight=r["raw_weight"],
+                held=r["held"],
+                action=r["action"],
+                sell_reason=reason if sold else None,
+            )
+        )
+    return rows

@@ -82,17 +82,12 @@ OPERATIONS = (
     *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
     screen,
     backtest,
+    *(runs.runs_list, runs.runs_show, runs.runs_rerun, runs.runs_diff, runs.runs_orders, runs.runs_day),
+    runs.runs_anomalies,
     schema,
 )
 
 PLANNED = (  # operations whose models are fixed for the frontend; each moves to OPERATIONS when its command lands
-    ("runs_list", runs.RunsListRequest, runs.RunsPage),
-    ("runs_show", runs.RunRequest, runs.RunDetail),
-    ("runs_rerun", runs.RunRequest, runs.RunComparison),
-    ("runs_diff", runs.RunDiffRequest, runs.RunDiff),
-    ("runs_orders", runs.OrdersRequest, runs.OrdersPage),
-    ("runs_day", runs.RunDayRequest, runs.RunDay),
-    ("runs_anomalies", runs.AnomaliesRequest, runs.AnomaliesPage),
     ("explain", explain.ExplainRequest, explain.Explain),
     ("data_delistings", delistings.DelistingsRequest, delistings.Delistings),
     ("data_index_check", index_check.IndexCheckRequest, index_check.IndexCheck),

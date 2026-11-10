@@ -10,6 +10,28 @@ from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest
 from wequant.service.issues import IssueCount, IssueRow, Issues, IssuesRequest, data_issues
 from wequant.service.profile import ProfileReport, Stage
 from wequant.service.rows import Row
+from wequant.service.runs import (
+    AnomaliesPage,
+    AnomaliesRequest,
+    OrdersPage,
+    OrdersRequest,
+    RunComparison,
+    RunDay,
+    RunDayRequest,
+    RunDetail,
+    RunDiff,
+    RunDiffRequest,
+    RunRequest,
+    RunsListRequest,
+    RunsPage,
+    runs_anomalies,
+    runs_day,
+    runs_diff,
+    runs_list,
+    runs_orders,
+    runs_rerun,
+    runs_show,
+)
 from wequant.service.screen import ScreenRequest, ScreenResult, screen
 from wequant.service.status import DataStatus, StatusRequest, TableStatus, data_status
 from wequant.service.strategies import (
@@ -39,6 +61,26 @@ from wequant.service.strategies import (
 )
 
 __all__ = [
+    "AnomaliesPage",
+    "AnomaliesRequest",
+    "OrdersPage",
+    "OrdersRequest",
+    "RunComparison",
+    "RunDay",
+    "RunDayRequest",
+    "RunDetail",
+    "RunDiff",
+    "RunDiffRequest",
+    "RunRequest",
+    "RunsListRequest",
+    "RunsPage",
+    "runs_anomalies",
+    "runs_day",
+    "runs_diff",
+    "runs_list",
+    "runs_orders",
+    "runs_rerun",
+    "runs_show",
     "ProfileReport",
     "Stage",
     "BacktestRequest",

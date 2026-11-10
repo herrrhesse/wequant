@@ -115,6 +115,21 @@ class RuleBook:
         return pl.DataFrame(rows, schema=schema, orient="row").sort("since")
 
 
+def fees_in_force(book: RuleBook, start: dt.date, end: dt.date) -> list[tuple[str, Rate, dt.date | None]]:
+    """(table, rule, until) of each stamp-tax and transfer-fee rule in force on a day of [start, end], by table then
+    since; until is the day before the next rule for one of its exchanges, None when that comes after end."""
+    found = []
+    for table in ("stamp_tax", "transfer_fee"):
+        rows = getattr(book, table)
+        for i, rule in enumerate(rows):
+            later = [r.since for r in rows[i + 1 :] if set(r.exchanges) & set(rule.exchanges)]
+            following = min(later, default=None)
+            if rule.since <= end and (following is None or following > start):
+                until = following - dt.timedelta(days=1) if following is not None and following <= end else None
+                found.append((table, rule, until))
+    return found
+
+
 def load_book(path: Path | None = None) -> RuleBook:
     """Read and validate rules.toml; the packaged file by default."""
     data = Path(path).read_bytes() if path is not None else files("wequant.rules").joinpath("rules.toml").read_bytes()
