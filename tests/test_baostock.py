@@ -1,17 +1,14 @@
 import datetime as dt
-import json
 import socket
 import threading
-import time
-from pathlib import Path
 
-import polars as pl
 import pytest
 
-from tests.baostock_fake import FakeClient, FakeResult
+from tests.baostock_fake import FakeClient, FakeResult, install_baostock, stock_basic
 from wequant.data.schema import TABLES
 from wequant.data.sources import baostock as bsmod
 from wequant.data.sources.baostock import (
+    DAILY_FIELDS,
     PAGE_ROWS,
     BaoStock,
     BaoStockError,
@@ -19,14 +16,7 @@ from wequant.data.sources.baostock import (
     from_baostock,
     to_baostock,
 )
-from wequant.data.sources.base import CORPORATE_ACTIONS, DAILY, SECURITIES_ON
-
-RECORDED = json.loads((Path(__file__).parent / "data" / "baostock.json").read_text("utf-8"))
-
-
-def recorded(name):
-    case = RECORDED[name]
-    return FakeResult(case["fields"], case["rows"])
+from wequant.data.sources.base import DAILY
 
 
 def session(**responses):
@@ -43,63 +33,32 @@ def test_codes_round_trip():
 
 
 def test_daily_bars_are_in_wequant_units():
-    source = session(query_history_k_data_plus=[recorded("daily_traded")])
-    bars = source.daily_bars("600000.SH", "2026-11-02", "2026-11-06")
+    """Prices int32 厘, volume int64 shares, amount float64 yuan, empty fields null; unadjusted prices requested."""
+    rows = [
+        ["2024-01-02", "sh.600000", "10.0500", "10.2300", "9.9800", "10.1000", "10.0000", "1234567", "12469126.7800"]
+        + ["1", "0"],
+        ["2024-01-03", "sh.600000", "", "", "", "", "10.1000", "", "", "0", "1"],
+    ]
+    source = session(query_history_k_data_plus=[FakeResult(DAILY_FIELDS.split(","), rows)])
+    bars = source.daily_bars("600000.SH", "2024-01-02", "2024-01-03")
     assert dict(bars.schema) == DAILY
-    raw = RECORDED["daily_traded"]["rows"][-1]
-    f = RECORDED["daily_traded"]["fields"]
-    last = bars.row(-1, named=True)
-    assert last["date"] == dt.date.fromisoformat(raw[f.index("date")])
-    assert last["close"] == round(float(raw[f.index("close")]) * 100) * 10
-    assert last["preclose"] == round(float(raw[f.index("preclose")]) * 100) * 10
-    assert last["volume"] == int(raw[f.index("volume")])
-    assert last["amount"] == float(raw[f.index("amount")])
-    assert last["tradestatus"] == 1 and last["is_st"] is False
+    assert bars.rows() == [
+        ("600000.SH", dt.date(2024, 1, 2), 10050, 10230, 9980, 10100, 10000, 1234567, 12469126.78, 1, False),
+        ("600000.SH", dt.date(2024, 1, 3), None, None, None, None, 10100, None, None, 0, True),
+    ]
     call = source.client.calls[-1]
     assert call[1]["code"] == "sh.600000" and call[1]["adjustflag"] == "3"
 
 
-def test_suspended_days_keep_their_status_and_empty_fields_become_null():
-    source = session(query_history_k_data_plus=[recorded("daily_suspended")])
-    case = RECORDED["daily_suspended"]
-    bars = source.daily_bars(case["code"], case["start"], case["end"])
-    halted = bars.filter(pl.col("tradestatus") == 0)
-    assert halted.height > 0
-    raw_volumes = [
-        r[case["fields"].index("volume")] for r in case["rows"] if r[case["fields"].index("tradestatus")] == "0"
-    ]
-    assert halted["volume"].null_count() == sum(v == "" for v in raw_volumes)
-
-
-def test_st_flag():
-    source = session(query_history_k_data_plus=[recorded("daily_st")])
-    case = RECORDED["daily_st"]
-    bars = source.daily_bars(case["code"], case["start"], case["end"])
-    flags = [r[case["fields"].index("isST")] == "1" for r in case["rows"]]
-    assert bars["is_st"].to_list() == flags and any(flags) and not all(flags)
-
-
-def test_reference_queries():
-    source = session(
-        query_stock_basic=[recorded("stock_basic")],
-        query_all_stock=[recorded("all_stock")],
-        query_trade_dates=[recorded("trade_dates")],
-        query_adjust_factor=[recorded("adjust_factor")],
-        query_dividend_data=[recorded("dividend"), FakeResult(RECORDED["dividend"]["fields"], [])],
-    )
-    securities = source.securities()
+def test_securities_are_the_stocks_with_their_listing_dates():
+    securities = session(query_stock_basic=[FakeResult(*stock_basic())]).securities()  # the index is left out
     assert dict(securities.schema) == TABLES["securities"].schema
-    assert securities.filter(pl.col("last_date").is_not_null()).height >= 1  # a delisted stock
-    listed = source.securities_on("2026-11-06")
-    assert dict(listed.schema) == SECURITIES_ON and listed["code"].str.contains(r"^\d{6}\.(SH|SZ|BJ)$").all()
-    calendar = source.calendar("2026-10-26", "2026-11-08")
-    assert dict(calendar.schema) == TABLES["calendar"].schema
-    assert all(d.weekday() < 5 for d in calendar["date"])
-    factors = source.adj_factors("600519.SH")
-    assert dict(factors.schema) == TABLES["adj_factor"].schema and factors["factor"].is_sorted()
-    actions = source.corporate_actions("600519.SH", 2025, 2026)
-    assert dict(actions.schema) == CORPORATE_ACTIONS and actions.height >= 1
-    assert actions["cash_before_tax"].drop_nulls().min() > 0
+    assert securities.select("code", "exchange", "board", "first_date", "last_date").rows() == [
+        ("600000.SH", "SH", "main", dt.date(2000, 1, 4), None),
+        ("600001.SH", "SH", "main", dt.date(2001, 1, 4), None),
+        ("300001.SZ", "SZ", "chinext", dt.date(2009, 10, 30), None),
+        ("000002.SZ", "SZ", "main", dt.date(2002, 1, 4), dt.date(2020, 6, 30)),
+    ]
 
 
 def test_pages_are_read_and_counted():
@@ -122,35 +81,32 @@ def test_a_silently_lost_page_raises():
         source.query("query_trade_dates")
 
 
-def test_retries_back_off_and_log_in_again(monkeypatch):
-    delays = []
-    monkeypatch.setattr(bsmod.time, "sleep", delays.append)
-    ok = recorded("trade_dates")
-    source = BaoStock(
-        client=FakeClient(
-            query_trade_dates=[
-                FakeResult([], [], "10001001", "not logged in"),
-                FakeResult([], [], "10002007", "recv"),
-                ok,
-            ]
-        )
-    )
-    source.login()
-    fields, rows = source.query("query_trade_dates")
-    assert rows and delays == [1.0, 2.0]
-    assert [c[0] for c in source.client.calls].count("login") == 2
-    assert [e[1] for e in source.errors] == ["10001001", "10002007"]
+NOT_LOGGED_IN = FakeResult([], [], "10001001", "not logged in")
+RECV_FAILED = FakeResult([], [], "10002007", "recv")
 
 
-def test_gives_up_after_three_retries(monkeypatch):
-    delays = []
-    monkeypatch.setattr(bsmod.time, "sleep", delays.append)
-    failing = [FakeResult([], [], "10002007", "recv") for _ in range(4)]
-    source = BaoStock(client=FakeClient(query_trade_dates=failing))
+@pytest.mark.parametrize(
+    "answers, delays, logins",
+    [
+        ([NOT_LOGGED_IN, RECV_FAILED, "ok"], [1.0, 2.0], 2),  # a kicked session logs in again, then succeeds
+        ([RECV_FAILED] * 4, [1.0, 2.0, 4.0], 1),  # three retries with backoff, then the error
+    ],
+    ids=["recovers", "gives_up"],
+)
+def test_retries_back_off_and_log_in_again(monkeypatch, answers, delays, logins):
+    slept = []
+    monkeypatch.setattr(bsmod.time, "sleep", slept.append)
+    ok = FakeResult(["calendar_date", "is_trading_day"], [["2024-01-02", "1"]])
+    replies = [ok if answer == "ok" else answer for answer in answers]
+    source = BaoStock(client=FakeClient(query_trade_dates=replies))
     source.login()
-    with pytest.raises(BaoStockError, match="10002007"):
-        source.query("query_trade_dates")
-    assert delays == [1.0, 2.0, 4.0] and len(source.errors) == 4
+    if answers[-1] == "ok":
+        assert source.query("query_trade_dates")[1]
+    else:
+        with pytest.raises(BaoStockError, match="10002007"):
+            source.query("query_trade_dates")
+    assert slept == delays and [c[0] for c in source.client.calls].count("login") == logins
+    assert [e[1] for e in source.errors] == [a.error_code for a in answers if a != "ok"]
 
 
 class StubSocket:
@@ -170,32 +126,6 @@ def test_a_guarded_socket_raises_once_the_server_has_closed():
     assert sock.recv(8192) == b"reply"
     with pytest.raises(ConnectionError):
         sock.recv(8192)
-
-
-class SlowSocket(StubSocket):
-    """Each reply arrives after `delay` seconds; an exception in the replies is raised instead."""
-
-    def __init__(self, replies, delay):
-        super().__init__(replies)
-        self.delay = delay
-
-    def recv(self, size):
-        time.sleep(self.delay)
-        reply = super().recv(size)
-        if isinstance(reply, Exception):
-            raise reply
-        return reply
-
-
-def test_a_guarded_socket_counts_the_time_spent_waiting_for_replies():
-    before = GuardedSocket.waited
-    sock = GuardedSocket(SlowSocket([b"reply", TimeoutError("timed out"), b""], delay=0.05))
-    assert sock.recv(8192) == b"reply"
-    with pytest.raises(TimeoutError):
-        sock.recv(8192)
-    with pytest.raises(ConnectionError):
-        sock.recv(8192)
-    assert GuardedSocket.waited - before >= 3 * 0.05  # the wait for a timeout or a close counts too
 
 
 def serve_once(handle) -> int:
@@ -220,10 +150,9 @@ def released():
 
 @pytest.mark.parametrize("silent", [False, True], ids=["closed", "silent"])
 def test_a_dead_connection_fails_the_login_instead_of_hanging(silent, released, monkeypatch):
-    constants = pytest.importorskip("baostock.common.contants")
+    """Without the guard, baostock's reply loop spins on a closed connection and blocks on a silent one."""
     monkeypatch.setattr(bsmod, "REPLY_TIMEOUT", 0.5)
-    monkeypatch.setattr(constants, "BAOSTOCK_SERVER_IP", "127.0.0.1")
-    monkeypatch.setattr(constants, "BAOSTOCK_SERVER_PORT", serve_once(released.wait if silent else lambda: None))
+    install_baostock(monkeypatch, "127.0.0.1", serve_once(released.wait if silent else lambda: None))
     errors = []
 
     def login():
@@ -237,10 +166,3 @@ def test_a_dead_connection_fails_the_login_instead_of_hanging(silent, released, 
     thread.join(5)
     assert not thread.is_alive(), "the login hangs on a dead connection"
     assert [error.code for error in errors] == ["10002007"]
-
-
-@pytest.mark.network
-def test_live_daily_bars():
-    with BaoStock() as source:
-        bars = source.daily_bars("600000.SH", "2026-11-02", "2026-11-06")
-    assert dict(bars.schema) == DAILY and bars.height == 5

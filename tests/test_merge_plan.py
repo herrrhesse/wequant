@@ -26,10 +26,9 @@ from tests.baostock_raw_fake import (
 )
 from tests.frames import table_frame
 from tools.baostock_merge import invariant_problems, status_complete
-from wequant.data.merge import RawDataError, StalePlan, apply_merge, plan_merge, resolutions
+from wequant.data.merge import StalePlan, apply_merge, plan_merge, resolutions
 from wequant.data.merge.assemble import stale_years
 from wequant.data.schema import BARS
-from wequant.version import code_version
 
 FIXED_600010 = [(dt.date(1999, 1, 4), 1.0), (D2, 1.25)]
 
@@ -74,14 +73,6 @@ def test_days_must_be_on_disk_and_cover_the_calendar(world):
         plan_merge(store, raw, factor_codes=["920001.BJ"])
 
 
-def test_empty_factor_codes_read_no_factor_file(world):
-    store, raw = world
-    write_factors(raw, "600000.SH", [(D1, 0.0)])
-    assert plan_merge(store, raw, factor_codes=()).factor_codes == []
-    with pytest.raises(RawDataError, match="factor"):
-        plan_merge(store, raw)
-
-
 def test_end_to_end(world):
     store, raw = world
     before = {t: store.read_table(t) for t in ("bars", "securities", "adj_factor", "calendar")}
@@ -122,6 +113,12 @@ def test_end_to_end(world):
 
     assert store.read_table("calendar").equals(before["calendar"])
     assert invariant_problems(store, store.manifest()) == []
+    conflicts = plan.issues.filter(pl.col("kind") == "tradestatus_conflict")  # exactly the world's two
+    assert set(conflicts.select("code", "date", "action").rows()) == {
+        ("600647.SH", D2, "bar_kept"),
+        ("600766.SH", D3, "no_bar"),
+    }
+    assert set(conflicts["table"]) == {"daily_status"}
     issues = store.read_table("data_issues")
     assert {"limit_breach", "off_scale"} <= set(issues["kind"])
     assert plan.stats["adjustment"]["first_bar"] == 3 and plan.stats["adjustment"]["checked"] == 23
@@ -161,17 +158,6 @@ def test_duplicate_codes(world):
     ]
     securities = store.read_table("securities").filter(codes)
     assert securities.select("code", "first_date", "last_date").rows() == [("300114.SZ", C1, D2), ("302132.SZ", D3, D3)]
-
-
-def test_status_conflicts_are_exactly_the_fixture_s_two(world):
-    store, raw = world
-    plan = plan_merge(store, raw)
-    conflicts = plan.issues.filter(pl.col("kind") == "tradestatus_conflict")
-    assert set(conflicts.select("code", "date", "action").rows()) == {
-        ("600647.SH", D2, "bar_kept"),
-        ("600766.SH", D3, "no_bar"),
-    }
-    assert set(conflicts["table"]) == {"daily_status"}
 
 
 def test_status_before_the_first_bar_is_dropped_not_a_conflict(tmp_path):
@@ -292,6 +278,8 @@ def test_partitions_and_migration(tmp_path):
     assert issue_keys(plan.issues, "event_missing") == {("600010.SH", D4, "flagged")}
     assert rows_of(store, "securities", "600010.SH", ["last_date"]) == [(D4,)]
     assert store.read_table("calendar")["date"].to_list() == [*CALENDAR, D4]
+    assert store.manifest()["last_trade_date"] == D4.isoformat()
+    assert plan_merge(store, raw, days=[D1], factor_codes=()).meta["last_trade_date"] == D4.isoformat()  # never back
 
 
 def test_a_stale_plan_is_refused(world):
@@ -301,19 +289,3 @@ def test_a_stale_plan_is_refused(world):
     with pytest.raises(StalePlan):
         apply_merge(store, plan)
     assert store.manifest()["version"] == 2
-
-
-def test_meta_describes_the_status_coverage_and_never_moves_back(tmp_path):
-    w = World()
-    w.stock("600000.SH", {C1: 10000, C2: 10100, D1: 10200, D2: 10300, D3: 10400}, raw=(C2, *MERGED))
-    store, raw = w.write(tmp_path)
-    merge(store, raw)
-    manifest = store.manifest()
-    coverage = {"first_day": "2023-12-29", "last_day": "2024-01-04", "days": 4}
-    assert manifest["baostock_merge"] == coverage | {"code_version": code_version()}
-    assert manifest["last_trade_date"] == "2024-01-04"
-    assert (manifest["source"], manifest["release_tag"]) == ("seed", "t")
-    plan, result = merge(store, raw, days=[D1])
-    assert plan.stats["years"]["daily_status"] == [2024]  # 2023 comes from the stored part
-    assert plan.meta == {"last_trade_date": "2024-01-04", "baostock_merge": coverage}
-    assert not result.changed

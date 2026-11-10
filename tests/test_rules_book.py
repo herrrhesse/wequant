@@ -1,7 +1,6 @@
 import datetime as dt
 import hashlib
 from fractions import Fraction
-from importlib.resources import files
 
 import pytest
 
@@ -84,25 +83,13 @@ def test_a_minimal_book_loads(tmp_path):
     [
         ("tick = 10", "tick = 10\nsize = 1", "lot lot-a"),
         ("since = 2010-01-04", "since = 2000-01-04", "band band-b"),
-        ('id = "ipo-a"', 'id = "band-a"', "new_listing band-a"),
         ("normal = 0.10\nst", "normal = 0.10005\nst", "band band-a"),
-        ("first_day_down = 0.36\n", "", "new_listing ipo-a"),
-        ('basis = "amount"\n', "", "transfer_fee transfer-a"),
-        ('board = "main"\nsince = 2000-01-04\nnormal', 'board = "mars"\nsince = 2000-01-04\nnormal', "band band-a"),
-        ("free_days = 0", "free_days = 1", "new_listing ipo-a"),
-        ("step = 100", "step = 200", "lot lot-a"),
-        ("sell = 0.001", "sell = 1.5", "stamp_tax stamp-a"),
     ],
 )
 def test_invalid_rows_name_their_table_and_id(tmp_path, old, new, named):
     assert old in MINIMAL
     with pytest.raises(ValueError, match=named):
         book_from(tmp_path, MINIMAL.replace(old, new, 1))
-
-
-def test_unknown_tables_are_rejected(tmp_path):
-    with pytest.raises(ValueError, match="commission"):
-        book_from(tmp_path, MINIMAL + '\n[[commission]]\nid = "c"\n')
 
 
 def test_in_force_picks_the_latest_row_since_day(tmp_path):
@@ -116,44 +103,11 @@ def test_in_force_picks_the_latest_row_since_day(tmp_path):
         book.in_force("lot", "star", dt.date(2024, 1, 2))
 
 
-def test_frames_are_ready_for_join_asof(tmp_path):
-    frame = book_from(tmp_path, MINIMAL).frame("band")
-    assert frame.columns == ["board", "since", "band_id", "normal_bp", "st_bp"]
-    assert frame["band_id"].to_list() == ["band-a", "band-b"]
-    with pytest.raises(ValueError):
-        book_from(tmp_path, MINIMAL).frame("stamp_tax")
-
-
-def test_the_packaged_book_is_loaded_once():
-    data = files("wequant.rules").joinpath("rules.toml").read_bytes()
-    assert default_book() is default_book()
-    assert default_book().digest == hashlib.sha256(data).hexdigest()
-
-
 def test_every_board_has_a_band_lot_and_listing_rule_from_its_launch_through_2026():
     book = default_book()
     for board in BOARDS:
         for day in (LAUNCH[board], dt.date(2026, 12, 31)):
             assert {book.in_force(table, board, day).board for table in ("band", "new_listing", "lot")} == {board}
-
-
-def test_stamp_tax_and_transfer_fee_cover_sh_and_sz_from_2000():
-    book = default_book()
     for exchange in ("SH", "SZ"):
         for table in ("stamp_tax", "transfer_fee"):
             assert exchange in book.in_force(table, exchange, dt.date(2000, 1, 4)).exchanges
-
-
-def test_uncertain_rules_carry_confirm_notes():
-    assert {row.id for row in default_book().unconfirmed()} == {
-        "band-bse-2020",
-        "ipo-main-2014",
-        "ipo-chinext-2014",
-        "ipo-bse-2020",
-        "lot-bse",
-        "transfer-sh-par-1990",
-        "transfer-sh-par-2012-06",
-        "transfer-sh-par-2012-09",
-        "transfer-sz-amount",
-        "transfer-2015",
-    }

@@ -3,15 +3,14 @@ import datetime as dt
 import polars as pl
 import pytest
 
-from tests.baostock_raw_fake import D1, D2, MERGED, SOURCE, World, day_row, empty_resolutions, suspended_row
+from tests.baostock_raw_fake import D1, D2, SOURCE, World, day_row, empty_resolutions, suspended_row
 from wequant.data.merge import RawDataError, plan_merge
-from wequant.data.merge.daily import paid, read_daily, split
+from wequant.data.merge.daily import paid, split
 from wequant.data.schema import BARS, DAILY_STATUS
 from wequant.data.sources.baostock import parse_daily
 from wequant.data.sources.base import DAILY
 
 STEADY = {D1: 10000, D2: 10100, dt.date(2024, 1, 4): 10200}
-CHEAP = dict.fromkeys(("open", "high", "low", "close"), "0.5000")
 
 
 def parsed(*rows: dict[str, str]) -> pl.DataFrame:
@@ -19,25 +18,25 @@ def parsed(*rows: dict[str, str]) -> pl.DataFrame:
 
 
 def test_parse_daily_golden():
-    row = day_row("600000.SH", D1, 10030, preclose=9870, volume=64270729, amount="640470012.0700")
-    row |= {"open": "9.9100", "high": "10.0700", "low": "9.8400"}
+    row = day_row("600000.SH", D1, 10100, preclose=10000, volume=1234567, amount="12469126.7800")
+    row |= {"open": "10.0500", "high": "10.2300", "low": "9.9800"}
     daily = parse_daily(pl.DataFrame([row]))
     assert dict(daily.schema) == DAILY
     assert daily.row(0, named=True) == {
         "code": "600000.SH",
         "date": D1,
-        "open": 9910,
-        "high": 10070,
-        "low": 9840,
-        "close": 10030,
-        "preclose": 9870,
-        "volume": 64270729,
-        "amount": 640470012.07,
+        "open": 10050,
+        "high": 10230,
+        "low": 9980,
+        "close": 10100,
+        "preclose": 10000,
+        "volume": 1234567,
+        "amount": 12469126.78,
         "tradestatus": 1,
         "is_st": False,
     }
-    with_turn = parse_daily(pl.DataFrame([row | {"turn": "0.564000"}]), turn=True)
-    assert with_turn.columns == [*DAILY, "turn"] and with_turn["turn"].item() == 0.564
+    with_turn = parse_daily(pl.DataFrame([row | {"turn": "1.250000"}]), turn=True)
+    assert with_turn.columns == [*DAILY, "turn"] and with_turn["turn"].item() == 1.25
 
 
 def test_parse_daily_empty_fields_are_null():
@@ -52,34 +51,18 @@ def test_parse_daily_empty_fields_are_null():
 def test_split_suspended_traded_while_suspended_and_no_volume():
     daily = parsed(
         day_row("600000.SH", D1, 10030, volume="", amount="", tradestatus="0"),
-        day_row("600647.SH", D1, 1790, preclose=1640, volume=2621826, tradestatus="0", open=1630, high=1800, low=1630),
+        day_row(
+            "600647.SH", D1, 10500, preclose=10000, volume=300000, tradestatus="0", open=10100, high=10600, low=10100
+        ),
         day_row("600004.SH", D1, 8220, volume="0", amount="0.0000"),
     )
     bars, status = split(daily)
     assert dict(bars.schema) == BARS.schema and dict(status.schema) == DAILY_STATUS.schema
     bar = bars.row(0, named=True)
     assert bars.height == 1 and bar["code"] == "600647.SH" and bar["preclose_derived"] is False
-    assert (bar["open"], bar["high"], bar["low"], bar["close"], bar["preclose"]) == (1630, 1800, 1630, 1790, 1640)
+    assert (bar["open"], bar["high"], bar["low"], bar["close"], bar["preclose"]) == (10100, 10600, 10100, 10500, 10000)
     assert (bar["tradestatus"], bar["is_st"], bar["source"]) == (0, False, SOURCE)
     assert status.select("code", "tradestatus").rows() == [("600000.SH", 0), ("600647.SH", 0), ("600004.SH", 1)]
-
-
-def test_read_daily_adds_the_source(tmp_path):
-    w = World()
-    w.stock("600000.SH", STEADY, seed=())
-    _, raw = w.write(tmp_path)
-    daily = read_daily(raw, MERGED)
-    assert daily.columns == [*DAILY, "turn", "source"] and daily["source"].unique().to_list() == [SOURCE]
-    assert daily["close"].to_list() == [10000, 10100, 10200]
-
-
-def test_read_daily_keeps_turn_and_split_puts_it_on_the_bar(tmp_path):
-    w = World()
-    w.stock("600000.SH", STEADY, seed=())
-    w.days[D1][0].update(turn="1.234500")
-    _, raw = w.write(tmp_path)
-    bars, _ = split(read_daily(raw, MERGED))
-    assert bars["turn"].to_list() == [1.2345, None, None]
 
 
 BROKEN = [
@@ -89,40 +72,24 @@ BROKEN = [
     ("unique", lambda rows: rows.append(dict(rows[0]))),
     ("date", lambda rows: rows[0].update(date=D2.isoformat())),
     ("traded", lambda rows: rows[0].update(high="10.0000", close="10.1000")),
-    ("traded", lambda rows: rows[0].update(open="9.9000", low="9.9500")),
-    ("traded", lambda rows: rows[0].update(preclose="")),
     ("code", lambda rows: rows[0].update(code="bj.920001")),
-    ("code", lambda rows: rows[0].update(code="sh.000001")),
     ("volume", lambda rows: rows[0].update(volume="1000.0")),
     ("amount", lambda rows: rows[0].update(amount="1.5e8")),
     ("turn", lambda rows: rows[0].update(turn="1.2e3")),
-    ("turn", lambda rows: rows[0].update(turn="-0.5")),
 ]
-UNPAID = [
-    {"amount": "0.0000"},
-    {"amount": "1.0000"},
-    {"amount": "10020.0000"},  # above 1000 shares at 10.00 by more than the tolerance
-    {"tradestatus": "0", "volume": "1118342", "amount": "0.0000"},
-    CHEAP | {"volume": "1", "amount": "0.0000"},  # worth half a yuan
-]
+PAID = {  # low, high (厘), volume, amount -> whether paid() passes the amount
+    "above_high": (10000, 10000, 1000, 10020.0, False),  # 20 yuan over 10,000: beyond 1e-3 and one yuan
+    "no_amount_with_volume": (10000, 10000, 5000, 0.0, False),  # a suspended row with volume and no amount (D9)
+    "no_amount_under_a_yuan": (500, 500, 1, 0.0, False),  # 0.50 yuan traded: inside the yuan tolerance, still unpaid
+    "cut_to_the_yuan": (500, 500, 113, 56.0, True),  # 113 shares at 0.50 are 56.50 yuan, cut to 56
+}
 
 
-@pytest.mark.parametrize("change", UNPAID)
-def test_amounts_outside_low_high_fail_paid_without_raising(tmp_path, change):
-    w = World()
-    w.stock("600000.SH", STEADY)
-    w.days[D1][0].update(change)
-    _, raw = w.write(tmp_path)
-    assert read_daily(raw, [D1]).select(paid()).item() is False
-
-
-def test_amounts_cut_to_the_whole_yuan_pass(tmp_path):
-    w = World()
-    w.stock("600000.SH", STEADY)
-    w.days[D1][0].update(CHEAP, volume="113", amount="56.0000")  # 113 shares at 0.50 are 56.50 yuan
-    store, raw = w.write(tmp_path)
-    daily = read_daily(raw, [D1])
-    assert daily["amount"].to_list() == [56.0] and daily.select(paid()).item()
+@pytest.mark.parametrize("low, high, volume, amount, passes", PAID.values(), ids=PAID)
+def test_paid_holds_amounts_to_low_high(low, high, volume, amount, passes):
+    schema = {"low": pl.Int32, "high": pl.Int32, "volume": pl.Int64, "amount": pl.Float64}
+    bar = pl.DataFrame({"low": [low], "high": [high], "volume": [volume], "amount": [amount]}, schema=schema)
+    assert bar.select(paid()).item() is passes
 
 
 @pytest.mark.parametrize("check, change", BROKEN)

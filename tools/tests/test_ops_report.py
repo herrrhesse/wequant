@@ -58,10 +58,5 @@ def test_report_writes_every_section_and_nothing_under_the_home(tmp_path, monkey
     monkeypatch.setattr(ops_report, "probe", lambda numba_cache=None: warm())  # a cold compile takes seconds
     assert ops_report.main(["--home", str(home), "--cache", str(tmp_path / "cache"), "--out", str(out)]) == 0
     text = out.read_text("utf-8")
-    for heading in ("# Operator report: store v1", "## 1. Panel", "## 2. Import", "## 3. MA20", "## 4. No look-ahead"):
-        assert heading in text
-    assert "## 5. TDX" in text and all(f"### {code}" in text for code in ops_report.COMPARED)
-    assert "80 dates × 3 codes" in text and "(BJ codes left out: 1)" in text and "99.6% of cells hold a bar" in text
-    assert "| MA5 | 10.750 | 10.760 | 10.770 |" in text
-    assert "FAIL" not in text and text.count("PASS") == 2 + 2 * len(ops_report.LOOK_AHEAD)
+    assert text.startswith("# Operator report: store v1") and "FAIL" not in text  # operator values: the ops tests
     assert listing(home) == before

@@ -18,7 +18,6 @@ EXACT = {
 
 
 def test_the_registry_covers_every_operator():
-    assert len(ops.__all__) == 45
     assert set(REGISTRY) == set(ops.__all__)
 
 

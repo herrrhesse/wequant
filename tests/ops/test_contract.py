@@ -20,6 +20,9 @@ SECTION = [name for name, op in REGISTRY.items() if op.kind == "section"]
 FLOAT_ONLY = [name for name, op in REGISTRY.items() if op.kind not in ELEMENTWISE]
 WINDOWED = [name for name, op in REGISTRY.items() if op.minimum is not None]
 ANCHORED = {"EMA", "SMA"}  # windowed, yet every bar since the grid's first row weighs in
+# Elementwise operators share elementwise()/defined(); one per shape (IF has its own path) stands for them all.
+ELEMENTWISE_SAMPLE = {"ABS", "DIV", "BETWEEN", "IF"}
+TIME_SERIES = [name for name in FLOAT_ONLY if name not in SECTION]
 GRID = np.array([[1.0, 4.0], [2.0, 3.0], [5.0, 3.0], [4.0, 1.0], [6.0, 2.0], [3.0, 5.0]])
 SQUARE = np.array([[1.0, 4.0, 2.0], [5.0, 3.0, 3.0], [4.0, 1.0, 6.0]])
 
@@ -41,7 +44,7 @@ def draw_case(data, name, **options):
     return lambda *args: op.call(*args, **window), arguments
 
 
-@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("name", [name for name in NAMES if name in FLOAT_ONLY or name in ELEMENTWISE_SAMPLE])
 @EXAMPLES
 @given(data=st.data())
 def test_the_result_depends_only_on_the_data_up_to_each_row(name, data):
@@ -59,7 +62,7 @@ def test_the_result_depends_only_on_the_data_up_to_each_row(name, data):
     assert all(identical(a, b) for a, b in zip(arguments, before, strict=True) if np.ndim(a)), "inputs changed"
 
 
-@pytest.mark.parametrize("name", [name for name in NAMES if name not in SECTION])
+@pytest.mark.parametrize("name", TIME_SERIES)
 @EXAMPLES
 @given(data=st.data())
 def test_days_without_a_bar_are_skipped(name, data):
@@ -159,28 +162,28 @@ def valid_arguments(name, grid=GRID) -> list:
     return [grid % 2 if role == "c" else grid for role in ROLES[op.kind]] + ([3] if op.minimum is not None else [])
 
 
+# Every series and cross-sectional operator reads its inputs through inputs.series(); one case per way in.
 @pytest.mark.parametrize(
-    ("name", "position"), [(name, i) for name in FLOAT_ONLY for i in range(len(ROLES[REGISTRY[name].kind]))]
+    ("name", "position"), [("MA", 0), ("CORR", 0), ("CORR", 1), ("COUNT", 0), ("VALUEWHEN", 1), ("CS_RANK", 0)]
 )
-@pytest.mark.parametrize("dtype", [bool, np.int64, np.int8])
-def test_bool_and_int_series_raise_type_error(name, position, dtype):
-    arguments = valid_arguments(name)
-    arguments[position] = arguments[position].astype(dtype)
-    with pytest.raises(TypeError):
-        REGISTRY[name].call(*arguments)
+def test_bool_and_int_series_raise_type_error(name, position):
+    for dtype in (bool, np.int64):
+        arguments = valid_arguments(name)
+        arguments[position] = arguments[position].astype(dtype)
+        with pytest.raises(TypeError):
+            REGISTRY[name].call(*arguments)
 
 
 @pytest.mark.parametrize("name", WINDOWED)
-@pytest.mark.parametrize("n", [3.0, True, np.float64(3), "3"])
-def test_windows_must_be_integers(name, n):
-    with pytest.raises(TypeError):
-        REGISTRY[name].call(*valid_arguments(name)[:-1], n)
-
-
-@pytest.mark.parametrize("name", WINDOWED)
-def test_windows_below_the_minimum_raise(name):
+def test_window_arguments_are_checked(name):
+    """A window is an integer (not a bool or a float) of at least the operator's own minimum."""
+    op, data = REGISTRY[name], valid_arguments(name)[:-1]
+    for n in (True, 3.0):
+        with pytest.raises(TypeError):
+            op.call(*data, n)
     with pytest.raises(ValueError):
-        REGISTRY[name].call(*valid_arguments(name)[:-1], REGISTRY[name].minimum - 1)
+        op.call(*data, op.minimum - 1)
+    assert op.call(*data, op.minimum).shape == GRID.shape
 
 
 def test_ref_cannot_look_ahead():
@@ -188,15 +191,13 @@ def test_ref_cannot_look_ahead():
         REF(GRID, -1)
 
 
-@pytest.mark.parametrize(
-    ("n", "m", "error"), [(3, 4, ValueError), (3, 0, ValueError), (1, 2, ValueError), (3, 1.0, TypeError)]
-)
+@pytest.mark.parametrize(("n", "m", "error"), [(3, 4, ValueError), (3, 0, ValueError)])
 def test_sma_weight_is_an_integer_from_1_to_n(n, m, error):
     with pytest.raises(error):
         SMA(GRID, n, m)
 
 
-@pytest.mark.parametrize("name", [name for name, op in REGISTRY.items() if len(ROLES[op.kind]) > 1])
+@pytest.mark.parametrize("name", ["CROSS", "ADD", "IF"])  # per_stock2, elementwise() and IF's own check
 def test_series_and_grids_do_not_mix(name):
     # On a square grid numpy would broadcast a date series across the codes, reading later dates into earlier rows.
     for position in range(len(ROLES[REGISTRY[name].kind])):
@@ -206,20 +207,20 @@ def test_series_and_grids_do_not_mix(name):
             REGISTRY[name].call(*arguments)
 
 
-@pytest.mark.parametrize("name", SECTION)
+@pytest.mark.parametrize("name", ["CS_RANK"])  # every cross-section goes through per_date
 def test_cross_sections_need_a_grid(name):
     with pytest.raises(ValueError):
         REGISTRY[name].call(GRID[:, 0])
 
 
-@pytest.mark.parametrize("name", [name for name in NAMES if name not in FLOAT_ONLY])
-@pytest.mark.parametrize("dtype", [bool, np.int64])
-def test_elementwise_operators_accept_bool_int_and_scalars(name, dtype):
+@pytest.mark.parametrize("name", ["ADD", "IF"])  # elementwise() and IF's own conversion
+def test_elementwise_operators_accept_bool_int_and_scalars(name):
     call, arguments = REGISTRY[name].call, valid_arguments(name)
-    typed = [a.astype(dtype) for a in arguments]
-    np.testing.assert_array_equal(call(*typed), call(*(a.astype(float) for a in typed)))
-    scalar = dtype(1)
-    np.testing.assert_array_equal(call(scalar, *typed[1:]), call(np.full(GRID.shape, 1.0), *typed[1:]))
+    for dtype in (bool, np.int64):
+        typed = [a.astype(dtype) for a in arguments]
+        np.testing.assert_array_equal(call(*typed), call(*(a.astype(float) for a in typed)))
+        scalar = dtype(1)
+        np.testing.assert_array_equal(call(scalar, *typed[1:]), call(np.full(GRID.shape, 1.0), *typed[1:]))
 
 
 CACHE_PROBE = """

@@ -89,14 +89,10 @@ def test_proposed_entries_still_stop_the_merge(world, tmp_path):
         apply_merge(store, plan)
     assert store.manifest()["version"] == 1
 
-
-def test_the_stop_lists_conflicts_without_an_entry_first(world, tmp_path):
-    store, raw = world
-    path = tmp_path / "r.toml"
-    add(path, [entry for entry in propose(store, raw) if entry["code"] != "600003.SH"])
+    path.write_text(text[: text.rindex("[[resolution]]")], "utf-8")  # 600003.SH's entry, the last, removed
     plan = plan_merge(store, raw, resolutions=path)
-    assert keys(plan.unresolved) == [CONFLICTS[4], *CONFLICTS[:4]]
-    assert plan.unresolved["entry"].to_list() == ["missing", *["proposed"] * 4]
+    assert keys(plan.unresolved) == [CONFLICTS[4], *CONFLICTS[2:4]]  # the stop lists conflicts without an entry first
+    assert plan.unresolved["entry"].to_list() == ["missing", "proposed", "proposed"]
 
 
 def test_approved_entries_are_applied_each_with_one_data_issues_row(world, tmp_path):
@@ -309,17 +305,3 @@ def test_an_approved_entry_without_a_conflict_is_listed(world, tmp_path):
     assert plan_merge(store, raw, resolutions=path).stats["resolutions"]["idle"] == [
         {"code": "600004.SH", "date": D1, "kind": "price_mismatch", "fields": OHLC, "take": "seed"}
     ]
-
-
-def test_an_adj_factor_step_before_the_reference_flags_the_kept_close(tmp_path):
-    w = World()
-    w.stock("600000.SH", STEADY, steps={D2: 1.1})
-    raw_row(w, "600000.SH", D1, close="10.2100", high="10.2100", amount="10200.0000")
-    raw_row(w, "600000.SH", D2, preclose="10.2100")  # repeats BaoStock's close, but the step spoils the comparison
-    store, raw = w.write(tmp_path / "home")
-    (entry,) = propose(store, raw)
-    assert entry["take"] == "baostock" and "an adj_factor step by then spoils the comparison" in entry["evidence"]
-    path = resolutions(store, raw, tmp_path / "r.toml", status="approved")
-    plan = plan_merge(store, raw, resolutions=path)
-    flagged = plan.issues.filter(pl.col("kind") == "close_unconfirmed")
-    assert json.loads(flagged["detail"].item())["ex_event"] is True

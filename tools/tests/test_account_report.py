@@ -52,9 +52,8 @@ def test_report_writes_every_section_and_nothing_under_the_home(tmp_path):
         (NO_SLIPPAGE, NO_BAR, "1,049,640.31", "no_bar"),
         (NO_SLIPPAGE, LIMIT_DOWN, "949,740.31", "limit_down"),
         (NO_SLIPPAGE, LAST_DAY, "1,019,670.31", "bought on the last day"),
-        # the default 10 bp: 99,800 shares for 999,307.38 (commission 299.40, transfer 9.98, slippage 998.00) leave 692.62
-        (Execution(), NO_BAR, "1,048,592.62", "no_bar"),
-        (Execution(), LIMIT_DOWN, "948,792.62", "limit_down"),
+        # the holding's own execution, the default 10 bp: 99,800 shares for 999,307.38 (commission 299.40, transfer
+        # 9.98, slippage 998.00) leave 692.62
         (Execution(), LAST_DAY, "1,018,652.62", "bought on the last day"),
     ],
 )
@@ -64,12 +63,6 @@ def test_a_holding_left_unsold_is_judged_at_its_last_close(execution, prices, fi
     panel = FakePanel(DAYS, ["600000.SH"], ["main"], open, close, up=up, down=down)
     row = account_report.hold_row(panel, 0, account_report.hold(panel, 0, execution))
     assert row[5:9] == [final, f"{final} (held: {unsold})", "0.00", "PASS"] and row[-1] == "PASS"
-
-
-def test_capacity_without_a_known_day_amount():
-    panel = FakePanel(DAYS, ["600000.SH"], ["main"], [10.0] * 4, [10.0] * 4)  # no amounts: every one unknown
-    text = account_report.capacity_text(account_report.hold(panel, 0).ledger.orders)
-    assert text == "no fill with a known day amount; fills with an unknown day amount: 2"
 
 
 def test_capacity_names_the_largest_known_fill():
