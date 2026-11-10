@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LIMIT = 4096  # bytes: room for a small synthetic sample, none for a table
 DATA = {".json", ".jsonl", ".csv", ".tsv", ".parquet", ".feather", ".arrow", ".xls", ".xlsx", ".npy", ".npz", ".pkl"}
 DATA |= {".h5", ".toml"}
-CONFIG = {"pyproject.toml"}  # tomls that configure, not tables
+CONFIG = {"pyproject.toml", "package-lock.json"}  # files that configure or pin dependencies, not tables
 ALLOWED = {
     "frontend/contract/service-models.schema.json",  # the service models' JSON Schema, not data
     "tests/data/resolutions_sample.toml",  # synthetic
