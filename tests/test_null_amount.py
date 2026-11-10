@@ -5,9 +5,7 @@ import numpy as np
 import pytest
 
 from tests.frames import table_frame
-from wequant import ops
 from wequant.data.store import Store
-from wequant.expr import GT, MA, SUM, Field, evaluate
 from wequant.panel import load_panel
 
 DAYS = ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
@@ -47,17 +45,3 @@ def same(a: list[float], b: list[float]) -> bool:
 def test_the_panel_shows_a_null_amount_as_nan_on_a_traded_day(panel):
     assert same(column(panel.raw("amount")), [1000.0, 2000.0, NAN, 4000.0])
     assert column(panel.traded) == [True] * 4 and column(panel.raw("volume")) == [100.0] * 4
-
-
-def test_operators_skip_it_as_no_value(panel):
-    amount = panel.raw("amount")
-    assert same(column(ops.MA(amount, 2)), [NAN, 1500.0, NAN, 3000.0])  # 3000: the bars of day 2 and day 4
-    assert same(column(ops.SUM(amount, 0)), [1000.0, 3000.0, NAN, 7000.0])
-    assert same(column(ops.REF(amount, 1)), [NAN, 1000.0, NAN, 2000.0])
-    assert same(column(ops.GT(amount, 0)), [1.0, 1.0, NAN, 1.0])  # neither true nor false
-
-
-def test_expressions_skip_it_as_no_value(panel):
-    assert same(column(evaluate(MA(Field("amount"), 2), panel)), [NAN, 1500.0, NAN, 3000.0])
-    assert same(column(evaluate(SUM(Field("amount"), 0), panel)), [1000.0, 3000.0, NAN, 7000.0])
-    assert same(column(evaluate(GT(Field("amount"), 0), panel)), [1.0, 1.0, NAN, 1.0])

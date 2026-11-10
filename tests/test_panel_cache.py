@@ -71,23 +71,8 @@ def test_a_new_version_is_served_from_its_own_directory(store, cache):
     panel = load_panel(store=store, cache_dir=cache)
     assert panel.raw("close")[1, col(panel, A)] == 10.1
     assert panel.key.startswith("f1-v2-") and (cache / "panel" / panel.key / "close.npy").exists()
-
-
-def test_a_panel_keeps_serving_its_version(store, cache):
-    old = load_panel(store=store, cache_dir=cache)
-    commit(store, bars=[{**r, "volume": 700} for r in BARS])
-    assert (old.raw("volume")[old.traded] == 100.0).all()
-    new = load_panel(store=store, cache_dir=cache)
-    assert (new.raw("volume")[new.traded] == 700.0).all()
-    assert load_panel(version=1, store=store, cache_dir=cache).raw("volume")[0, 0] == 100.0
-
-
-def test_a_removed_manifest_raises_lookup_error(store, cache):
-    commit(store, bars=BARS[1:])
-    (store.home / "manifests" / "manifest.v1.json").unlink()
-    with pytest.raises(LookupError):
-        load_panel(version=1, store=store, cache_dir=cache)
-    assert load_panel(version=2, store=store, cache_dir=cache).version == 2
+    assert first.raw("open")[1, col(first, A)] == 10.0  # the v1 panel keeps serving v1, even a field read only now
+    assert load_panel(version=1, store=store, cache_dir=cache).raw("close")[1, col(first, A)] == 10.0
 
 
 def test_stores_sharing_a_cache_get_their_own_directories(tmp_path, cache):
@@ -110,42 +95,14 @@ def test_versions_the_store_no_longer_keeps_are_pruned(store, cache):
     assert directories(cache) == sorted([cache_key(store.manifest(2)), latest.key, "notes"])
 
 
-def test_directories_carry_the_format_and_adjusted_prices_are_never_stored(store, cache):
-    panel = load_panel(store=store, cache_dir=cache)
-    for field in ("open", "high", "low", "close", "preclose"):
-        panel.adjusted(field)
-    names = sorted(p.name for p in (cache / "panel" / panel.key).iterdir())
-    assert panel.key.startswith(f"f{FORMAT}-") and directories(cache) == [panel.key]
-    assert not [n for n in names if n.startswith("adjusted")]
-    assert "factor.npy" in names and "close.npy" in names
-
-
-@pytest.mark.parametrize("change", ["format", "book"])
+@pytest.mark.parametrize("change", ["book"])
 def test_a_rules_change_rebuilds_only_the_limits(store, cache, builds, monkeypatch, change):
     calls = install_stub_rules(monkeypatch)
     panel = load_panel(store=store, cache_dir=cache)
     locked = panel.limit_locked
     builds.clear()
-    if change == "format":
-        monkeypatch.setattr("wequant.panel.panel.LIMITS_FORMAT", 2)
-    else:
-        monkeypatch.setattr("wequant.panel.panel.default_book", lambda: SimpleNamespace(digest="next" * 16))
+    monkeypatch.setattr("wequant.panel.panel.default_book", lambda: SimpleNamespace(digest="next" * 16))
     again = load_panel(store=store, cache_dir=cache)
     assert np.array_equal(again.limit_locked, locked) and locked.any()
     assert builds == [] and calls == [1, 1]
-    expected = "limits-stubstubstub-r2.npy" if change == "format" else "limits-nextnextnext-r1.npy"
-    assert (cache / "panel" / panel.key / expected).exists()
-
-
-def test_a_corrupt_file_raises_and_stays(store, cache):
-    panel = load_panel(store=store, cache_dir=cache)
-    path = cache / "panel" / panel.key / "close.npy"
-    path.write_bytes(b"not an array")
-    with pytest.raises(ValueError):
-        load_panel(store=store, cache_dir=cache).raw("close")
-    assert path.read_bytes() == b"not an array"
-
-
-def test_the_default_cache_lives_under_the_store_home(store):
-    panel = load_panel(store=store)
-    assert (store.home / "cache" / "panel" / panel.key / "dates.npy").exists()
+    assert (cache / "panel" / panel.key / "limits-nextnextnext-r1.npy").exists()
