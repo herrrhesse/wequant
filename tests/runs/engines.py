@@ -9,6 +9,7 @@ import polars as pl
 from tests.account.fake import FakePanel
 from wequant.account import Account, Execution, Ledger
 from wequant.analytics import MetricSpec, compute_metrics
+from wequant.backtest.anomalies import ANOMALY_USES
 from wequant.data.store import Store
 from wequant.expr import panel_key
 from wequant.panel import load_panel
@@ -66,5 +67,5 @@ def held_run(description: dict, panel, ledger: Ledger) -> Run:
     metrics = compute_metrics(ledger.daily, calendar, positions=ledger.positions, orders=ledger.orders)
     anchor = panel.dates[0].item()
     picks = pl.DataFrame({"date": [anchor], "code": [description["code"]], "rank": [1]}, schema=PICKS)
-    frames = (picks, pl.DataFrame(schema=FUNNEL), pl.DataFrame(schema=DETAIL))
+    frames = (picks, pl.DataFrame(schema=FUNNEL), pl.DataFrame(schema=DETAIL), pl.DataFrame(schema=ANOMALY_USES))
     return Run("hold", description, {"hold": 1}, panel_key(panel), anchor, ledger, metrics, MetricSpec(), *frames, {})

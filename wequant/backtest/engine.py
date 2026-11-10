@@ -88,6 +88,6 @@ def targets(section: Section, i: int, choice: Choice) -> Target:
     priority, the backups by rank."""
     # a held code without a bar waits for a later decision
     weights = np.where(choice.held & section.traded[i], 0.0, np.nan)
-    weights[choice.target] = choice.weight[choice.target]
+    weights[choice.target] = choice.weight
     backups = np.flatnonzero(choice.backup)
     return Target(weights, section.score[i], backups[np.argsort(section.rank[i, backups])])

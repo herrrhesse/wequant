@@ -8,9 +8,12 @@ import numpy as np
 import polars as pl
 
 from wequant.account import EXECUTION_VERSION, Ledger
+from wequant.account.ledger import rebalance_orders
 from wequant.analytics import METRICS_VERSION, compute_metrics
+from wequant.backtest.anomalies import run_uses
 from wequant.backtest.backtest import Backtest
 from wequant.backtest.warnings import run_warnings
+from wequant.data.schema import ANOMALY_VERSION
 from wequant.expr import EXPR_VERSION, panel_key
 from wequant.panel import Panel
 from wequant.runs.run import Run
@@ -18,13 +21,14 @@ from wequant.strategy import STRATEGY_VERSION, Choice, Section, SpecError, detai
 
 
 def versions(engine: str, version: int) -> dict[str, int]:
-    """{engine: version} and the meaning versions of strategy, expr, execution and metrics."""
+    """{engine: version} and the meaning versions of strategy, expr, execution, metrics and the anomaly classes."""
     return {
         engine: version,
         "strategy": STRATEGY_VERSION,
         "expr": EXPR_VERSION,
         "execution": EXECUTION_VERSION,
         "metrics": METRICS_VERSION,
+        "anomaly": ANOMALY_VERSION,
     }
 
 
@@ -54,7 +58,8 @@ def assemble(
         ledger = replace(ledger, daily=ledger.daily.with_columns(pl.Series("benchmark", closes).fill_nan(None)))
     calendar = pl.Series("date", panel.dates)
     spec, strategy = backtest.metrics, backtest.strategy
-    metrics = compute_metrics(ledger.daily, calendar, spec, positions=ledger.positions, orders=ledger.orders)
+    orders, uses = rebalance_orders(ledger.orders), run_uses(strategy, panel, section, choice, ledger)
+    metrics = compute_metrics(ledger.daily, calendar, spec, positions=ledger.positions, orders=orders)
     return Run(
         engine,
         backtest.form,
@@ -67,5 +72,6 @@ def assemble(
         picks_frame(section, choice, panel),
         funnel_frame(strategy, section, choice, panel),
         detail_frame(strategy, section, choice, panel),
-        run_warnings(strategy, panel, section, choice, ledger),
+        uses,
+        run_warnings(strategy, panel, section, choice, ledger, uses),
     )

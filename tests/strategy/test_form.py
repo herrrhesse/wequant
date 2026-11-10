@@ -32,7 +32,11 @@ from wequant.strategy import (
 ADJ, CLOSE, OPEN, ST, VOLUME = Field("adj_close"), Field("close"), Field("open"), Field("st"), Field("volume")
 EX0 = Execution(slippage_bps=0.0)
 MOM = Strategy(factors=(Factor("mom", ADJ / REF(ADJ, 1)),), top_n=2)
-EXECUTION = '{"commission_rate":0.0003,"min_commission":5.0,"price":"open","slippage_bps":0.0}'
+EXECUTION = (
+    '{"commission_rate":0.0003,"delisting":"auto","failure_recovery":0.0,"min_commission":5.0,"price":"open",'
+    '"slippage_bps":0.0}'
+)
+DATA = '{"anomalies":"flag","exclude_suspicious":false}'
 METRICS = '{"periods_per_year":242,"risk_free_rate":0.0,"tail_fraction":0.05}'
 MOM_KEY = '{"factors":[{"expr":["DIV","adj_close",["REF","adj_close",1]],"name":"mom"}],"top_n":2}'
 
@@ -66,12 +70,12 @@ def test_the_new_fields_stay_out_of_the_form_at_their_defaults_and_have_golden_k
 
 
 def test_golden_backtest_keys_write_execution_and_metrics_in_full():
-    key = f'{{"execution":{EXECUTION},"metrics":{METRICS},"strategy":{MOM_KEY}}}'
+    key = f'{{"data":{DATA},"execution":{EXECUTION},"metrics":{METRICS},"strategy":{MOM_KEY}}}'
     assert Backtest(MOM, execution=EX0).key == key
     assert Backtest(MOM, execution=Execution(slippage_bps=-0.0)).key == key
     ret1 = Strategy(factors=(Factor("ret1", ADJ / REF(ADJ, 1)),), top_n=1, period="day")
     assert Backtest(ret1, cash=100_000, execution=EX0).key == (
-        f'{{"cash":100000.0,"execution":{EXECUTION},"metrics":{METRICS},"strategy":{{"factors":[{{"expr":["DIV",'
+        f'{{"cash":100000.0,"data":{DATA},"execution":{EXECUTION},"metrics":{METRICS},"strategy":{{"factors":[{{"expr":["DIV",'
         '"adj_close",["REF","adj_close",1]],"name":"ret1"}],"period":"day","top_n":1}}'
     )
 

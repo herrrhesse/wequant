@@ -68,15 +68,14 @@ def picks_frame(section: Section, choice: Choice, panel: Panel) -> pl.DataFrame:
     i, j = np.nonzero(choice.target | choice.backup)
     order = np.lexsort((section.rank[i, j], ~choice.target[i, j], i))
     i, j = i[order], j[order]
-    target = choice.target[i, j]
     columns = {
         "date": panel.dates[section.rows[i]],
         "code": panel.codes[j],
-        "role": np.where(target, "target", "backup"),
+        "role": np.where(choice.target[i, j], "target", "backup"),
         "rank": section.rank[i, j],
         "score": section.score[i, j],
-        "weight": _floats(np.where(target, choice.weight[i, j], np.nan)),
-        "raw_weight": _floats(np.where(target, choice.raw_weight[i, j], np.nan)),
+        "weight": _on_targets(choice, i, j, choice.weight),
+        "raw_weight": _on_targets(choice, i, j, choice.raw_weight),
         "capped": choice.capped[i, j],
     }
     return pl.DataFrame(columns, schema=PICKS)
@@ -99,7 +98,7 @@ def detail_frame(strategy: Strategy, section: Section, choice: Choice, panel: Pa
     cells = np.flatnonzero((section.steps["universe"] == 1) | choice.held)  # flat (row, column) indices, in order
     i, j = np.divmod(cells, len(panel.codes))
     verdicts = ["universe", *pool_items(strategy), *(step.name for step in strategy.steps())]
-    action = _actions(*(np.take(mask, cells) for mask in (choice.target, choice.held, section.traded)))
+    action = actions(*(np.take(mask, cells) for mask in (choice.target, choice.held, section.traded)))
     sold = np.flatnonzero(action == SELL)
     columns = {
         "date": pl.Series(panel.dates[section.rows], dtype=pl.Date).gather(i),
@@ -117,7 +116,8 @@ def detail_frame(strategy: Strategy, section: Section, choice: Choice, panel: Pa
 def stocks_frame(strategy: Strategy, section: Section, choice: Choice, panel: Panel, i: int = 0) -> pl.DataFrame:
     """Every code's full row on decision row i."""
     steps = ["universe", *pool_items(strategy), *(step.name for step in strategy.steps())]
-    target = choice.target[i]
+    target, n = choice.target[i], len(panel.codes)
+    cells = np.full(n, i), np.arange(n)
     values = dict(section.factors)
     if section.formula is not None:
         values["formula"] = section.formula
@@ -129,8 +129,8 @@ def stocks_frame(strategy: Strategy, section: Section, choice: Choice, panel: Pa
         "score": _floats(section.score[i]),
         "rank": section.rank[i],
         "role": _roles(target, choice.backup[i]),
-        "weight": _floats(np.where(target, choice.weight[i], np.nan)),
-        "raw_weight": _floats(np.where(target, choice.raw_weight[i], np.nan)),
+        "weight": _on_targets(choice, *cells, choice.weight),
+        "raw_weight": _on_targets(choice, *cells, choice.raw_weight),
         "capped": choice.capped[i],
     }
     return pl.DataFrame(columns).with_columns(*_booleans(steps), _ranks())
@@ -180,7 +180,7 @@ def _funnel(strategy: Strategy, section: Section, choice: Choice) -> Iterator[tu
         yield name, mask.sum(axis=1), mask.sum(axis=1)
 
 
-def _actions(target: np.ndarray, held: np.ndarray, traded: np.ndarray) -> np.ndarray:
+def actions(target: np.ndarray, held: np.ndarray, traded: np.ndarray) -> np.ndarray:
     """ACTIONS index of each cell: a target is kept or bought; a held other one is sold, or waits without a bar."""
     return np.select([target & held, target, held & traded, held], [KEEP, BUY, SELL, WAIT], NONE).astype(np.int8)
 
@@ -258,6 +258,14 @@ def _first_false(passes: list[np.ndarray]) -> np.ndarray:
 def _names(index: np.ndarray, names: tuple[str, ...], dtype: pl.DataType) -> pl.Series:
     """names[k] for each index k."""
     return pl.Series(index).replace_strict(dict(enumerate(names)), return_dtype=dtype)
+
+
+def _on_targets(choice: Choice, i: np.ndarray, j: np.ndarray, values: np.ndarray) -> pl.Series:
+    """values, one per target cell in row-major order, at the cells (i, j) of choice's grid; null off the targets."""
+    cells, flat = np.flatnonzero(choice.target), np.ravel_multi_index((i, j), choice.target.shape)
+    hit, found = choice.target[i, j], np.full(len(flat), np.nan)
+    found[hit] = values[np.searchsorted(cells, flat[hit])]
+    return _floats(found)
 
 
 def _floats(values: np.ndarray) -> pl.Series:

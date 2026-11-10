@@ -14,12 +14,13 @@ ROUNDING = 1e-12  # targets x cap equal to the total leaves ~1e-16 of excess, no
 
 
 class Choice(NamedTuple):
-    """One decision row's choice, (N,) arrays over the panel's columns; stack() makes them (R, N) and cash (R,)."""
+    """One decision row's choice: masks over the panel's columns and the weights of its targets in column order;
+    stack() makes the masks (R, N), the weights those of every row's targets in turn, and cash (R,)."""
 
     held: np.ndarray  # bool: shares at the decision day's close
     target: np.ndarray  # bool
-    raw_weight: np.ndarray  # float64 target weight of equity before max_weight, 0 off targets
-    weight: np.ndarray  # float64 target weight after max_weight, > 0 exactly on targets
+    raw_weight: np.ndarray  # float64 weight of equity before max_weight, one per target
+    weight: np.ndarray  # float64 weight after max_weight, one per target, each > 0
     capped: np.ndarray  # bool: a target max_weight cut, directly or after taking an excess
     backup: np.ndarray  # bool: stands in, best rank first, for a new target that gets no shares
     slots: np.ndarray  # bool: held and within hold_rank but left out, as top_n held stocks rank higher
@@ -39,12 +40,22 @@ def choose(strategy: Strategy, section: Section, i: int, held: np.ndarray) -> Ch
     backup = _mask(held.shape, stand_ins[: strategy.backups])
     raw = _weights(strategy, section, i, target)
     weight, capped, cash = _capped(raw, strategy.max_weight)
-    return Choice(held, target, raw, weight, capped, backup, slots, np.float64(cash))
+    return Choice(held, target, raw[target], weight[target], capped, backup, slots, np.float64(cash))
 
 
 def stack(choices: Sequence[Choice]) -> Choice:
-    """The choices of successive decision rows as one Choice of (R, N) arrays."""
-    return Choice(*(np.stack(parts) for parts in zip(*choices)))
+    """The choices of successive decision rows as one Choice: the weights one after another, all else stacked."""
+    held, target, raw, weight, capped, backup, slots, cash = zip(*choices)
+    return Choice(
+        np.stack(held),
+        np.stack(target),
+        np.concatenate(raw),
+        np.concatenate(weight),
+        np.stack(capped),
+        np.stack(backup),
+        np.stack(slots),
+        np.stack(cash),
+    )
 
 
 def _targets(strategy: Strategy, ranked: np.ndarray, held: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

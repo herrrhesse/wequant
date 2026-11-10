@@ -10,7 +10,10 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from wequant.data.delistings import classify, delisted, overrides_digest, overrides_text, parse_overrides
+from wequant.data.schema import ANOMALY_VERSION
 from wequant.data.store import Store
+from wequant.panel.anomalies import anomaly_cells, exclusion
 from wequant.panel.build import PRICE_FIELDS, PRICE_SCALE, RAW_FIELDS, limits, members
 from wequant.panel.cache import PanelCache
 from wequant.panel.grid import day_rows, find_sorted
@@ -19,6 +22,7 @@ from wequant.rules.book import default_book
 from wequant.rules.limits import LIMITS_FORMAT
 
 Day = dt.date | str | np.datetime64
+_MISSING = {"status": MISSING, **dict.fromkeys(RAW_FIELDS, np.nan)}  # what an excluded cell of a grid reads as
 
 
 def load_panel(
@@ -29,30 +33,39 @@ def load_panel(
     version: int | None = None,
     store: Store | None = None,
     cache_dir: Path | None = None,
+    exclude: tuple[str, ...] = (),
 ) -> Panel:
     """Date × stock matrices of one store version over [start, end] inclusive.
 
-    Current version unless pinned; all stocks unless codes are given (kept in that order).
+    Current version unless pinned; all stocks unless codes are given (kept in that order); the anomalous days of the
+    levels in exclude read as missing data (Panel.anomalies).
     """
     store = store if store is not None else Store()
     manifest = store.manifest(version)
     if manifest is None:
         raise LookupError(f"{store.home} has no manifest" + ("" if version is None else f" for version {version}"))
     src = PanelCache(store, manifest, Path(cache_dir) if cache_dir is not None else store.home / "cache")
-    return Panel(src, _row_range(src.array("dates"), start, end), _columns(src.array("codes"), codes))
+    return Panel(src, _row_range(src.array("dates"), start, end), _columns(src.array("codes"), codes), exclude)
 
 
 class Panel:
     """Date × stock matrices of one store version; arrays load on first use and are read-only.
 
     status, listed, suspended and missing are descriptive where daily_status has no row; traded is point-in-time.
-    manifest is the store manifest the panel reads; never change it.
+    manifest is the store manifest the panel reads; never change it. key names the data the panel serves: the store
+    version's, the delisting overrides when there are any, and the anomaly levels read as missing.
+
+    Reading anomalous days as missing is a robustness check, not a point-in-time rule: some anomaly labels rest on the
+    next day's exchange preclose, so excluding day d uses what was known on d + 1.
     """
 
-    def __init__(self, src: PanelCache, rows: slice, columns: np.ndarray | None) -> None:
+    def __init__(self, src: PanelCache, rows: slice, columns: np.ndarray | None, exclude: tuple[str, ...] = ()) -> None:
         self._src, self._rows, self._columns = src, rows, columns
         self._memo: dict[str, np.ndarray] = {}
-        self.version, self.key, self.manifest = src.version, src.key, src.manifest
+        self._overrides = overrides_text(src.store.home)
+        self.version, self.manifest, self.excluded = src.version, src.manifest, exclusion(exclude)
+        suffix = f"-x{ANOMALY_VERSION}-{'-'.join(self.excluded)}" if self.excluded else ""
+        self.key = src.key + overrides_digest(self._overrides) + suffix
         self.dates = np.asarray(src.array("dates")[rows])
         self.codes = self._vector("codes")
 
@@ -151,6 +164,24 @@ class Panel:
         spans = self._src.scan("index_members").filter(pl.col("index_code") == index).collect()
         return None if spans.is_empty() else (spans["start_date"].min(), spans["end_date"].max())
 
+    @cached_property
+    def anomalies(self) -> pl.DataFrame:
+        """ANOMALIES: every anomalous cell of the panel, by data_issues and ISSUE_KINDS; excluded where its level is
+        in excluded and its class one a missing day removes."""
+        return anomaly_cells(self._src, self.dates, self.codes, self.excluded)
+
+    @cached_property
+    def delistings(self) -> pl.DataFrame:
+        """DELISTINGS of the panel's codes that left the market or look as if they did, from the store's securities,
+        calendar and last bars and the user's overrides (wequant.data.delistings)."""
+        securities = self._src.scan("securities").sort("code").collect()
+        full = np.arange(securities.height) if self._columns is None else self._columns
+        securities, calendar = securities[full], np.asarray(self._src.array("dates"))
+        chosen = np.flatnonzero(delisted(securities, calendar))
+        last_bar, last_close = _last_bars(self._src, full[chosen])
+        codes = securities[chosen].with_columns(last_bar=pl.Series(last_bar, dtype=pl.Date), last_close=last_close)
+        return classify(codes, calendar, parse_overrides(self._overrides))
+
     def on_bars(self, mask: np.ndarray) -> np.ndarray:
         """mask as an ops condition: float64 1.0/0.0 on traded cells, NaN elsewhere."""
         mask = np.asarray(mask)
@@ -168,12 +199,12 @@ class Panel:
     @cached_property
     def limit_up_price(self) -> np.ndarray:
         """(T, N) yuan: finite where LIMITED, +inf where FREE, NaN where UNKNOWN or without a bar."""
-        return self._slice(self._limits[0])
+        return self._missing(self._slice(self._limits[0]), np.nan)
 
     @cached_property
     def limit_down_price(self) -> np.ndarray:
         """(T, N) yuan: finite where LIMITED, -inf where FREE, NaN where UNKNOWN or without a bar."""
-        return self._slice(self._limits[1])
+        return self._missing(self._slice(self._limits[1]), np.nan)
 
     @cached_property
     def limit_known(self) -> np.ndarray:
@@ -221,8 +252,18 @@ class Panel:
 
     def _grid(self, name: str) -> np.ndarray:
         if name not in self._memo:
-            self._memo[name] = self._slice(self._src.array(name))
+            grid = self._slice(self._src.array(name))
+            self._memo[name] = self._missing(grid, _MISSING[name]) if name in _MISSING else grid
         return self._memo[name]
+
+    def _missing(self, grid: np.ndarray, fill: float) -> np.ndarray:
+        """grid with the excluded cells set to fill: what a day without data reads as."""
+        cells = self.anomalies.filter("excluded") if self.excluded else None
+        if cells is None or cells.is_empty():
+            return grid
+        grid = np.array(grid)
+        grid[cells["row"].to_numpy(), cells["col"].to_numpy()] = fill
+        return _frozen(grid)
 
     def _slice(self, grid: np.ndarray) -> np.ndarray:
         view = np.asarray(grid[self._rows])
@@ -231,6 +272,14 @@ class Panel:
     def _vector(self, name: str) -> np.ndarray:
         vector = np.asarray(self._src.array(name))
         return vector if self._columns is None else _frozen(vector[self._columns])
+
+
+def _last_bars(src: PanelCache, cols: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The day and raw close of each column's last bar in the store's calendar; NaT and NaN where it has none."""
+    traded = np.asarray(src.array("status")[:, cols]) == TRADED
+    row, ever = len(traded) - 1 - np.argmax(traded[::-1], axis=0), traded.any(axis=0)
+    close = np.where(ever, src.array("close")[row, cols], np.nan)
+    return np.where(ever, src.array("dates")[row], np.datetime64("NaT", "D")), close
 
 
 def _row_range(dates: np.ndarray, start: Day | None, end: Day | None) -> slice:

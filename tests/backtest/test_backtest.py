@@ -51,7 +51,7 @@ def test_cash_is_kept_as_a_float():
 
 
 def stand_in(days):
-    return SimpleNamespace(dates=np.array(days, dtype="datetime64[D]"))
+    return SimpleNamespace(dates=np.array(days, dtype="datetime64[D]"), excluded=())
 
 
 TEN = stand_in(business_days(10))  # 2024-01-02 (Tue) .. 2024-01-15 (Mon)

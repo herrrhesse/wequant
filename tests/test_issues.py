@@ -18,14 +18,14 @@ ROWS = pl.DataFrame(
 
 
 def test_detail_columns_become_one_json_object_per_row():
-    issues = issue_rows(ROWS, "bars", "price_mismatch", "value_replaced", ["b", "a"], "merge@1")
+    issues = issue_rows(ROWS, "bars", "volume_mismatch", "value_replaced", ["b", "a"], "merge@1")
     TABLES["data_issues"].validate(issues)
     assert issues["detail"].to_list() == ['{"a": "2024-01-02", "b": 1.5}', '{"a": "2024-01-03", "b": 2.0}']
     assert issues.row(0, named=True) == {
         "table": "bars",
         "code": "600000.SH",
         "date": dt.date(2024, 1, 3),
-        "kind": "price_mismatch",
+        "kind": "volume_mismatch",
         "action": "value_replaced",
         "detail": '{"a": "2024-01-02", "b": 1.5}',
         "source": "merge@1",
@@ -40,7 +40,7 @@ def test_encoding_matches_the_seed():
 
 def test_nan_details_raise():
     with pytest.raises(ValueError):
-        issue_rows(ROWS.with_columns(b=pl.lit(float("nan"))), "bars", "k", "flagged", ["b"], "s")
+        issue_rows(ROWS.with_columns(b=pl.lit(float("nan"))), "bars", "close_unconfirmed", "flagged", ["b"], "s")
 
 
 def test_no_detail_columns_give_null_details():
@@ -48,6 +48,12 @@ def test_no_detail_columns_give_null_details():
     assert issues["detail"].null_count() == 2
 
 
+def test_issue_rows_checks_its_kind_against_issue_kinds():
+    """Wiring of A-1: the shared writer refuses an unclassified kind."""
+    with pytest.raises(ValueError, match="add it to ISSUE_KINDS"):
+        issue_rows(ROWS, "bars", "k", "flagged", [], "s")
+
+
 def test_no_rows_give_an_empty_frame_with_the_schema():
-    issues = issue_rows(ROWS.clear(), "bars", "k", "flagged", ["a", "b"], "s")
+    issues = issue_rows(ROWS.clear(), "bars", "close_unconfirmed", "flagged", ["a", "b"], "s")
     assert issues.height == 0 and dict(issues.schema) == TABLES["data_issues"].schema

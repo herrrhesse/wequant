@@ -33,7 +33,7 @@ from wequant.expr import BARSCOUNT, MA, REF, STD, Cache, Field
 from wequant.panel import Panel, load_panel
 from wequant.rules import limit_check_current
 from wequant.runs.run import Run
-from wequant.strategy import Condition, Factor, Group, Section, Strategy, decision_rows, screen, select
+from wequant.strategy import Condition, Factor, Group, Strategy, choose, decision_rows, screen, select, stack
 
 CODES = ("600000.SH", "000002.SZ", "600519.SH", "002594.SZ", "300750.SZ", "688981.SH")
 CASH = 10_000_000.0  # yuan: the strategies of sections 1 and 3 to 6
@@ -325,16 +325,20 @@ def daily_lines(report: Report) -> list[str]:
     backtest = report.m(report.start, period="day")
     panel = report.panel_for(backtest)
     section = select(backtest.strategy, panel, decision_rows(panel.dates, *span(backtest, panel), "day", 1))
+    nothing = np.zeros(len(panel.codes), dtype=bool)  # M has no hold_rank: its targets ignore the holdings
+    choice = stack([choose(backtest.strategy, section, i, nothing) for i in range(len(section.rows))])
     return [
-        f"Informational, no verdict: M rebalanced daily at the 10-year anchor took {seconds:.2f} s; its Section holds "
-        f"{section_bytes(section) / 1e6:,.0f} MB; its detail has {rows:,} rows and {size / 1e6:.1f} MB of Parquet.",
+        f"Informational, no verdict: M rebalanced daily at the 10-year anchor took {seconds:.2f} s; its Section and "
+        f"its stacked choices hold {nbytes(section, choice) / 1e6:,.0f} MB; its detail has {rows:,} rows and "
+        f"{size / 1e6:.1f} MB of Parquet.",
         "",
     ]
 
 
-def section_bytes(section: Section) -> int:
-    """Bytes of a Section's arrays, its dicts of grids included."""
-    arrays = [a for part in section for a in (part.values() if isinstance(part, dict) else (part,))]
+def nbytes(*parts: tuple) -> int:
+    """Bytes of the arrays of NamedTuples such as Section and Choice, their dicts of grids included."""
+    fields = [field for part in parts for field in part]
+    arrays = [a for field in fields for a in (field.values() if isinstance(field, dict) else (field,))]
     return sum(a.nbytes for a in arrays if isinstance(a, np.ndarray))
 
 
@@ -376,7 +380,7 @@ def strategy_lines(label: str, result: Run) -> list[str]:
         f"- **Orders:** {orders.height:,}: " + ", ".join(f"{s} ({r or 'in full'}) {n:,}" for s, r, n in counts),
         f"- **Picks:** {result.picks.height:,} rows on {result.funnel['date'].n_unique():,} decision days.",
         f"- **Funnel medians (passed/left):** {funnel}.",
-        *[f"- **Warning {code}:** {text}." for code, text in result.warnings.items()],
+        *[f"- **Warning {code}:** {text}." for code, (text, _) in result.warnings.items()],
         f"- **Detail rows:** {result.detail.height:,}; **Parquet bytes:** "
         + ", ".join(f"{name} {size / 1e6:.2f} MB" for name, size in sizes.items())
         + ".",

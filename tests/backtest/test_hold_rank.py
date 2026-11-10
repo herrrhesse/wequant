@@ -91,9 +91,9 @@ def test_a_cap_no_target_can_take_keeps_cash_and_says_so(tmp_path):
         for day in (JAN[2], JAN[3], JAN[4])
         for code, rank, score, raw in ((B, 1, 1.0, 2 / 3), (A, 2, 0.5, 1 / 3))
     ]
-    assert result.warnings["max_weight_cash"] == (
-        "3 decision days kept 20.0% of equity in cash on average: max_weight capped every target"
-    )
+    text, params = result.warnings["max_weight_cash"]
+    assert text == "3 decision days kept 20.0% of equity in cash on average: max_weight capped every target"
+    assert params["days"] == 3 and params["mean_share"] == pytest.approx(0.2)
     bought = result.ledger.orders.filter(pl.col("date") == JAN[3]).select("code", "shares").rows()
     assert bought == [(B, 2000.0), (A, 4000.0)]  # 0.4 of 100,000 each: 40,000 / 20.0 and 40,000 / 10.0
     assert "max_weight_cash" not in run(Backtest(capped, cash=100_000, execution=EX0, benchmark=None), panel).warnings

@@ -12,7 +12,7 @@ from wequant.account import EXECUTION_VERSION
 from wequant.runs import FILES, FORMAT, PROVENANCE, Archive, document, provenance, read_run, run_files
 from wequant.runs.record import run_json
 
-ID = "06495349834344d8"
+ID = "0a001d6ea6cdea5c"
 INPUTS = {
     "format": FORMAT,
     "engine": "hold",
@@ -55,11 +55,18 @@ def test_the_hold_run_golden():
 
 def test_run_json_golden():
     text = run_json(hold(DESC, 1))
-    assert text.startswith(b'{\n "anchor": "2024-01-02",\n "end": "2024-01-04",\n "id": "06495349834344d8",')
+    assert text.startswith(b'{\n "anchor": "2024-01-02",\n "end": "2024-01-04",\n "id": "0a001d6ea6cdea5c",')
     ledger = {
         "cash": 100000.0,
         "data_key": "fake",
-        "execution": {"commission_rate": 0.0003, "min_commission": 5.0, "price": "open", "slippage_bps": 0.0},
+        "execution": {
+            "commission_rate": 0.0003,
+            "delisting": "auto",
+            "failure_recovery": 0.0,
+            "min_commission": 5.0,
+            "price": "open",
+            "slippage_bps": 0.0,
+        },
         "execution_version": EXECUTION_VERSION,
         "rules_key": "fake-r1",
         "start": "2024-01-02",
@@ -83,20 +90,23 @@ def test_files_come_in_files_order():
         "daily.parquet",
         "positions.parquet",
         "orders.parquet",
+        "delisted.parquet",
         "picks.parquet",
         "funnel.parquet",
         "detail.parquet",
+        "anomalies.parquet",
     )
     assert tuple(run_files(hold(DESC, 1))) == FILES and PROVENANCE not in FILES
 
 
-def test_warnings_keep_the_engine_order(tmp_path):
+def test_warnings_keep_the_engine_order_and_their_params(tmp_path):
     assert run_files(hold(DESC, 1))["warnings.json"] == b"[]\n"
-    run = dataclasses.replace(hold(DESC, 1), warnings={"st_unknown": "x", "limits_unchecked": "y"})
-    text = '[\n [\n  "st_unknown",\n  "x"\n ],\n [\n  "limits_unchecked",\n  "y"\n ]\n]\n'
+    warnings = {"st_unknown": ("x", {"known_share": 0.5}), "limits_unchecked": ("y", {})}
+    run = dataclasses.replace(hold(DESC, 1), warnings=warnings)
+    text = '[\n [\n  "st_unknown",\n  "x",\n  {\n   "known_share": 0.5\n  }\n ],\n [\n  "limits_unchecked",\n  "y",\n  {}\n ]\n]\n'
     assert run_files(run)["warnings.json"] == text.encode()
     Archive(tmp_path).save(run)
-    assert list(read_run(tmp_path / run.id).warnings.items()) == [("st_unknown", "x"), ("limits_unchecked", "y")]
+    assert list(read_run(tmp_path / run.id).warnings.items()) == list(warnings.items())
 
 
 def test_compared_files_hold_neither_the_clock_nor_the_code_version(clock):
@@ -133,7 +143,7 @@ def test_read_run_round_trip(tmp_path):
         },
         schema={"date": pl.Date, "code": pl.String, "cheap": pl.Boolean, "rank": pl.Int64},
     )
-    run = dataclasses.replace(hold(DESC, 1), detail=detail, warnings={"no_picks": "none"})
+    run = dataclasses.replace(hold(DESC, 1), detail=detail, warnings={"no_picks": ("none", {"day": None})})
     Archive(tmp_path).save(run)
     loaded = read_run(tmp_path / run.id)
     assert run_files(loaded) == {name: (tmp_path / run.id / name).read_bytes() for name in FILES}
