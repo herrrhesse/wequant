@@ -5,7 +5,13 @@ from wequant.service.bars import Bars, BarsRequest, data_bars
 from wequant.service.base import Check, Context, ErrorBody, ErrorDetail
 from wequant.service.check import CheckReport, CheckRequest, data_check
 from wequant.service.contract import OperationModels, SchemaRequest, ServiceSchema, schema
-from wequant.service.delistings import DelistingRow, Delistings, DelistingsRequest, data_delistings
+from wequant.service.delistings import (
+    DelistingCounts,
+    DelistingRow,
+    Delistings,
+    DelistingsRequest,
+    data_delistings,
+)
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.explain import Explain, ExplainRequest, FactorScore, PoolCheck, ScoreCheck, StepCheck, explain
 from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest, expr_check, expr_eval
@@ -64,6 +70,7 @@ from wequant.service.strategies import (
 )
 
 __all__ = [
+    "DelistingCounts",
     "Explain",
     "ExplainRequest",
     "FactorScore",

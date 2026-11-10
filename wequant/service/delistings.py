@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections import Counter
 from typing import Literal
 
-from wequant.account.delisting import delisting_plan
+from wequant.account.delisting import TREATMENTS, delisting_plan
 from wequant.data.delistings import KINDS, SOURCES, overrides_text
 from wequant.panel import load_panel
 from wequant.service.base import Context, DataRequest, Model, manifest
@@ -47,12 +48,24 @@ class DelistingRow(Model):
     """Share of the last close returned as cash; null when held."""
 
 
+class DelistingCounts(Model):
+    """The rows in total and by kind, treatment and classifier (every key, zeros included), and how many are
+    approximate."""
+
+    total: int
+    kind: dict[str, int]
+    treatment: dict[str, int]
+    classified_by: dict[str, int]
+    approximate: int
+
+
 class Delistings(Model):
-    """Every delisted code of the store version, with its basis and treatment."""
+    """Every delisted code of the store version, with its basis and treatment, and the counts a page leads with."""
 
     data_version: int
     overrides: bool
     """An overrides file exists in the data root."""
+    counts: DelistingCounts
     rows: list[DelistingRow]
 
 
@@ -68,4 +81,21 @@ def data_delistings(request: DelistingsRequest, context: Context = Context()) ->
     except ValueError as error:  # a malformed overrides file names its entry
         raise ServiceError(Exit.USAGE, str(error)) from None
     rows = [DelistingRow(**row) for row in plan.iter_rows(named=True)]
-    return Delistings(data_version=panel.version, overrides=overrides_text(store.home) is not None, rows=rows)
+    overrides = overrides_text(store.home) is not None
+    return Delistings(data_version=panel.version, overrides=overrides, counts=counts(rows), rows=rows)
+
+
+def counts(rows: list[DelistingRow]) -> DelistingCounts:
+    """The rows counted by kind, treatment and classifier over every possible value, and the approximate ones."""
+
+    def by(name: str, values: tuple[str, ...]) -> dict[str, int]:
+        found = Counter(getattr(row, name) for row in rows)
+        return {value: found[value] for value in values}
+
+    return DelistingCounts(
+        total=len(rows),
+        kind=by("kind", KINDS),
+        treatment=by("treatment", TREATMENTS),
+        classified_by=by("classified_by", SOURCES),
+        approximate=sum(row.approximate for row in rows),
+    )

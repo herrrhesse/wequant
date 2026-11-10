@@ -47,6 +47,18 @@ def test_every_delisted_code_shows_the_basis_of_its_kind_and_its_treatment(delis
     assert [(r.treatment, r.recovery) for r in found.rows] == [("write_down", 0.0)] * 2  # approximate: never cashed
 
 
+def test_the_counts_are_the_rows_by_kind_treatment_and_classifier(delisted_home):
+    """F-25: the page leads with these; one forced code by the rule and one merger by an override, both approximate."""
+    counts = data_delistings(DelistingsRequest(), Context(delisted_home)).counts
+    assert counts.model_dump() == {
+        "total": 2,
+        "kind": {"forced": 1, "merger": 1, "suspension": 0, "unknown": 0},
+        "treatment": {"write_down": 2, "exit": 0, "hold": 0},
+        "classified_by": {"rule": 1, "override": 1},
+        "approximate": 2,
+    }
+
+
 def test_the_treatment_follows_the_execution_block(delisted_home):
     held = data_delistings(DelistingsRequest(execution={"delisting": "hold"}), Context(delisted_home))
     assert [(r.treatment, r.recovery) for r in held.rows] == [("hold", None)] * 2
