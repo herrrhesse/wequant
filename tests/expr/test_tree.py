@@ -259,63 +259,93 @@ class Lying(int):
 
 SCOPE = {**vars(expr), "c": adj, "np": np, "math": math, "json": json, "Lying": Lying}
 REJECTED = [
-    ("REF(c, -1)", LookAheadError, 1, "would read bars after day t"),
-    ("from_form(['REF', 'close', -2])", LookAheadError, 1, "would read bars after day t"),
-    ("SUM(c, -5)", LookAheadError, 1, "SUM with -5 bars"),
-    ("REF(c, Lying(-1))", LookAheadError, 1, "REF with -1 bars"),
-    *[(f"Field({name!r})", LookAheadError, None, "descriptive") for name in DESCRIPTIVE],
-    ("Op('ZIG', c, 5)", LookAheadError, None, "future function"),
-    ("from_form(['ZIG', 'close', 5])", LookAheadError, None, "future function"),
-    *[(f"Op({name!r}, c)", LookAheadError, None, "future function") for name in sorted(FUTURE)],
-    *[(f"Field({name!r})", LookAheadError, None, "future function") for name in sorted(FUTURE)],
-    ("MA(from_form('ISLASTBAR'), 5)", LookAheadError, None, "future function"),
-    ("MA(c, Field('volume'))", ExprError, 1, "must be an integer constant"),
-    ("MA(c, 2.0)", ExprError, 1, "must be an integer constant"),
-    ("MA(c, True)", ExprError, 1, "must be an integer constant"),
-    ("from_form(['MA', 'close', 20.0])", ExprError, 1, "must be an integer constant"),
-    ("REF(c, np.timedelta64(20, 'ns'))", ExprError, 1, "must be an integer constant"),
-    ("REF(c, np.timedelta64('NaT', 'ns'))", ExprError, 1, "must be an integer constant"),
-    ("REF(c, 2**62 + 1)", ExprError, 1, "at most 4611686018427387904"),
-    ("from_form(['MA', 'close', 2**63])", ExprError, 1, "at most"),
-    ("MA(c, 0)", ExprError, 1, "at least 1"),
-    ("STD(c, 1)", ExprError, 1, "at least 2"),
-    ("SMA(c, 3, 4)", ExprError, 2, "from 1 to 3"),
-    ("SMA(c, 3, 0)", ExprError, 2, "from 1 to 3"),
-    ("AND(c, Field('open'))", ExprError, 0, "must be a condition"),
-    ("~c", ExprError, 0, "must be a condition"),
-    ("COUNT(c, 5)", ExprError, 0, "must be a condition"),
-    ("NOT(1.0)", ExprError, 0, "must be a condition"),
-    ("MA(5.0, 3)", ExprError, 0, "must be a series"),
-    ("GT(1, 2)", ExprError, None, "needs at least one series argument"),
-    ("GT(c, math.nan)", ExprError, 1, "finite number"),
-    ("GT(c, math.inf)", ExprError, 1, "finite number"),
-    ("GT(c, True)", ExprError, 1, "finite number"),
-    ("GT(c, np.timedelta64(5, 'ns'))", ExprError, 1, "finite number"),
-    ("GT(c, 10**400)", ExprError, 1, "finite number"),
-    ("from_form(json.loads('[\"GT\",\"close\",1' + '0' * 400 + ']'))", ExprError, 1, "finite number"),
-    ("c + np.ones(3)", ExprError, 1, "finite number"),
-    ("GT(c, '1')", ExprError, 1, "finite number"),
-    *[(f"Field({name!r})", ExprError, None, "unknown field") for name in ("traded", "nope", "board@nope")],
-    *[(f"Field({name!r})", ExprError, None, "unknown field") for name in ("sector@bank", "board@", "@main")],
-    ("Field(1)", ExprError, None, "string"),
-    ("Op('NOPE', c)", ExprError, None, "unknown operator"),
-    ("Op('MA', c)", ExprError, None, "MA takes 2 arguments, not 1"),
-    ("Op('MA', c, 1, 2)", ExprError, None, "MA takes 2 arguments, not 3"),
-    ("MA(c)", ExprError, None, "MA: missing a required argument"),
-    ("MA(c, 1, 2)", ExprError, None, "MA: too many positional arguments"),
-    ("SMA(c, n=3, q=1)", ExprError, None, "SMA: got an unexpected keyword argument"),
-    ("from_form({'op': 1})", ExprError, None, "not an expression form"),
-    ("from_form([])", ExprError, None, "not an expression form"),
-    ("from_form([1, 2])", ExprError, None, "not an expression form"),
-    ("from_form(['MA', ['MA', 'close', True], 2])", ExprError, 1, "must be an integer constant"),
+    ("REF(c, -1)", LookAheadError, 1, "negative_window", "would read bars after day t"),
+    ("from_form(['REF', 'close', -2])", LookAheadError, 1, "negative_window", "would read bars after day t"),
+    ("SUM(c, -5)", LookAheadError, 1, "negative_window", "SUM with -5 bars"),
+    ("REF(c, Lying(-1))", LookAheadError, 1, "negative_window", "REF with -1 bars"),
+    *[(f"Field({name!r})", LookAheadError, None, "descriptive_field", "descriptive") for name in DESCRIPTIVE],
+    ("Op('ZIG', c, 5)", LookAheadError, None, "future_function", "future function"),
+    ("from_form(['ZIG', 'close', 5])", LookAheadError, None, "future_function", "future function"),
+    *[(f"Op({name!r}, c)", LookAheadError, None, "future_function", "future function") for name in sorted(FUTURE)],
+    *[(f"Field({name!r})", LookAheadError, None, "future_function", "future function") for name in sorted(FUTURE)],
+    ("MA(from_form('ISLASTBAR'), 5)", LookAheadError, None, "future_function", "future function"),
+    ("MA(c, Field('volume'))", ExprError, 1, "needs_integer", "must be an integer constant"),
+    ("MA(c, 2.0)", ExprError, 1, "needs_integer", "must be an integer constant"),
+    ("MA(c, True)", ExprError, 1, "needs_integer", "must be an integer constant"),
+    ("from_form(['MA', 'close', 20.0])", ExprError, 1, "needs_integer", "must be an integer constant"),
+    ("REF(c, np.timedelta64(20, 'ns'))", ExprError, 1, "needs_integer", "must be an integer constant"),
+    ("REF(c, np.timedelta64('NaT', 'ns'))", ExprError, 1, "needs_integer", "must be an integer constant"),
+    ("REF(c, 2**62 + 1)", ExprError, 1, "out_of_range", "at most 4611686018427387904"),
+    ("from_form(['MA', 'close', 2**63])", ExprError, 1, "out_of_range", "at most"),
+    ("MA(c, 0)", ExprError, 1, "out_of_range", "at least 1"),
+    ("STD(c, 1)", ExprError, 1, "out_of_range", "at least 2"),
+    ("SMA(c, 3, 4)", ExprError, 2, "out_of_range", "from 1 to 3"),
+    ("SMA(c, 3, 0)", ExprError, 2, "out_of_range", "from 1 to 3"),
+    ("AND(c, Field('open'))", ExprError, 0, "needs_condition", "must be a condition"),
+    ("~c", ExprError, 0, "needs_condition", "must be a condition"),
+    ("COUNT(c, 5)", ExprError, 0, "needs_condition", "must be a condition"),
+    ("NOT(1.0)", ExprError, 0, "needs_condition", "must be a condition"),
+    ("MA(5.0, 3)", ExprError, 0, "needs_series", "must be a series"),
+    ("GT(1, 2)", ExprError, None, "needs_series", "needs at least one series argument"),
+    ("GT(c, math.nan)", ExprError, 1, "bad_constant", "finite number"),
+    ("GT(c, math.inf)", ExprError, 1, "bad_constant", "finite number"),
+    ("GT(c, True)", ExprError, 1, "bad_constant", "finite number"),
+    ("GT(c, np.timedelta64(5, 'ns'))", ExprError, 1, "bad_constant", "finite number"),
+    ("GT(c, 10**400)", ExprError, 1, "bad_constant", "finite number"),
+    ("from_form(json.loads('[\"GT\",\"close\",1' + '0' * 400 + ']'))", ExprError, 1, "bad_constant", "finite number"),
+    ("c + np.ones(3)", ExprError, 1, "bad_constant", "finite number"),
+    ("GT(c, '1')", ExprError, 1, "bad_constant", "finite number"),
+    *[
+        (f"Field({name!r})", ExprError, None, "unknown_field", "unknown field")
+        for name in ("traded", "nope", "board@nope")
+    ],
+    *[
+        (f"Field({name!r})", ExprError, None, "unknown_field", "unknown field")
+        for name in ("sector@bank", "board@", "@main")
+    ],
+    ("Field(1)", ExprError, None, "not_a_form", "string"),
+    ("Op('NOPE', c)", ExprError, None, "unknown_operator", "unknown operator"),
+    ("Op('MA', c)", ExprError, None, "bad_arity", "MA takes 2 arguments, not 1"),
+    ("Op('MA', c, 1, 2)", ExprError, None, "bad_arity", "MA takes 2 arguments, not 3"),
+    ("MA(c)", ExprError, None, "bad_arity", "MA: missing a required argument"),
+    ("MA(c, 1, 2)", ExprError, None, "bad_arity", "MA: too many positional arguments"),
+    ("SMA(c, n=3, q=1)", ExprError, None, "bad_arity", "SMA: got an unexpected keyword argument"),
+    ("from_form({'op': 1})", ExprError, None, "not_a_form", "not an expression form"),
+    ("from_form([])", ExprError, None, "not_a_form", "not an expression form"),
+    ("from_form([1, 2])", ExprError, None, "not_a_form", "not an expression form"),
+    ("from_form(['MA', ['MA', 'close', True], 2])", ExprError, 1, "needs_integer", "must be an integer constant"),
 ]
 
 
-@pytest.mark.parametrize(("text", "error", "arg", "message"), REJECTED, ids=[row[0] for row in REJECTED])
-def test_rejected(text, error, arg, message):
+@pytest.mark.parametrize(("text", "error", "arg", "code", "message"), REJECTED, ids=[row[0] for row in REJECTED])
+def test_rejected(text, error, arg, code, message):
     with pytest.raises(ExprError, match=message) as raised:
         eval(text, SCOPE)
-    assert type(raised.value) is error and raised.value.arg == arg
+    assert type(raised.value) is error and raised.value.arg == arg and raised.value.code == code
+
+
+@pytest.mark.parametrize(
+    ("form", "code", "path"),
+    [
+        (["GT", ["MA", "adj_close", 0], 10], "out_of_range", (1, 2)),
+        (["GT", ["MA", "adj_close", 5], ["ABS", "nope"]], "unknown_field", (2, 1)),
+        (["AND", ["GT", "close", 1], ["MA", "close", 5]], "needs_condition", (2,)),
+        (["GT", "close", ["SMA", "close", 3, 4]], "out_of_range", (2, 3)),
+        (["NOPE", "close"], "unknown_operator", ()),
+        ("listed", "descriptive_field", ()),
+        (["GT", 1, 2], "needs_series", ()),
+    ],
+)
+def test_a_form_error_has_a_code_and_the_path_to_its_fault(form, code, path):
+    with pytest.raises(ExprError) as raised:
+        from_form(form)
+    assert (raised.value.code, raised.value.path) == (code, path)
+
+
+def test_an_error_of_a_call_built_in_python_has_the_path_of_its_argument_only():
+    with pytest.raises(ExprError) as raised:
+        GT(MA(close, 0), 10)
+    assert (raised.value.code, raised.value.path) == ("out_of_range", (2,))
 
 
 @pytest.mark.parametrize(("name", "i", "minimum"), COUNTS)
@@ -361,7 +391,7 @@ def test_size_limit():
     assert (x.size, x.depth) == (8191, 13) and 2 * x.size + 1 > MAX_NODES
     with pytest.raises(ExprError, match="more than 10000 nodes") as raised:
         x + x
-    assert raised.value.arg is None
+    assert raised.value.arg is None and raised.value.code == "too_large"
 
 
 def test_depth_limit():
@@ -372,7 +402,7 @@ def test_depth_limit():
     assert repr(x).startswith("ADD(ADD(") and from_form(json.loads(x.key)) == x
     with pytest.raises(ExprError, match="deeper than 256 levels") as raised:
         x + 1.0
-    assert raised.value.arg is None
+    assert raised.value.arg is None and raised.value.code == "too_deep"
     with pytest.raises(ExprError, match="deeper than 256 levels"):
         from_form(["ADD", x.form, 1.0])
 
@@ -383,7 +413,7 @@ def test_a_form_far_too_deep_is_refused_before_python_runs_out_of_stack():
         form = ["ABS", form]
     with pytest.raises(ExprError, match="deeper than 256 levels") as raised:
         from_form(form)
-    assert raised.value.arg is None
+    assert raised.value.arg is None and raised.value.code == "too_deep" and raised.value.path == (1,) * MAX_DEPTH
 
 
 def test_checks_run_in_order_and_the_first_failure_wins():

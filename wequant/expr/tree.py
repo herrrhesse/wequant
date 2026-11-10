@@ -17,11 +17,13 @@ _MAX_BARS = 2**62  # far beyond any panel, and ops' int64 arithmetic on a count 
 
 
 class ExprError(ValueError):
-    """An expression that breaks a rule; arg is the 0-based argument of the call at fault, or None."""
+    """An expression that breaks a rule: a stable code, the 0-based argument of the call at fault (or None), and the
+    path to the fault inside the form, where [name, arg0, arg1, ...] puts argument i at index i + 1."""
 
-    def __init__(self, message: str, arg: int | None = None) -> None:
+    def __init__(self, code: str, message: str, arg: int | None = None) -> None:
         super().__init__(message)
-        self.arg = arg
+        self.code, self.arg = code, arg
+        self.path: tuple[int, ...] = () if arg is None else (arg + 1,)
 
 
 class LookAheadError(ExprError):
@@ -163,19 +165,31 @@ def from_form(form: str | list) -> Expr:
 def _from_form(form: object, level: int) -> Expr:
     """form at its level of nesting; deeper than MAX_DEPTH stops here, before Python's recursion limit does."""
     if level > MAX_DEPTH:
-        raise ExprError(f"the form is deeper than {MAX_DEPTH} levels")
+        raise ExprError("too_deep", f"the form is deeper than {MAX_DEPTH} levels")
     if isinstance(form, str):
         return Field(form)
     if isinstance(form, list) and form and isinstance(form[0], str):
-        return Op(form[0], *[_from_form(a, level + 1) if isinstance(a, str | list) else a for a in form[1:]])
-    raise ExprError(f"not an expression form: {form!r}")
+        return Op(form[0], *[_argument_form(a, i, level) for i, a in enumerate(form[1:], 1)])
+    raise ExprError("not_a_form", f"not an expression form: {form!r}")
+
+
+def _argument_form(form: object, i: int, level: int) -> object:
+    """The argument at index i of a call's form: an Expr built from a form, else the value as it is; an error inside it
+    is located under i."""
+    if not isinstance(form, str | list):
+        return form
+    try:
+        return _from_form(form, level + 1)
+    except ExprError as error:
+        error.path = (i, *error.path)
+        raise
 
 
 def _field_kind(name: str) -> str:
     if not isinstance(name, str):
-        raise ExprError(f"a field name is a string, not {name!r}")
+        raise ExprError("not_a_form", f"a field name is a string, not {name!r}")
     if name in DESCRIPTIVE:
-        raise LookAheadError(f"{name} is a descriptive day status that a later bar can change")
+        raise LookAheadError("descriptive_field", f"{name} is a descriptive day status that a later bar can change")
     if name in FUTURE:
         raise _future(name)
     if name in FIELDS:
@@ -184,21 +198,21 @@ def _field_kind(name: str) -> str:
     if family in FAMILIES and param in FAMILIES[family].params:
         return FAMILIES[family].kind
     families = ", ".join(f"{f}@{p}" for f, spec in FAMILIES.items() for p in spec.params)
-    raise ExprError(f"unknown field {name!r}; fields: {', '.join(FIELDS)}; families: {families}")
+    raise ExprError("unknown_field", f"unknown field {name!r}; fields: {', '.join(FIELDS)}; families: {families}")
 
 
 def _future(name: str) -> LookAheadError:
-    return LookAheadError(f"{name} is a future function: it reads bars after day t")
+    return LookAheadError("future_function", f"{name} is a future function: it reads bars after day t")
 
 
 def _signature(name: str, arity: int) -> Signature:
     if name in FUTURE:
         raise _future(name)
     if name not in OPERATORS:
-        raise ExprError(f"unknown operator {name!r}")
+        raise ExprError("unknown_operator", f"unknown operator {name!r}")
     signature = OPERATORS[name]
     if arity != len(signature.roles):
-        raise ExprError(f"{name} takes {len(signature.roles)} arguments, not {arity}")
+        raise ExprError("bad_arity", f"{name} takes {len(signature.roles)} arguments, not {arity}")
     return signature
 
 
@@ -218,39 +232,41 @@ def _argument(op: str, i: int, role: str, value: object, before: list) -> Expr |
 def _constant(op: str, i: int, value: object) -> float:
     number = _float(value)
     if number is None or not math.isfinite(number):
-        raise ExprError(f"argument {i} of {op} must be a series, a finite number or None, not {value!r}", i)
+        message = f"argument {i} of {op} must be a series, a finite number or None, not {value!r}"
+        raise ExprError("bad_constant", message, i)
     return number + 0.0  # -0.0 and 0.0 must share one canonical form
 
 
 def _series(op: str, i: int, value: object) -> Expr:
     if not isinstance(value, Expr):
-        raise ExprError(f"argument {i} of {op} must be a series, not {value!r}", i)
+        raise ExprError("needs_series", f"argument {i} of {op} must be a series, not {value!r}", i)
     return value
 
 
 def _condition(op: str, i: int, value: object) -> Expr:
     if not (isinstance(value, Expr) and value.kind == BOOL):
-        raise ExprError(f"argument {i} of {op} must be a condition, not the number {value!r}", i)
+        raise ExprError("needs_condition", f"argument {i} of {op} must be a condition, not the number {value!r}", i)
     return value
 
 
 def _count(op: str, i: int, value: object, minimum: int) -> int:
     n = _integer(value)
     if n is None:
-        raise ExprError(f"argument {i} of {op} must be an integer constant, not {value!r}", i)
+        raise ExprError("needs_integer", f"argument {i} of {op} must be an integer constant, not {value!r}", i)
     if n < 0:
-        raise LookAheadError(f"{op} with {n} bars would read bars after day t", i)
+        raise LookAheadError("negative_window", f"{op} with {n} bars would read bars after day t", i)
     if n < minimum:
-        raise ExprError(f"argument {i} of {op} must be at least {minimum}, not {n}", i)
+        raise ExprError("out_of_range", f"argument {i} of {op} must be at least {minimum}, not {n}", i)
     if n > _MAX_BARS:
-        raise ExprError(f"argument {i} of {op} must be at most {_MAX_BARS}, not {n}", i)
+        raise ExprError("out_of_range", f"argument {i} of {op} must be at most {_MAX_BARS}, not {n}", i)
     return n
 
 
 def _weight(op: str, i: int, value: object, n: int) -> int:
     w = _integer(value)
     if w is None or not 1 <= w <= n:
-        raise ExprError(f"argument {i} of {op} must be an integer constant from 1 to {n}, not {value!r}", i)
+        message = f"argument {i} of {op} must be an integer constant from 1 to {n}, not {value!r}"
+        raise ExprError("needs_integer" if w is None else "out_of_range", message, i)
     return w
 
 
@@ -274,12 +290,12 @@ def _float(value: object) -> float | None:
 def _measure(op: str, children: list[Expr]) -> tuple[int, int]:
     """Size and depth of a node over its Expr arguments, each within its limit."""
     if not children:
-        raise ExprError(f"{op} needs at least one series argument")
+        raise ExprError("needs_series", f"{op} needs at least one series argument")
     size, depth = 1 + sum(c.size for c in children), 1 + max(c.depth for c in children)
     if size > MAX_NODES:
-        raise ExprError(f"{op}: the expression would have more than {MAX_NODES} nodes")
+        raise ExprError("too_large", f"{op}: the expression would have more than {MAX_NODES} nodes")
     if depth > MAX_DEPTH:
-        raise ExprError(f"{op}: the expression would be deeper than {MAX_DEPTH} levels")
+        raise ExprError("too_deep", f"{op}: the expression would be deeper than {MAX_DEPTH} levels")
     return size, depth
 
 
