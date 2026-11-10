@@ -1,0 +1,33 @@
+{
+  "name": "wequant-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p . && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p .",
+    "gen:fixtures": "bash scripts/gen-fixtures.sh",
+    "gen:types": "node scripts/gen-types.mjs",
+    "check:fixtures": "tsc -p tsconfig.fixtures.json",
+    "test": "node --experimental-strip-types --no-warnings --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.14.26",
+    "echarts": "^6.1.0",
+    "klinecharts": "10.1.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "json-schema-to-typescript": "^16.0.0",
+    "typescript": "~5.9",
+    "vite": "^8.3.7"
+  }
+}
