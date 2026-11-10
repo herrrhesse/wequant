@@ -11,11 +11,12 @@ from pathlib import Path
 import polars as pl
 
 from wequant.data import codes
+from wequant.data.files import atomic_write
+from wequant.data.merge.audit import OHLC
 
 PACKAGED = Path(__file__).with_name("resolutions.toml")
-KEY = ("code", "date", "kind")
-ENTRY = (*KEY, "fields", "take", "evidence", "status")
-OHLC = ("open", "high", "low", "close")
+ENTRY_KEY = ("code", "date", "kind")
+ENTRY = (*ENTRY_KEY, "fields", "take", "evidence", "status")
 FIELDS = {  # (kind, take): the field lists such an entry may decide
     ("price_mismatch", "baostock"): (OHLC,),
     ("price_mismatch", "seed"): (OHLC,),
@@ -44,18 +45,23 @@ def load(path: Path | None = None) -> pl.DataFrame:
         raise ValueError(f"resolutions repeat a (code, date, kind): {sorted(k for k in keys if keys.count(k) > 1)}")
     if keys != sorted(keys):
         raise ValueError("resolutions must be sorted by (date, code, kind)")
+    return frame(entries)
+
+
+def frame(entries: list[dict]) -> pl.DataFrame:
+    """Entries in SCHEMA."""
     return pl.DataFrame([e | {"fields": list(e["fields"])} for e in entries], schema=SCHEMA)
 
 
 def add(path: Path, proposals: list[dict]) -> int:
     """Insert the proposals whose (code, date, kind) the file lacks in sorted place; existing entries keep their text.
     A new file starts with the packaged file's header. Returns how many were added."""
-    header, blocks = _split(path.read_text("utf-8") if path.exists() else _split(PACKAGED.read_text("utf-8"))[0])
+    header, blocks = _split(path.read_text("utf-8") if path.exists() else _header(PACKAGED))
     present = {_sort_key(entry) for _, entry in blocks}
     new = [(render(p), _checked(p)) for p in proposals if _sort_key(p) not in present]
     ordered = sorted([*blocks, *new], key=lambda block: _sort_key(block[1]))
-    body = "\n".join(text.rstrip() + "\n" for text, _ in ordered)
-    path.write_text(header.rstrip() + "\n" + ("\n" + body if body else ""), "utf-8")
+    body = "\n".join(block.rstrip() + "\n" for block, _ in ordered)
+    atomic_write(path, (header.rstrip() + "\n" + ("\n" + body if body else "")).encode("utf-8"))
     return len(new)
 
 
@@ -65,9 +71,19 @@ def render(entry: dict) -> str:
     return "\n".join(["[[resolution]]", *values]) + "\n"
 
 
+def _header(path: Path) -> str:
+    """The comment header of a resolutions file."""
+    return _BLOCK.split(path.read_text("utf-8"), maxsplit=1)[0]
+
+
 def _split(text: str) -> tuple[str, list[tuple[str, dict]]]:
-    """(the text before the first entry, (text, checked entry) of each entry)."""
+    """(the comment header, (text, checked entry) of each entry); every entry starts at a line '[[resolution]]'."""
     header, *blocks = _BLOCK.split(text)
+    if tomllib.loads(header):
+        raise ValueError(
+            "only comments may precede the first entry, and each entry starts with a line '[[resolution]]' at "
+            f"column 0:\n{header}"
+        )
     return header, [(block, _parsed(block)) for block in blocks]
 
 

@@ -17,6 +17,7 @@ from tests.baostock_raw_fake import (
     SOURCE,
     World,
     day_row,
+    empty_resolutions,
     stale_bars,
     standard_world,
     suspended_row,
@@ -25,12 +26,18 @@ from tests.baostock_raw_fake import (
 )
 from tests.frames import table_frame
 from tools.baostock_merge import invariant_problems, status_complete
-from wequant.data.merge import RawDataError, StalePlan, apply_merge, plan_merge
+from wequant.data.merge import RawDataError, StalePlan, apply_merge, plan_merge, resolutions
 from wequant.data.merge.assemble import stale_years
 from wequant.data.schema import BARS
 from wequant.version import code_version
 
 FIXED_600010 = [(dt.date(1999, 1, 4), 1.0), (D2, 1.25)]
+
+
+@pytest.fixture(autouse=True)
+def no_decisions(tmp_path, monkeypatch):
+    """The merge reads an empty resolutions file, never the user's packaged one."""
+    monkeypatch.setattr(resolutions, "PACKAGED", empty_resolutions(tmp_path))
 
 
 @pytest.fixture

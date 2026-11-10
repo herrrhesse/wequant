@@ -24,7 +24,8 @@ from wequant.data.merge.audit import FLAGGED, status_disagreements
 from wequant.data.merge.conflicts import SEEDED
 from wequant.data.merge.plan import LATE_EVENT_DAYS
 from wequant.data.merge.propose import propose
-from wequant.data.merge.resolutions import PACKAGED, add
+from wequant.data.merge.resolutions import PACKAGED, add, load
+from wequant.data.merge.resolve import STATES
 from wequant.data.raw import BaoStockRaw
 from wequant.data.store import CommitResult, Store, wequant_home
 from wequant.version import code_version
@@ -35,9 +36,11 @@ FROZEN_TABLES = ("index_bars", "index_members")
 FLAGGED_ROWS = 1000  # flagged rows listed in the report at most
 LISTED_KINDS = ("preclose_mismatch", "bar_unconfirmed", "tradestatus_conflict", "amount_mismatch")
 LISTED_ROWS = 100  # rows listed per kind at most
+UNDECIDED_ROWS = 1000  # conflicts without any entry listed at most
 LISTED_FILES = 200  # factor files named in the report at most
 LISTED_DAYS = 20  # days to re-merge named at most
 KEY = ["code", "date"]
+DETAIL_VALUES = ("before", "baostock", "after")  # a resolved row's values, in report order
 
 
 def copy_store(source: Path, target: Path) -> int:
@@ -90,15 +93,15 @@ def run(args: argparse.Namespace) -> int:
 
 
 def propose_entries(args: argparse.Namespace) -> int:
-    """Add a proposed entry for each conflict on the raw days to the resolutions file; reads the store and raw only."""
+    """Add a proposed entry for each conflict on the raw days to the resolutions file, whose price entries the amount
+    check follows; reads the store and raw only."""
     store = Store(args.home)
     raw = BaoStockRaw(Path(args.raw)) if args.raw else BaoStockRaw.at(store.home)
-    proposals = propose(store, raw, days=raw_days(raw, args.days))
     path = args.out or PACKAGED
+    entries = load(path) if path.exists() else None
+    proposals = propose(store, raw, days=raw_days(raw, args.days), entries=entries)
     added = add(path, proposals)
-    print(
-        f"{len(proposals)} conflicts; {added} proposed entries added to {path}, {len(proposals) - added} already there"
-    )
+    print(f"{len(proposals)} proposals; {added} added to {path}, {len(proposals) - added} already there")
     counts = Counter((p["kind"], p["take"], ", ".join(p["fields"])) for p in proposals)
     for (kind, take, fields), n in sorted(counts.items()):
         print(f"  {kind} take {take} [{fields}]: {n}")
@@ -339,7 +342,8 @@ def _header(plan: MergePlan, commit: CommitResult | None, resolutions: Path) -> 
         *_stop_line(counts),
         f"- **Store:** {version}",
         f"- **Resolutions:** {resolutions}: {sum(counts['applied'].values()):,} applied, {counts['flagged']:,} closes "
-        f"flagged, {counts['unresolved']:,} conflicts awaiting approval",
+        f"flagged, {sum(counts['unresolved'].values()):,} conflicts awaiting a decision, {len(counts['idle']):,} "
+        "approved entries met no conflict",
         f"- **code_version:** {code_version()}",
         f"- **Days:** {plan.days[0]}..{plan.days[-1]} ({len(plan.days):,} raw days); factor files: {len(plan.factor_codes):,}",
         f"- **Meta after the merge:** {json.dumps(plan.meta, sort_keys=True)}",
@@ -356,13 +360,14 @@ def _header(plan: MergePlan, commit: CommitResult | None, resolutions: Path) -> 
 
 
 def _stop_line(counts: dict) -> list[str]:
-    if not counts["unresolved"]:
+    waiting = counts["unresolved"]
+    if not sum(waiting.values()):
         return []
-    waiting = counts["proposed"]
     return [
-        f"- **Stop:** {counts['unresolved']:,} conflicts lack an approved resolution ({waiting:,} with a proposed entry "
-        f"awaiting approval, {counts['unresolved'] - waiting:,} without an entry); nothing is committed until each has "
-        "one (section 5).",
+        f"- **Stop:** {sum(waiting.values()):,} conflicts lack an approved resolution ({waiting['missing']:,} without an "
+        f"entry, {waiting['unfetched']:,} waiting for their reference day, {waiting['proposed']:,} with a proposed "
+        f"entry awaiting approval, {waiting['unpriced']:,} amount conflicts waiting for their cell's price entry); "
+        "nothing is committed until each has one (section 5).",
     ]
 
 
@@ -463,13 +468,13 @@ def _resolutions_section(plan: MergePlan) -> list[str]:
     resolved = _resolved(plan.issues)
     details = [json.loads(d) for d in resolved["detail"]]
     rows = [
-        (code, day, kind, action, ", ".join(d["fields"]), _ordered(d, "before"), _ordered(d, "after"), d["evidence"])
+        (code, day, kind, action, ", ".join(d["fields"]), *(_ordered(d, x) for x in DETAIL_VALUES), d["evidence"])
         for (code, day, kind, action), d in zip(resolved.select("code", "date", "kind", "action").rows(), details)
     ]
     flagged = plan.issues.filter(pl.col("kind") == "close_unconfirmed").sort("date", "code")
     columns = ["close", "baostock_close", "seed_close", "next_date", "next_preclose", "ex_event"]
     closes = [(c, day, *(json.loads(d)[x] for x in columns)) for c, day, d in flagged.select(*KEY, "detail").rows()]
-    header = ["code", "date", "kind", "action", "fields", "before", "after", "evidence"]
+    header = ["code", "date", "kind", "action", "fields", "store before", "BaoStock", "after", "evidence"]
     return [
         "## 4. Resolutions applied",
         "",
@@ -488,34 +493,50 @@ def _resolutions_section(plan: MergePlan) -> list[str]:
 
 
 def _awaiting_section(plan: MergePlan) -> list[str]:
-    rows = plan.unresolved.sort("date", "code", "kind")
-    if rows.is_empty():
-        return ["## 5. Conflicts awaiting approval", "", "None.", ""]
-    shown = [
-        (
-            row["code"],
-            row["date"],
-            row["kind"],
-            "proposed, awaiting approval" if row["proposed"] else "no entry",
-            _values({c: row[c] for c in SEEDED}),
-            _values({c: row[f"seed_{c}"] for c in SEEDED}),
-        )
-        for row in rows.head(LISTED_ROWS).to_dicts()
-    ]
-    more = f" The first {LISTED_ROWS} are listed." if rows.height > LISTED_ROWS else ""
-    return [
-        "## 5. Conflicts awaiting approval",
-        "",
-        f"The merge stops before writing anything: {rows.height:,} conflicts lack an approved entry in the resolutions "
-        f"file. `propose` adds missing entries as proposed; only the user approves them.{more}",
-        "",
-        *table(["code", "date", "kind", "entry", "BaoStock", "store"], shown),
-    ]
+    """Conflicts without an approved entry, those without any entry first, and approved entries that met none."""
+    lines = ["## 5. Conflicts awaiting a decision", ""]
+    rows = plan.unresolved
+    if rows.height:
+        caps = {
+            "missing": UNDECIDED_ROWS,
+            "unfetched": UNDECIDED_ROWS,
+            "proposed": LISTED_ROWS,
+            "unpriced": LISTED_ROWS,
+        }
+        shown = pl.concat(rows.filter(pl.col("entry") == state).head(cap) for state, cap in caps.items())
+        lines += [
+            f"The merge stops before writing anything: {rows.height:,} conflicts lack an approved entry in the "
+            f"resolutions file. Listed: those without an entry (at most {UNDECIDED_ROWS:,}), then those with a proposed "
+            f"one and the amount conflicts waiting for a price entry (at most {LISTED_ROWS} each). `propose` adds "
+            "missing entries as proposed; only the user approves them.",
+            "",
+            *table(["code", "date", "kind", "entry", "BaoStock", "store"], [_awaiting(r) for r in shown.to_dicts()]),
+        ]
+    idle = plan.stats["resolutions"]["idle"]
+    if idle:
+        lines += [
+            f"**Approved entries that met no conflict:** {len(idle):,}. They take other than BaoStock's values, but the "
+            "bars keep BaoStock's: the conflict is gone (the raw row changed), or the entry changed after the store "
+            "took an earlier one.",
+            "",
+            *table(["code", "date", "kind", "fields", "take"], [_idle(entry) for entry in idle]),
+        ]
+    return lines if len(lines) > 2 else [*lines, "None.", ""]
+
+
+def _awaiting(row: dict) -> tuple:
+    baostock, store = ({c: row[f"{prefix}{c}"] for c in SEEDED} for prefix in ("", "seed_"))
+    return row["code"], row["date"], row["kind"], STATES[row["entry"]], _values(baostock), _values(store)
+
+
+def _idle(entry: dict) -> tuple:
+    return entry["code"], entry["date"], entry["kind"], ", ".join(entry["fields"]), entry["take"]
 
 
 def _ordered(detail: dict, which: str) -> str:
-    """detail's before or after values in the order of its fields."""
-    return _values({field: detail[which][field] for field in detail["fields"]})
+    """detail's values of one source in the order of its fields; 'no store bar' for a before without one."""
+    values = detail[which]
+    return "no store bar" if values is None else _values({f: values[f] for f in detail["fields"] if f in values})
 
 
 def _values(values: dict) -> str:

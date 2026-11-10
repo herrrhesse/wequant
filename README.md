@@ -46,8 +46,9 @@ systemd-inhibit --what=sleep --why="baostock backfill" uv run --extra baostock p
 
 `tools/baostock_merge.py` merges the raw days into the store as one version. Two kinds of conflict need your decision:
 a bar whose open, high, low or close differ from the store's (`price_mismatch`), and a traded bar whose amount / volume
-lies outside [low, high] (`average_price`). Each needs an approved entry in `wequant/data/merge/resolutions.toml`; while
-one lacks it, the merge writes nothing and its report lists the conflicts awaiting approval.
+lies outside [low, high] of the bar as its price entry leaves it (`average_price`). Each needs an approved entry in
+`wequant/data/merge/resolutions.toml`; while one lacks it, the merge writes nothing and its report lists the conflicts
+awaiting a decision, those without any entry first.
 
 ```bash
 uv run python -m tools.baostock_merge propose        # add a proposed entry for each conflict; reads only
@@ -57,11 +58,13 @@ uv run python -m tools.baostock_merge run --commit   # one version, its report i
 ```
 
 - **Proposals:** a price mismatch takes the prices of the source whose close the next trading day's exchange preclose
-  repeats (BaoStock's, with the cell flagged, when neither does or an adj_factor step lies between). An average-price
-  conflict takes the store's amount, or its volume and amount, when the store's bar passes the check, and otherwise a
-  null amount.
+  repeats (BaoStock's, with the cell flagged, when neither does or an adj_factor step lies between); it gets no proposal
+  until that day's snapshot is fetched. An average-price conflict takes the store's amount, or its volume and amount,
+  when the store's bar passes the check, and otherwise a null amount. After changing a price entry's take, run
+  `propose` again: the amount is checked on the prices the entry takes.
 - **Record:** each applied entry is one `data_issues` row (`resolved_baostock`, `resolved_seed` or `resolved_null`) whose
-  detail holds the fields, the values before and after, and the evidence.
+  detail holds the fields, the store's values before the cell's first resolution, BaoStock's values, the values after
+  and the evidence. The report also lists approved entries that met no conflict.
 - **Null amount:** unknown, never 0. The panel shows NaN and operators and expressions skip it.
 - **turn:** BaoStock's turnover in percent, kept on its bars; seed and BJ bars have none.
 - **Memory:** a merge whose bars gain a column rewrites every year of bars; on the full store its commit peaks near 8 GB.

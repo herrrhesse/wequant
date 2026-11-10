@@ -190,7 +190,8 @@ DATA_ISSUES = Table(
             "span_dropped / row_added / duplicate_dropped / value_replaced / bar_kept / no_bar / status_dropped / "
             "event_dropped / event_added / flagged (nothing changed; to review) / limits_voided (limits unknown that day) / "
             "resolved_baostock / resolved_seed / resolved_null (an approved resolution took BaoStock's values, the "
-            "store's, or voided the amount; detail has its fields, before and after values and evidence)",
+            "store's, or voided the amount; detail has its fields, the store's values before the cell's first resolution "
+            "(null without a store bar), BaoStock's values, the values after and the evidence)",
         ),
         Column("detail", pl.String, nullable=True, doc="JSON object with the measured values"),
         Column("source", pl.String),

@@ -15,6 +15,7 @@ from wequant.data.sources.baostock import parse_daily
 PRICES = ("open", "high", "low", "close", "preclose")
 COLUMNS = ("date", "code", *PRICES, "volume", "amount", "turn", "tradestatus", "isST", "_baostock_version")
 SAMPLES = 20
+PRICE_TEXT = r"^([0-9]+[.][0-9]{2}(00)?)?$"  # whole fen, as BaoStock prints prices
 AVERAGE_RTOL = 1e-3  # a clean row's amount / volume strays less than 1e-4 beyond [low, high]
 AMOUNT_ATOL = 1.0  # yuan: some amounts are cut to the whole yuan
 
@@ -23,7 +24,7 @@ TEXT_CHECKS = {
     "date": pl.col("date") == pl.col("file"),
     "tradestatus": pl.col("tradestatus").is_in(["0", "1"]),
     "isST": pl.col("isST").is_in(["0", "1"]),
-    "price": pl.all_horizontal(pl.col(p).str.contains(r"^([0-9]+[.][0-9]{2}(00)?)?$") for p in PRICES),
+    "price": pl.all_horizontal(pl.col(p).str.contains(PRICE_TEXT) for p in PRICES),
     "volume": pl.col("volume").str.contains(r"^[0-9]*$"),
     "amount": pl.col("amount").str.contains(r"^([0-9]+([.][0-9]+)?)?$"),
     "turn": pl.col("turn").str.contains(r"^([0-9]+([.][0-9]+)?)?$"),
@@ -64,11 +65,18 @@ def read_daily(raw: BaoStockRaw, days: Iterable[dt.date]) -> pl.DataFrame:
     paths = [str(raw.daily(day)) for day in sorted(days)]
     scan = pl.scan_parquet(paths, include_file_paths="path")
     frame = scan.select(*COLUMNS, file=pl.col("path").str.extract(r"([^/\\]+)\.parquet$"))
-    _raise_on(_failures(frame, TEXT_CHECKS))
+    check(frame, TEXT_CHECKS)
     source = frame.select(source=pl.lit("baostock@") + pl.col("_baostock_version"))
     daily = pl.concat([parse_daily(frame, turn=True), source], how="horizontal").collect(engine="streaming")
-    _raise_on(_failures(daily.lazy(), _row_checks(daily)))
+    check(daily.lazy(), _row_checks(daily))
     return daily
+
+
+def check(frame: pl.LazyFrame, checks: dict[str, pl.Expr]) -> None:
+    """RawDataError naming each failing check with its row count and up to SAMPLES offending rows."""
+    problems = _failures(frame, checks)
+    if problems:
+        raise RawDataError(problems)
 
 
 def split(daily: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -104,8 +112,3 @@ def _failures(frame: pl.LazyFrame, checks: dict[str, pl.Expr]) -> list[str]:
             samples = frame.filter(~oks[name]).drop("source", strict=False).head(SAMPLES).collect()
             lines.append(f"{name}: {count} rows, e.g. {samples.rows()}")
     return lines
-
-
-def _raise_on(problems: list[str]) -> None:
-    if problems:
-        raise RawDataError(problems)

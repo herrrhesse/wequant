@@ -27,12 +27,12 @@ DAY_COLUMNS = ("date", "code", "open", "high", "low", "close", "preclose", "volu
 DAY_COLUMNS += ("turn", "tradestatus", "isST")
 LIMIT_BREACH = {"table": "bars", "code": "600000.SH", "date": D1, "kind": "limit_breach", "action": "limits_voided"}
 STEADY = {C1: 10000, C2: 10100, D1: 10200, D2: 10300, D3: 10400}
-CONFLICTS = [  # conflict_world's, as find_conflicts sorts them
+CONFLICTS = [  # conflict_world's, in the resolutions file's order: (date, code, kind)
     ("600000.SH", D1, "price_mismatch"),
+    ("600004.SH", D1, "price_mismatch"),
     ("600001.SH", D2, "average_price"),
     ("600002.SH", D2, "average_price"),
     ("600003.SH", D3, "average_price"),
-    ("600004.SH", D1, "price_mismatch"),
 ]
 
 
@@ -197,6 +197,13 @@ def conflict_world() -> World:
     raw_row(w, "600002.SH", D2, volume="1100")  # 10300 yuan for 1100 shares is 9.36 a share, below low 10.30
     raw_row(w, "600003.SH", D3, amount="0.0000")  # no seed bar
     return w
+
+
+def empty_resolutions(directory: Path) -> Path:
+    """A resolutions file without entries, so that a test never reads the user's packaged one."""
+    path = directory / "resolutions.toml"
+    path.write_text("# no decisions\n", "utf-8")
+    return path
 
 
 def raw_row(w: World, code: str, day: dt.date, **text: str) -> None:

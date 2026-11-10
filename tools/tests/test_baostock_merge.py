@@ -13,12 +13,13 @@ from tests.baostock_raw_fake import (
     SOURCE,
     conflict_world,
     day_row,
+    empty_resolutions,
     standard_world,
     write_day,
 )
 from tests.frames import table_frame
 from tools import baostock_merge as tool
-from wequant.data.merge import apply_merge, plan_merge
+from wequant.data.merge import apply_merge, plan_merge, resolutions
 from wequant.data.merge.assemble import BJ
 from wequant.data.raw import BaoStockRaw
 from wequant.data.schema import TABLES
@@ -34,6 +35,14 @@ CRITERIA = (
     "status_complete",
     "bj_frozen",
 )
+
+
+@pytest.fixture(autouse=True)
+def no_decisions(tmp_path, monkeypatch):
+    """The merge reads an empty resolutions file, never the user's packaged one."""
+    path = empty_resolutions(tmp_path)
+    monkeypatch.setattr(resolutions, "PACKAGED", path)
+    monkeypatch.setattr(tool, "PACKAGED", path)
 
 
 @pytest.fixture
@@ -77,7 +86,7 @@ def test_a_dry_run_prints_the_report_and_writes_nothing(home, capsys):
     assert tool.main(["run", "--home", str(home), "--days", "2024-01-01..2024-01-31"]) == 0
     report = capsys.readouterr().out
     assert report.startswith("# BaoStock merge") and "dry run on version 1" in report
-    assert "0 applied, 0 closes flagged, 0 conflicts awaiting approval" in report and "**Stop:**" not in report
+    assert "0 applied, 0 closes flagged, 0 conflicts awaiting a decision" in report and "**Stop:**" not in report
     assert (
         "- **turn:** 3 of 26 merged BaoStock bars have a turnover (11.5385%); 23 merged bars trade without one."
         in report
@@ -106,7 +115,7 @@ def test_propose_adds_entries_and_keeps_existing_ones(conflicts, tmp_path, capsy
     path = tmp_path / "r.toml"
     assert tool.main(["propose", "--home", str(conflicts), "--out", str(path)]) == 0
     assert capsys.readouterr().out.splitlines() == [
-        f"5 conflicts; 5 proposed entries added to {path}, 0 already there",
+        f"5 proposals; 5 added to {path}, 0 already there",
         "  average_price take null [amount]: 1",
         "  average_price take seed [amount]: 1",
         "  average_price take seed [volume, amount]: 1",
@@ -115,7 +124,7 @@ def test_propose_adds_entries_and_keeps_existing_ones(conflicts, tmp_path, capsy
     ]
     text = path.read_text("utf-8")
     assert tool.main(["propose", "--home", str(conflicts), "--out", str(path)]) == 0
-    assert "0 proposed entries added" in capsys.readouterr().out and path.read_text("utf-8") == text
+    assert "0 added" in capsys.readouterr().out and path.read_text("utf-8") == text
     assert Store(conflicts).manifest()["version"] == 1
 
 
@@ -127,20 +136,52 @@ def test_proposed_entries_stop_the_run_and_approved_ones_merge(conflicts, tmp_pa
     assert tool.main(run) == 1
     report = capsys.readouterr().out
     assert report.splitlines()[2] == (
-        "- **Stop:** 5 conflicts lack an approved resolution (5 with a proposed entry awaiting approval, 0 without an "
-        "entry); nothing is committed until each has one (section 5)."
+        "- **Stop:** 5 conflicts lack an approved resolution (0 without an entry, 0 waiting for their reference day, "
+        "5 with a proposed entry awaiting approval, 0 amount conflicts waiting for their cell's price entry); nothing "
+        "is committed until each has one (section 5)."
     )
-    assert "| 600002.SH | 2024-01-03 | average_price | proposed, awaiting approval | open 10300, high 10300, " in report
+    assert (
+        "| 600002.SH | 2024-01-03 | average_price | a proposed entry awaits approval | open 10300, high 10300, "
+        in report
+    )
     assert Store(conflicts).manifest()["version"] == 1 and not (conflicts / "reports").exists()
 
     path.write_text(path.read_text("utf-8").replace('status = "proposed"', 'status = "approved"'), "utf-8")
     assert tool.main(run) == 0
     report = (conflicts / "reports" / f"baostock_merge_{D3}_v2.md").read_text("utf-8")
-    assert "5 applied, 1 closes flagged, 0 conflicts awaiting approval" in report
-    assert "| 600003.SH | 2024-01-04 | average_price | resolved_null | amount | amount 0.0 | amount None |" in report
+    assert "5 applied, 1 closes flagged, 0 conflicts awaiting a decision, 0 approved entries met no conflict" in report
+    row = (
+        "| 600003.SH | 2024-01-04 | average_price | resolved_null | amount | no store bar | amount 0.0 | amount None |"
+    )
+    assert row in report
     assert "| 600004.SH | 2024-01-02 | 10,210 | 10,210 | 10,200 | 2024-01-03 | 10,220 | False |" in report
     assert "| resolutions_applied | pass | 5 resolutions applied; committed bars differing" in report
-    assert "## 5. Conflicts awaiting approval\n\nNone." in report
+    assert "## 5. Conflicts awaiting a decision\n\nNone." in report
+
+
+def test_the_report_lists_conflicts_without_an_entry_first_and_idle_entries(conflicts, tmp_path, capsys):
+    path = tmp_path / "r.toml"
+    tool.main(["propose", "--home", str(conflicts), "--out", str(path)])
+    text = path.read_text("utf-8")
+    last = text.rindex("[[resolution]]")  # 600003.SH's entry
+    path.write_text(text[:last], "utf-8")
+    run = ["run", "--home", str(conflicts), "--resolutions", str(path)]
+    capsys.readouterr()
+    assert tool.main(run) == 1
+    report = capsys.readouterr().out
+    assert "(1 without an entry, 0 waiting for their reference day, 4 with a proposed entry" in report
+    listed = [line.split(" | ")[0][2:] for line in report.split("## 5.")[1].splitlines() if line.startswith("| 6")]
+    assert listed == ["600003.SH", "600000.SH", "600004.SH", "600001.SH", "600002.SH"]
+
+    tool.main(["propose", "--home", str(conflicts), "--out", str(path)])
+    path.write_text(path.read_text("utf-8").replace('status = "proposed"', 'status = "approved"'), "utf-8")
+    assert tool.main([*run, "--commit"]) == 0
+    path.write_text(path.read_text("utf-8").replace('take = "baostock"', 'take = "seed"'), "utf-8")
+    capsys.readouterr()
+    assert tool.main(run) == 0
+    report = capsys.readouterr().out
+    assert "0 conflicts awaiting a decision, 1 approved entries met no conflict" in report
+    assert "| 600004.SH | 2024-01-02 | price_mismatch | open, high, low, close | seed |" in report
 
 
 def test_resolutions_applied_fails_when_a_committed_bar_differs(conflicts, tmp_path):
@@ -151,7 +192,7 @@ def test_resolutions_applied_fails_when_a_committed_bar_differs(conflicts, tmp_p
     plan = plan_merge(store, BaoStockRaw.at(conflicts), resolutions=path)
     apply_merge(store, plan)
     assert tool.resolutions_applied(store, store.manifest(), plan)[0]
-    code, day, _ = CONFLICTS[3]
+    code, day, _ = CONFLICTS[4]
     bar = store.read_table("bars", start=day, end=day, codes=[code]).with_columns(amount=pl.lit(0.0))
     store.commit({}, upsert={"bars": bar})
     ok, message = tool.resolutions_applied(store, store.manifest(), plan)

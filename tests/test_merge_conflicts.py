@@ -1,9 +1,10 @@
 import polars as pl
 import pytest
 
-from tests.baostock_raw_fake import C1, D1, D2, D3, SEED, SOURCE, STEADY, World
+from tests.baostock_raw_fake import C1, D1, D2, D3, SEED, SOURCE, STEADY, World, raw_row
 from tests.frames import table_frame
-from wequant.data.merge.conflicts import find_conflicts, next_precloses
+from wequant.data.merge import RawDataError
+from wequant.data.merge.conflicts import average_conflicts, price_conflicts, with_references
 from wequant.data.merge.propose import proposal
 
 OHLC = ("open", "high", "low", "close")
@@ -18,7 +19,7 @@ def bars(rows: list[tuple], source: str) -> pl.DataFrame:
     return table_frame("bars", full, preclose_derived=source == SEED, source=source)
 
 
-def test_find_conflicts():
+def test_price_and_average_conflicts():
     new = bars(
         [
             ("600000.SH", 10010, {"high": 10010}),  # other close
@@ -30,12 +31,14 @@ def test_find_conflicts():
         SOURCE,
     )
     old = bars([(c, 10000, {}) for c in ("600000.SH", "600001.SH", "600002.SH", "600004.SH")], SEED)
-    found = find_conflicts(new, old)
-    assert found.select("code", "kind", "seed_close", "seed_paid", "same_volume").rows() == [
+    columns = ("code", "kind", "seed_close", "seed_paid", "same_volume")
+    assert price_conflicts(new, old).select(columns).rows() == [
         ("600000.SH", "price_mismatch", 10000, True, True),
+        ("600002.SH", "price_mismatch", 10000, True, True),
+    ]
+    assert average_conflicts(new, old).select(columns).rows() == [
         ("600001.SH", "average_price", 10000, True, True),
         ("600002.SH", "average_price", 10000, True, True),
-        ("600002.SH", "price_mismatch", 10000, True, True),
         ("600003.SH", "average_price", None, False, None),
     ]
 
@@ -43,67 +46,86 @@ def test_find_conflicts():
 def test_same_volume_allows_the_seed_s_float_rounding():
     new = bars([("600000.SH", 10000, {"amount": 0.0, "volume": 1_000_000})], SOURCE)
     old = bars([("600000.SH", 10000, {"volume": 1_000_001}), ("600001.SH", 10000, {})], SEED)
-    assert find_conflicts(new, old)["same_volume"].to_list() == [True]
+    assert average_conflicts(new, old)["same_volume"].to_list() == [True]
     old = bars([("600000.SH", 10000, {"volume": 1_000_002})], SEED)
-    assert find_conflicts(new, old)["same_volume"].to_list() == [False]
+    assert average_conflicts(new, old)["same_volume"].to_list() == [False]
 
 
-@pytest.fixture
-def raw_world(tmp_path):
+def test_a_null_seed_amount_fails_the_check():
+    new = bars([("600000.SH", 10000, {"amount": 0.0})], SOURCE)
+    old = bars([("600000.SH", 10000, {"amount": None})], SEED)
+    assert average_conflicts(new, old)["seed_paid"].to_list() == [False]
+
+
+def write_world(path, raw_days=(D1, D2, D3), **raw_text):
     w = World()
-    w.stock("600000.SH", STEADY)
-    return w.write(tmp_path)
+    w.stock("600000.SH", STEADY, raw=raw_days)
+    if raw_text:
+        raw_row(w, "600000.SH", D2, **raw_text)
+    return w.write(path)
 
 
 def references(store, raw, rows, adj_rows=()):
     adj = table_frame("adj_factor", [{"code": "600000.SH", "ex_date": e, "factor": f} for e, f in adj_rows])
     keys = pl.DataFrame({"code": ["600000.SH"] * len(rows), "date": rows})
     calendar = store.read_table("calendar")["date"]
-    return next_precloses(raw, keys, calendar, adj).drop("code").rows()
+    return with_references(raw, keys, calendar, adj).drop("code").rows()
 
 
-def test_the_reference_is_the_next_day_s_exchange_preclose(raw_world):
-    store, raw = raw_world
-    assert references(store, raw, [D1, D3]) == [(D1, D2, 10200, False), (D3, None, None, False)]
+def test_the_reference_is_the_next_day_s_exchange_preclose(tmp_path):
+    store, raw = write_world(tmp_path)
+    assert references(store, raw, [D3, D1]) == [(D3, None, False, None, False), (D1, D2, True, 10200, False)]
 
 
-def test_an_adj_factor_step_up_to_the_next_day_spoils_the_reference(raw_world):
-    store, raw = raw_world
-    assert references(store, raw, [D1], [(C1, 1.0), (D2, 1.1)]) == [(D1, D2, 10200, True)]
-    assert references(store, raw, [D1], [(C1, 1.0), (D1, 1.1)]) == [(D1, D2, 10200, False)]  # in force before
-    assert references(store, raw, [D1], [(C1, 1.0), (D2, 1.0)]) == [(D1, D2, 10200, False)]  # no step
+def test_a_next_day_not_fetched_yet_has_no_reference(tmp_path):
+    store, raw = write_world(tmp_path, raw_days=(D1, D2))  # D3 is a store calendar day without a snapshot
+    assert references(store, raw, [D2]) == [(D2, D3, False, None, False)]
 
 
-def conflict(kind: str, new: dict, old: dict | None, reference=(D2, None, False)) -> dict:
-    """The find_conflicts row of one bar on D1 at 10.00 (1000 shares), with a next_precloses reference."""
+def test_an_adj_factor_step_up_to_the_next_day_spoils_the_reference(tmp_path):
+    store, raw = write_world(tmp_path)
+    assert references(store, raw, [D1], [(C1, 1.0), (D2, 1.1)]) == [(D1, D2, True, 10200, True)]
+    assert references(store, raw, [D1], [(C1, 1.0), (D1, 1.1)]) == [(D1, D2, True, 10200, False)]  # in force before
+    assert references(store, raw, [D1], [(C1, 1.0), (D2, 1.0)]) == [(D1, D2, True, 10200, False)]  # no step
+    assert references(store, raw, [D1], [(D2, 1.1)]) == [(D1, D2, True, 10200, True)]  # 1.0 before a first row
+    assert references(store, raw, [D1], [(D2, 1.0)]) == [(D1, D2, True, 10200, False)]
+
+
+def test_a_reference_preclose_off_the_fen_raises(tmp_path):
+    store, raw = write_world(tmp_path, preclose="10.2050")
+    with pytest.raises(RawDataError, match=r"reference preclose: 1 rows, e.g. \[\('600000.SH'"):
+        references(store, raw, [D1])
+    assert references(store, raw, [D2]) == [(D2, D3, True, 10300, False)]  # D3's row is not D2's
+
+
+def conflict(kind: str, new: dict, old: dict | None, reference=(D2, True, None, False)) -> dict:
+    """The conflict row of one bar on D1 at 10.00 (1000 shares), with a reference (next_date, fetched, preclose,
+    ex_event)."""
     stored = bars([("600000.SH", 10000, old)], SEED) if old is not None else bars([], SEED)
-    row = (
-        find_conflicts(bars([("600000.SH", 10000, new)], SOURCE), stored)
-        .filter(pl.col("kind") == kind)
-        .row(0, named=True)
-    )
-    return row | dict(zip(("next_date", "next_preclose", "ex_event"), reference, strict=True))
+    found = price_conflicts if kind == "price_mismatch" else average_conflicts
+    row = found(bars([("600000.SH", 10000, new)], SOURCE), stored).row(0, named=True)
+    return row | dict(zip(("next_date", "fetched", "next_preclose", "ex_event"), reference, strict=True))
 
 
 OTHER_CLOSE = {"close": 10010, "high": 10010, "amount": 10010.0}
 PRICE_RULES = [
-    ((D2, 10010, False), "baostock", "the 2024-01-03 exchange preclose 10.01 repeats BaoStock's"),
-    ((D2, 10000, False), "seed", "the 2024-01-03 exchange preclose 10.00 repeats the seed's"),
+    ((D2, True, 10010, False), "baostock", "the 2024-01-03 exchange preclose 10.01 repeats BaoStock's"),
+    ((D2, True, 10000, False), "seed", "the 2024-01-03 exchange preclose 10.00 repeats the seed's"),
     (
-        (D2, 9990, False),
+        (D2, True, 9990, False),
         "baostock",
         "the 2024-01-03 exchange preclose 9.99 repeats neither: BaoStock kept and the cell flagged",
     ),
     (
-        (D2, 10000, True),
+        (D2, True, 10000, True),
         "baostock",
         "the 2024-01-03 exchange preclose 10.00, but an adj_factor step by then spoils the comparison: BaoStock kept "
         "and the cell flagged",
     ),
     (
-        (D2, None, False),
+        (D2, True, None, False),
         "baostock",
-        "no 2024-01-03 exchange preclose: BaoStock kept and the cell flagged",
+        "the 2024-01-03 snapshot has no exchange preclose for the code: BaoStock kept and the cell flagged",
     ),
 ]
 
@@ -137,6 +159,12 @@ AVERAGE_RULES = [
         ("amount",),
         "null",
         f"seed volume 1000 amount 0.00 (average 0.0000) {SEED_SPAN}: the seed bar fails the check too, amount null, bar kept",
+    ),
+    (
+        {"amount": None},
+        ("amount",),
+        "null",
+        f"seed volume 1000 amount none (average none) {SEED_SPAN}: the seed bar fails the check too, amount null, bar kept",
     ),
     (
         {"close": 10010, "high": 10010, "amount": 10010.0},

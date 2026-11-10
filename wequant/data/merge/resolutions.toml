@@ -4,7 +4,8 @@
 #   code      "603081.SH"
 #   date      2023-11-07
 #   kind      "price_mismatch": BaoStock's open, high, low or close differ from the store's bar
-#             "average_price": BaoStock's amount / volume lies outside [low, high]
+#             "average_price": BaoStock's amount / volume lies outside [low, high] of the bar as its price entry
+#             leaves it
 #   fields    the bars fields the entry decides: ["open", "high", "low", "close"], ["amount"] or ["volume", "amount"]
 #   take      "baostock", "seed" (the store's values) or "null" (amount only: unknown, the bar kept)
 #   evidence  one sentence with the concrete numbers

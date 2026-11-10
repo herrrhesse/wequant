@@ -95,3 +95,13 @@ def test_add_starts_a_new_file_with_the_packaged_header(tmp_path):
     assert add(path, [LATE]) == 1
     header = re.split(r"(?m)^\[\[resolution\]\]", PACKAGED.read_text("utf-8"))[0]
     assert path.read_text("utf-8").startswith(header.rstrip()) and load(path).height == 1
+
+
+@pytest.mark.parametrize("opening", ["[[ resolution ]]", "  [[resolution]]", "note = 1\n[[resolution]]"])
+def test_an_entry_the_split_would_miss_is_refused(tmp_path, opening):
+    path = tmp_path / "r.toml"
+    path.write_text("# decisions\n" + render(EARLY).replace("[[resolution]]", opening), "utf-8")
+    with pytest.raises(ValueError, match="only comments may precede the first entry"):
+        load(path)
+    with pytest.raises(ValueError, match="only comments may precede the first entry"):
+        add(path, [LATE])

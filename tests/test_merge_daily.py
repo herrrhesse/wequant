@@ -3,7 +3,7 @@ import datetime as dt
 import polars as pl
 import pytest
 
-from tests.baostock_raw_fake import D1, D2, MERGED, SOURCE, World, day_row, suspended_row
+from tests.baostock_raw_fake import D1, D2, MERGED, SOURCE, World, day_row, empty_resolutions, suspended_row
 from wequant.data.merge import RawDataError, plan_merge
 from wequant.data.merge.daily import paid, read_daily, split
 from wequant.data.schema import BARS, DAILY_STATUS
@@ -132,6 +132,6 @@ def test_broken_raw_rows_raise_naming_the_check(tmp_path, check, change):
     change(w.days[D1])
     store, raw = w.write(tmp_path)
     with pytest.raises(RawDataError) as error:
-        plan_merge(store, raw)
+        plan_merge(store, raw, resolutions=empty_resolutions(tmp_path))
     assert len(error.value.problems) == 1 and error.value.problems[0].startswith(f"{check}: ")
     assert store.manifest()["version"] == 1
