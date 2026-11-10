@@ -29,6 +29,7 @@ CASES = [
         service.EvalRequest(form='["MA","close",2]', codes=["600000.SH"]),
         "home",
     ),
+    (["schema"], "schema", service.SchemaRequest(), "home"),
 ]
 
 

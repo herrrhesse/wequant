@@ -21,6 +21,14 @@ def render(result: BaseModel) -> str:
     return "\n\n".join(["\n".join(lines), *blocks])
 
 
+def render_schema(result: BaseModel) -> str:
+    """The operations with their request and result models, then each model with its description's first line."""
+    document = result.model_dump(mode="json")
+    defs = document["$defs"].items()
+    models = [{"model": name, "description": text(d.get("description")).split("\n")[0]} for name, d in defs]
+    return "\n\n".join([table(document["operations"]), table(models)])
+
+
 def table(rows: list[dict]) -> str:
     """Aligned columns with a header; a nested dict (Row.values) spreads into columns of its own."""
     flat = [_spread(row) for row in rows]

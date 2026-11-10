@@ -15,7 +15,7 @@ from cyclopts import App, Group, Parameter
 from pydantic import BaseModel
 
 from wequant import service
-from wequant.cli.render import error_panel, render
+from wequant.cli.render import error_panel, render, render_schema
 from wequant.service import Check, Context, Exit, ServiceError
 from wequant.version import code_version
 
@@ -92,13 +92,21 @@ def expr_eval(*, request: Annotated[service.EvalRequest, FLAT], common: Common =
     return run(service.expr_eval, request, common)
 
 
-def run(operation: Callable, request: BaseModel, common: Common) -> int:
-    """Call operation and print its result as JSON or text; the exit code."""
+@app.command
+def schema(
+    *, request: Annotated[service.SchemaRequest, FLAT] = service.SchemaRequest(), common: Common = COMMON
+) -> int:
+    """JSON Schema of every request, result and failure model; the frontend's types are generated from it."""
+    return run(service.schema, request, common, human=render_schema)
+
+
+def run(operation: Callable, request: BaseModel, common: Common, human: Callable = render) -> int:
+    """Call operation and print its result as JSON or as human(result); the exit code."""
     with _logging_to_stderr(common.verbose):
         log.debug("%s %s", operation.__name__, request.model_dump_json())
         try:
             result = operation(request, Context(common.home, common.cache))
-            text = result.model_dump_json() if common.json else render(result)
+            text = result.model_dump_json() if common.json else human(result)
         except ServiceError as error:
             log.error("%s", error)
             return error.exit
