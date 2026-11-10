@@ -1,9 +1,10 @@
-import { picks, runs, warningLabels } from "./runs.zh";
+import { explainNotes, picks, runs, warningLabels } from "./runs.zh";
 // Every Chinese string the UI shows. Pages read t.*, so adding English later means adding a second file.
 export const zh = {
   picks,
   runs,
   warningLabels,
+  explainNotes,
   app: { brand: "WeQuant", loading: "正在读取…", error: "读取失败" },
   synthetic: {
     banner: "示例数据：没有本地 fixture，页面显示的是合成数据，代码、日期和数值都是编的。",

@@ -4,7 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 import { screen, screenChoices, screenExplain } from "../api/runs";
 import { useStock } from "../api/queries";
-import type { AnomalyUse, Explain, FunnelStep, Reject, ScreenResult, ScreenRow } from "../api/types.gen";
+import type { AnomalyUse, Explain, FunnelStep, PoolCheck, Reject, ScreenResult, ScreenRow } from "../api/types.gen";
 import { Card } from "../components/Card";
 import { Command } from "../components/Command";
 import { KChart } from "../components/KChart";
@@ -305,6 +305,16 @@ function SidePanel({ data, name, code, look, onClose }: { data: ScreenResult; na
   );
 }
 
+/** A pool check's value as the page shows it: the backend's value with its unit or a yes/no word (layout only). */
+function poolValue(name: string, value: PoolCheck["value"]): string {
+  const kind = p.pool[name]?.kind;
+  if (kind === "yesno") return value === null ? p.yesNo.unknown : value === true ? p.yesNo.yes : value === false ? p.yesNo.no : String(value);
+  if (value === null) return name === "universe" ? "" : p.yesNo.unknown;
+  if (kind === "yuan") return `${value} 元`;
+  if (kind === "days") return `${value} 天`;
+  return String(value);
+}
+
 /** explain: the backend's checks in order; nothing is re-derived. */
 export function Chain({ explain, command }: { explain: Explain; command: string }) {
   const mark = (passed: boolean | null) => (passed === null ? <span className="badge warn">{p.memberNone}</span> : passed ? <span className="badge">✓</span> : <span className="badge warn">✗</span>);
@@ -314,9 +324,9 @@ export function Chain({ explain, command }: { explain: Explain; command: string 
       {explain.pool.map((c) => (
         <div key={c.name} className="chain-row">
           {mark(c.passed)}
-          <span>{stepName(c.name)}</span>
-          <span className="num">{c.value === null ? "" : String(c.value)}</span>
-          {c.note && <span className="note">{c.note}</span>}
+          <span>{p.pool[c.name]?.label ?? stepName(c.name)}</span>
+          <span className="num">{poolValue(c.name, c.value)}</span>
+          {c.note && <span className="note">{t.explainNotes[c.note] ?? c.note}</span>}
         </div>
       ))}
       <span className="stat-l">{p.side.stepsTitle}</span>

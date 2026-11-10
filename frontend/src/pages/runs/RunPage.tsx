@@ -272,11 +272,12 @@ function Periods({ run, look, conv }: { run: RunDetail; look: string; conv: "cn"
     const top = Math.max(...values, 0.0001);
     return {
       animation: false,
-      grid: { left: 50, right: 20, top: 10, bottom: 50 },
+      grid: { left: 50, right: 70, top: 10, bottom: 30 },
       tooltip: { formatter: (p: { data: [number, number, number] }) => `${years[p.data[1]]}-${String(p.data[0] + 1).padStart(2, "0")} ${percent(p.data[2])}` },
       xAxis: { type: "category", data: Array.from({ length: 12 }, (_, i) => `${i + 1}月`), axisLabel: { color: ink } },
       yAxis: { type: "category", data: years, axisLabel: { color: ink } },
-      visualMap: { min: -top, max: top, calculable: false, orient: "horizontal", left: "center", bottom: 0, itemHeight: 120, textStyle: { color: ink }, inRange: { color: conv === "cn" ? [down, cssVar("--card"), up] : [up, cssVar("--card"), down] }, formatter: (v: number) => percent(v, 0) },
+      // The legend sits right of the grid, clear of the month axis.
+      visualMap: { min: -top, max: top, calculable: false, orient: "vertical", right: 0, top: "middle", itemHeight: 100, textStyle: { color: ink }, inRange: { color: conv === "cn" ? [down, cssVar("--card"), up] : [up, cssVar("--card"), down] }, formatter: (v: number) => percent(v, 0) },
       series: [
         {
           type: "heatmap",

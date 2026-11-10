@@ -11,6 +11,12 @@ export const warningLabels: Record<string, string> = {
   index_uncovered: "指数成分覆盖期之前",
 };
 
+/** explain's English notes → Chinese, by exact text; unknown notes show as given. Temporary, like warningLabels:
+ * S3.8 `wequant labels` will supply these. */
+export const explainNotes: Record<string, string> = {
+  "counted from securities.first_date, the first day of the source's data, not the listing date": "从数据首日（securities.first_date）起算，不是上市日",
+};
+
 export const picks = {
   title: "选股",
   lead: "某个决策日的漏斗、有分股票和被剔除的股票：回测在这一天会做出的选择。所有数字来自 wequant screen。",
@@ -44,6 +50,16 @@ export const picks = {
   } as Record<string, string>,
   steps: { listed: "在市", bar: "当天有行情", universe: "范围", index: "指数成分", boards: "板块", exclude_st: "剔除 ST", min_list_days: "上市天数", exclude_suspended: "剔除停牌", scored: "有分", targets: "目标", backups: "备选" } as Record<string, string>,
   modes: { all: "全部满足", any: "任一满足" } as Record<string, string>,
+  /** explain pool checks: label and how the backend's value reads (PoolCheck.value). */
+  pool: {
+    bar: { label: "当天收盘价", kind: "yuan" },
+    universe: { label: "范围", kind: "raw" },
+    index: { label: "指数成分", kind: "yesno" },
+    boards: { label: "板块", kind: "raw" },
+    exclude_st: { label: "ST", kind: "yesno" },
+    min_list_days: { label: "上市天数", kind: "days" },
+  } as Record<string, { label: string; kind: "yuan" | "days" | "yesno" | "raw" }>,
+  yesNo: { yes: "是", no: "否", unknown: "未知" },
   scoredTable: "有分股票",
   rejectsTable: (step: string) => `被剔除：${step}`,
   backToScored: "回到有分股票",
