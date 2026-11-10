@@ -24,31 +24,38 @@ class Section(NamedTuple):
     steps: dict[str, np.ndarray]  # int8 verdicts: "universe", each pool item, then each enabled step
     factors: dict[str, np.ndarray]  # float64: each enabled factor's value
     formula: np.ndarray | None  # float64: the weight formula's value, for weighting "formula"
+    values: dict[str, np.ndarray]  # float64: the value side of each simple-comparison condition, when select keeps it
+    listed: np.ndarray  # bool: the code is in its listed span on the decision row (descriptive)
     traded: np.ndarray  # bool: a bar on the decision row
     eligible: np.ndarray  # bool: the universe, every pool item and every chain step pass
     scored: np.ndarray  # bool: eligible, traded, every factor finite, a finite positive formula
     score: np.ndarray  # float64 in (0, 1] where scored, NaN elsewhere
     rank: np.ndarray  # int64 1-based among scored by (score desc, column asc), 0 elsewhere
-    weight: np.ndarray  # float64 target weight of equity, > 0 exactly on targets
-    backup: np.ndarray  # bool: the `backups` ranks right after the targets
+    order: np.ndarray  # int32 columns by rank, the scored first
 
 
-def cross_section(strategy: Strategy, grids: Mapping[str, np.ndarray], traded: np.ndarray, rows: np.ndarray) -> Section:
+def cross_section(
+    strategy: Strategy,
+    grids: Mapping[str, np.ndarray],
+    rows: np.ndarray,
+    listed: np.ndarray,
+    traded: np.ndarray,
+    values: Mapping[str, np.ndarray] | None = None,
+) -> Section:
     """The Section of decision rows from grids keyed as expressions(strategy) on those rows: verdicts for the universe,
-    pool items and conditions, float64 for factors and the formula; traded is the bar mask of those rows."""
+    pool items and conditions, float64 for factors and the formula; listed and traded are those rows' masks."""
     steps = _steps(strategy, grids)
     eligible = _eligible(strategy, steps)
     factors = {f.name: grids[f.name] for f in strategy.factors if f.enabled}
     formula = grids["formula"] if strategy.weighting == "formula" else None
     scored = _scored(eligible & traded, factors.values(), formula)
     score = _score(strategy, factors, scored)
-    rank = _rank(score, scored)
-    count = scored.sum(axis=1)
-    n = count if strategy.top_n is None else np.minimum(count, strategy.top_n)
-    weight = _weights(strategy, rank, n, count, score, formula)
-    backup = (rank > n[:, None]) & (rank <= n[:, None] + strategy.backups)
+    order = np.argsort(-score, axis=1, kind="stable").astype(np.int32)  # NaN sorts last
+    rank = _rank(order, scored)
     rows = np.asarray(rows, dtype=np.int64)
-    return Section(rows, steps, factors, formula, traded, eligible, scored, score, rank, weight, backup)
+    return Section(
+        rows, steps, factors, formula, dict(values or {}), listed, traded, eligible, scored, score, rank, order
+    )
 
 
 def _steps(strategy: Strategy, grids: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -92,27 +99,8 @@ def _score(strategy: Strategy, factors: dict[str, np.ndarray], scored: np.ndarra
     return total / sum(f.weight for f in enabled)
 
 
-def _rank(score: np.ndarray, scored: np.ndarray) -> np.ndarray:
+def _rank(order: np.ndarray, scored: np.ndarray) -> np.ndarray:
     """1-based rank by score descending, ties to the lower column; 0 where not scored."""
-    order = np.argsort(-score, axis=1, kind="stable")  # NaN sorts last
-    rank = np.empty_like(order)
-    np.put_along_axis(rank, order, np.broadcast_to(np.arange(1, score.shape[1] + 1), order.shape), axis=1)
-    return np.where(scored, rank, 0).astype(np.int64)
-
-
-def _weights(
-    strategy: Strategy,
-    rank: np.ndarray,
-    n: np.ndarray,
-    count: np.ndarray,
-    score: np.ndarray,
-    formula: np.ndarray | None,
-) -> np.ndarray:
-    """Each target's weight in slots of 1/top_n (1/count without top_n); unfilled slots stay in cash."""
-    target = (rank >= 1) & (rank <= n[:, None])
-    slot = 1 / (np.maximum(count, 1) if strategy.top_n is None else np.full_like(count, strategy.top_n))[:, None]
-    if strategy.weighting == "equal":
-        return np.where(target, slot, 0.0)
-    value = np.where(target, score if strategy.weighting == "score" else formula, 0.0)
-    total = value.sum(axis=1, keepdims=True)
-    return np.divide(n[:, None] * slot * value, total, out=np.zeros_like(value), where=total > 0)
+    rank = np.empty(order.shape, dtype=np.int64)
+    np.put_along_axis(rank, order, np.broadcast_to(np.arange(1, order.shape[1] + 1), order.shape), axis=1)
+    return np.where(scored, rank, 0)

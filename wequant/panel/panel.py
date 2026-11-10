@@ -134,6 +134,11 @@ class Panel:
         """
         return self._grid("list_days")
 
+    @property
+    def calendar_offset(self) -> int:
+        """Rows of the store's calendar before the panel's first day."""
+        return self._rows.start
+
     def member(self, index: str) -> np.ndarray:
         """(T, N) int8 membership of an index_members index: 1 a member, 0 not, -1 outside the index's stored span."""
         name = f"member-{index}"

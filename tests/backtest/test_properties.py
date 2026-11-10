@@ -13,7 +13,19 @@ from wequant.account import Execution
 from wequant.backtest import Backtest, run
 from wequant.expr import REF, STD, Cache, Field
 from wequant.panel import load_panel
-from wequant.strategy import MODES, PERIODS, Condition, Factor, Group, Strategy, screen
+from wequant.strategy import (
+    MODES,
+    PERIODS,
+    Condition,
+    Factor,
+    Group,
+    Strategy,
+    choose,
+    picks_frame,
+    screen,
+    select,
+    stack,
+)
 
 ADJ, CLOSE, OPEN = Field("adj_close"), Field("close"), Field("open")
 FACTORS = (
@@ -23,6 +35,14 @@ FACTORS = (
 )
 LIQUID = Condition("liquid", Field("amount") > 1e6)
 TRADABLE = (Condition("rising", CLOSE > OPEN), Condition("not_up", ~Field("limit_up")))
+HOLDINGS = [
+    "held",
+    "action",
+    "sell_kind",
+    "sell_step",
+    "sell_rank",
+    "sell_limit",
+]  # what a screen without holdings lacks
 
 
 @pytest.fixture(scope="module")
@@ -50,6 +70,8 @@ def strategies(draw) -> Strategy:
         weighting=weighting,
         formula=CLOSE if weighting == "formula" else None,
         band=draw(st.none() | st.sampled_from([0.0, 0.05, 0.5])),
+        hold_rank=draw(st.none() | st.integers(top_n + 1, top_n + 3)) if top_n else None,
+        max_weight=draw(st.none() | st.sampled_from([0.15, 0.3, 0.6])),
     )
 
 
@@ -66,11 +88,24 @@ def test_runs_keep_the_engine_invariants(panel, strategy):
     cache = Cache()
     for day in decisions:
         screened = screen(strategy, panel, day, cache)
-        for frame in ("picks", "funnel", "detail"):
-            on_day = getattr(result, frame).filter(pl.col("date") == day)
-            assert getattr(screened, frame).equals(on_day) and on_day.equals(
-                getattr(again, frame).filter(pl.col("date") == day)
-            )
+        on_day = {
+            frame: getattr(result, frame).filter(pl.col("date") == day) for frame in ("picks", "funnel", "detail")
+        }
+        assert all(frame.equals(getattr(again, name).filter(pl.col("date") == day)) for name, frame in on_day.items())
+        considered = on_day["detail"].filter(pl.col("universe")).drop(HOLDINGS)
+        assert screened.detail.drop(HOLDINGS).equals(considered)
+        if strategy.hold_rank is None:
+            assert screened.picks.equals(on_day["picks"]) and screened.funnel.equals(on_day["funnel"])
+        else:
+            assert rechosen(strategy, panel, result, day).equals(on_day["picks"])
+
+
+def rechosen(strategy, panel, result, day):
+    """The picks of day chosen again from its cross-section and the run's holdings at its close."""
+    section = select(strategy, panel, [panel.row(day)])
+    codes = set(result.ledger.positions.filter(pl.col("date") == day)["code"])
+    held = np.array([code in codes for code in panel.codes.tolist()])
+    return picks_frame(section, stack([choose(strategy, section, 0, held)]), panel)
 
 
 def check_equity(ledger):

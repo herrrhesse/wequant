@@ -15,7 +15,7 @@ from wequant.backtest.result import assemble, benchmark_closes, versions
 from wequant.expr import Cache, panel_key
 from wequant.panel import Panel
 from wequant.runs.run import Run, run_id, run_inputs
-from wequant.strategy import Section, decision_rows, select
+from wequant.strategy import Choice, Section, choose, decision_rows, select, stack
 
 if TYPE_CHECKING:
     from wequant.data.store import Store
@@ -41,15 +41,16 @@ def run(
     section = select(strategy, panel, rows, cache, on_root=lambda _: check_cancel(cancel))
     account = Account(panel, backtest.cash, panel.dates[base], backtest.execution)
     checkpoint(progress, cancel, Progress(0, last - base, panel.dates[base].item(), account.equity))
-    plans = {int(row) + 1: i for i, row in enumerate(rows)}
+    plans, choices = {int(row) + 1: i for i, row in enumerate(rows)}, []
     for t in range(base + 1, last + 1):
         account.begin(t)
         if t in plans:
-            trade_target(account, targets(section, plans[t], account.shares > 0), strategy.band)
+            choices.append(choose(strategy, section, plans[t], account.shares > 0))
+            trade_target(account, targets(section, plans[t], choices[-1]), strategy.band)
         equity = account.end()
         if (t - base) % PROGRESS_DAYS == 0 or t == last:
             checkpoint(progress, cancel, Progress(t - base, last - base, panel.dates[t].item(), equity))
-    return assemble(backtest, panel, account.ledger(), section, closes, ENGINE, REBALANCE_VERSION)
+    return assemble(backtest, panel, account.ledger(), section, stack(choices), closes, ENGINE, REBALANCE_VERSION)
 
 
 def run_form(
@@ -82,11 +83,12 @@ def planned_id(backtest: Backtest, panel: Panel) -> str:
     return run_id(inputs)
 
 
-def targets(section: Section, i: int, held: np.ndarray) -> Target:
-    """Decision i as a batch target: its weights, 0 for every other held code with a bar, the scores as priority, the
-    backups by rank."""
-    weights = np.where(held & section.traded[i], 0.0, np.nan)  # a held code without a bar waits for a later decision
-    on = section.weight[i] > 0
-    weights[on] = section.weight[i][on]
-    backups = np.flatnonzero(section.backup[i])
+def targets(section: Section, i: int, choice: Choice) -> Target:
+    """Decision i's choice as a batch target: its weights, 0 for every other held code with a bar, the scores as
+    priority, the backups by rank."""
+    weights = np.where(
+        choice.held & section.traded[i], 0.0, np.nan
+    )  # a held code without a bar waits for a later decision
+    weights[choice.target] = choice.weight[choice.target]
+    backups = np.flatnonzero(choice.backup)
     return Target(weights, section.score[i], backups[np.argsort(section.rank[i, backups])])

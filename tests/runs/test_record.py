@@ -12,7 +12,7 @@ from wequant.account import EXECUTION_VERSION
 from wequant.runs import FILES, FORMAT, PROVENANCE, Archive, document, provenance, read_run, run_files
 from wequant.runs.record import run_json
 
-ID = "019ec00a79bf60a2"
+ID = "06495349834344d8"
 INPUTS = {
     "format": FORMAT,
     "engine": "hold",
@@ -55,7 +55,7 @@ def test_the_hold_run_golden():
 
 def test_run_json_golden():
     text = run_json(hold(DESC, 1))
-    assert text.startswith(b'{\n "anchor": "2024-01-02",\n "end": "2024-01-04",\n "id": "019ec00a79bf60a2",')
+    assert text.startswith(b'{\n "anchor": "2024-01-02",\n "end": "2024-01-04",\n "id": "06495349834344d8",')
     ledger = {
         "cash": 100000.0,
         "data_key": "fake",

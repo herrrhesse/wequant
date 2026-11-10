@@ -49,6 +49,7 @@ ONE = Strategy(factors=(Factor("one", CLOSE),), top_n=1, period="day", every=10*
 METRICS = ("total_return", "annual_return", "annual_volatility", "sharpe", "max_drawdown", "turnover")
 METRICS += ("avg_holding_days", "executable_order_share", "tracking_error", "information_ratio")
 LEDGER, DECISIONS = ("daily", "positions", "orders"), ("picks", "funnel", "detail")
+HOLDINGS = ("held", "action", "sell_kind", "sell_step", "sell_rank", "sell_limit")  # detail columns a screen lacks
 STATUSES = ("filled", "partial", "rejected")
 FEES = ("commission", "stamp_tax", "transfer_fee", "slippage")
 
@@ -395,7 +396,7 @@ def screen_section(report: Report) -> list[str]:
     for day in (days[0], days[len(days) // 2], days[-1]):
         screened = screen(strategy, panel, day, cache)
         ran = {name: frame(result, name).filter(pl.col("date") == day) for name in DECISIONS}
-        same = [getattr(screened, name).equals(rows_of_day) for name, rows_of_day in ran.items()]
+        same = [without_holdings(getattr(screened, name)).equals(without_holdings(rows)) for name, rows in ran.items()]
         picks, detail = f"{ran['picks'].height:,}", f"{ran['detail'].height:,}"
         measured = f"{picks} picks rows, {detail} detail rows"
         ok = report.summary.check(f"5. Screen equals backtest on {day}", all(same), measured)
@@ -403,10 +404,16 @@ def screen_section(report: Report) -> list[str]:
     return [
         "## 5. Screen equals backtest",
         "",
-        "screen(M, panel, day) against the run's rows of that day, on its first, middle and last decision days.",
+        "screen(M, panel, day) against the run's rows of that day, on its first, middle and last decision days; the "
+        "detail on the universe's rows, without the columns of the run's holdings.",
         "",
         *table(["day", "picks rows", "detail rows", "picks", "funnel", "detail", "result"], rows),
     ]
+
+
+def without_holdings(frame: pl.DataFrame) -> pl.DataFrame:
+    """A detail frame's universe rows without the columns of the holdings; any other frame as it is."""
+    return frame.filter(pl.col("universe")).drop(HOLDINGS) if "held" in frame.columns else frame
 
 
 # ---------------------------------------------------------------- 6. progress and cancel

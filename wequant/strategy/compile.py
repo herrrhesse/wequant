@@ -1,11 +1,12 @@
 """A strategy as the roots select evaluates: the pool is the universe and the pool items, and every cross-sectional
-operator in a condition, factor or formula ranks within it, so no condition depends on another."""
+operator in a condition, factor or formula ranks within it, so no condition depends on another. A simple comparison
+also names the side whose value a screen shows."""
 
 from __future__ import annotations
 
 import operator
 from functools import reduce
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from wequant.expr import IF, Expr, Field, Op
 
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
     from wequant.strategy.strategy import Strategy
 
 CROSS_SECTIONAL = frozenset(("CS_RANK", "CS_PCT", "CS_ZSCORE", "CS_DEMEAN"))
+FLIPPED = {"GT": "lt", "GE": "le", "LT": "gt", "LE": "ge", "EQ": "eq"}  # the comparison with the constant moved right
 
 
 def pool_items(strategy: Strategy) -> dict[str, Expr]:
@@ -57,3 +59,27 @@ def expressions(strategy: Strategy) -> dict[str, Expr]:
     if strategy.weighting == "formula":
         roots["formula"] = wrap(strategy.formula, pool)
     return roots
+
+
+class Comparison(NamedTuple):
+    """A simple comparison: its expression side against a constant, or between two constants."""
+
+    side: Expr
+    op: str  # gt, ge, lt, le, eq or between
+    threshold: float
+    threshold_hi: float | None  # the upper constant of between
+
+
+def comparison(expr: Expr) -> Comparison | None:
+    """expr as a simple comparison, its constant on the right; None for any other shape."""
+    if isinstance(expr, Op) and expr.name in FLIPPED:
+        a, b = expr.args
+        if isinstance(a, Expr) and isinstance(b, float):
+            return Comparison(a, expr.name.lower(), b, None)
+        if isinstance(b, Expr) and isinstance(a, float):
+            return Comparison(b, FLIPPED[expr.name], a, None)
+    if isinstance(expr, Op) and expr.name == "BETWEEN":
+        x, lo, hi = expr.args
+        if isinstance(x, Expr) and isinstance(lo, float) and isinstance(hi, float):
+            return Comparison(x, "between", min(lo, hi), max(lo, hi))
+    return None

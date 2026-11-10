@@ -14,7 +14,7 @@ from wequant.backtest.warnings import run_warnings
 from wequant.expr import EXPR_VERSION, panel_key
 from wequant.panel import Panel
 from wequant.runs.run import Run
-from wequant.strategy import STRATEGY_VERSION, Section, detail_frame, funnel_frame, picks_frame
+from wequant.strategy import STRATEGY_VERSION, Choice, Section, detail_frame, funnel_frame, picks_frame
 
 
 def versions(engine: str, version: int) -> dict[str, int]:
@@ -43,11 +43,13 @@ def assemble(
     panel: Panel,
     ledger: Ledger,
     section: Section,
+    choice: Choice,
     closes: np.ndarray | None,
     engine: str,
     version: int,
 ) -> Run:
-    """The Run of a closed account; engine and version name the engine in versions."""
+    """The Run of a closed account and the stacked choices of its decision rows; engine and version name the engine in
+    versions."""
     if closes is not None:
         ledger = replace(ledger, daily=ledger.daily.with_columns(pl.Series("benchmark", closes).fill_nan(None)))
     calendar = pl.Series("date", panel.dates)
@@ -62,8 +64,8 @@ def assemble(
         ledger,
         metrics,
         spec,
-        picks_frame(section, panel),
-        funnel_frame(strategy, section, panel),
-        detail_frame(strategy, section, panel),
-        run_warnings(strategy, panel, section, ledger),
+        picks_frame(section, choice, panel),
+        funnel_frame(strategy, section, choice, panel),
+        detail_frame(strategy, section, choice, panel),
+        run_warnings(strategy, panel, section, choice, ledger),
     )

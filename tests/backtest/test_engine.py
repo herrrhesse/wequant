@@ -82,26 +82,33 @@ def test_rotation_orders_and_daily_golden(rotated):
 def test_rotation_decision_frames(rotated):
     result, _ = rotated
     assert result.picks.rows() == [
-        (JAN[3], A, "target", 1, 1.0, 1.0),
-        (JAN[4], B, "target", 1, 1.0, 1.0),
-        (JAN[5], A, "target", 1, 1.0, 1.0),
+        (JAN[3], A, "target", 1, 1.0, 1.0, 1.0, False),
+        (JAN[4], B, "target", 1, 1.0, 1.0, 1.0, False),
+        (JAN[5], A, "target", 1, 1.0, 1.0, 1.0, False),
     ]
-    first = [("universe", 2, 2), ("scored", 0, 0), ("targets", 0, 0), ("backups", 0, 0)]
-    later = [("universe", 2, 2), ("scored", 2, 2), ("targets", 1, 1), ("backups", 0, 0)]
+    listed = [("listed", 2, 2), ("bar", 2, 2), ("universe", 2, 2)]
+    first = [*listed, ("scored", 0, 0), ("targets", 0, 0), ("backups", 0, 0)]
+    later = [*listed, ("scored", 2, 2), ("targets", 1, 1), ("backups", 0, 0)]
     funnel = result.funnel.select("date", "step", "passed", "left").rows()
     assert funnel == [
         (day, *row) for day, rows in ((JAN[2], first), *((JAN[d], later) for d in (3, 4, 5))) for row in rows
     ]
-    assert result.detail.columns == ["date", "code", "scored", "rank"]
+    assert result.detail.columns == ["date", "code", "universe", "scored", "rank", "held", "action"] + [
+        "sell_kind",
+        "sell_step",
+        "sell_rank",
+        "sell_limit",
+    ]
+    none, rank_sell = ("none", None, None, None, None), ("sell", "rank", None, 2, 1)
     assert result.detail.rows() == [
-        (JAN[2], B, False, None),
-        (JAN[2], A, False, None),
-        (JAN[3], B, True, 2),
-        (JAN[3], A, True, 1),
-        (JAN[4], B, True, 1),
-        (JAN[4], A, True, 2),
-        (JAN[5], B, True, 2),
-        (JAN[5], A, True, 1),
+        (JAN[2], B, True, False, None, False, *none),
+        (JAN[2], A, True, False, None, False, *none),
+        (JAN[3], B, True, True, 2, False, *none),
+        (JAN[3], A, True, True, 1, False, "buy", None, None, None, None),
+        (JAN[4], B, True, True, 1, False, "buy", None, None, None, None),
+        (JAN[4], A, True, True, 2, True, *rank_sell),  # held at the close of JAN[4], ranked out of top_n 1
+        (JAN[5], B, True, True, 2, True, *rank_sell),
+        (JAN[5], A, True, True, 1, False, "buy", None, None, None, None),
     ]
 
 
@@ -162,7 +169,7 @@ def stand_in(tmp_path, bars):
 
 def test_a_backup_stands_in_for_a_target_refused_at_its_up_limit(tmp_path):
     result = stand_in(tmp_path, STAND_IN)
-    picks = [(A, "target", 1, 1.0, 1.0), (B, "backup", 2, 0.5, None)]
+    picks = [(A, "target", 1, 1.0, 1.0, 1.0, False), (B, "backup", 2, 0.5, None, None, False)]
     assert result.picks.rows() == [(day, *pick) for day in (JAN[2], JAN[3]) for pick in picks]
     assert orders(result) == FIRST_DAY + [
         (JAN[4], B, "sell", INF, 4700.0, 21.5, 101050.0, 30.32, 50.53, 1.01, 0.0, "filled", None),
@@ -210,10 +217,14 @@ def test_no_signal_leaves_the_cash_alone(rotation):
     share = result.metrics["executable_order_share"]
     assert (share.value, share.reason) == (None, "no_rebalance_orders")
     assert list(result.warnings) == ["limits_unchecked", "no_picks"]
-    steps = [("universe", 2, 2), ("never", 0, 0), ("scored", 0, 0), ("targets", 0, 0), ("backups", 0, 0)]
+    steps = [("listed", 2, 2), ("bar", 2, 2), ("universe", 2, 2), ("never", 0, 0)]
+    steps += [("scored", 0, 0), ("targets", 0, 0), ("backups", 0, 0)]
     funnel = result.funnel.select("date", "step", "passed", "left").rows()
     assert funnel == [(day, *step) for day in (JAN[2], JAN[5]) for step in steps]
-    assert result.detail.rows() == [(day, code, False, False, None) for day in (JAN[2], JAN[5]) for code in (B, A)]
+    none = (False, "none", None, None, None, None)
+    assert result.detail.rows() == [
+        (day, code, True, False, False, None, *none) for day in (JAN[2], JAN[5]) for code in (B, A)
+    ]
 
 
 def test_a_holding_without_a_bar_on_a_decision_day_is_left_alone(tmp_path):

@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 from tests.backtest.market import MIXED_BOARDS, build_store, mixed_market
 from wequant.expr import CS_PCT, CS_RANK, CS_ZSCORE, OPERATORS, REF, Field, evaluate
 from wequant.panel import load_panel
-from wequant.strategy import Condition, Factor, Group, Pool, Strategy, expressions, screen, select
+from wequant.strategy import Condition, Factor, Group, Pool, Strategy, choose, expressions, screen, select, stack
 
 CLOSE, OPEN, ADJ = Field("close"), Field("open"), Field("adj_close")
 A, B, C, D = "600000.SH", "000001.SZ", "600004.SH", "000002.SZ"  # columns in code order: B, D, A, C
@@ -21,6 +21,12 @@ GOLDEN = Strategy(
     filters=(RANKED, PRICED), factors=(Factor("level", CS_RANK(CLOSE)),), top_n=1, pool=Pool(exclude_st=True)
 )
 NAN = np.nan
+
+
+def chosen(strategy, section):
+    """The choices of every row of section without holdings."""
+    nothing = np.zeros(section.scored.shape[1], dtype=bool)
+    return stack([choose(strategy, section, i, nothing) for i in range(len(section.rows))])
 
 
 @pytest.fixture(scope="module")
@@ -41,9 +47,11 @@ def test_a_rank_in_a_condition_counts_only_the_pool(panel):
     assert np.array_equal(got.factors["level"], [[2, NAN, 1, 3]], equal_nan=True)
     assert got.scored.tolist() == [[True, False, False, True]]
     assert np.array_equal(got.score, [[0.5, NAN, NAN, 1.0]], equal_nan=True)
-    assert got.rank.tolist() == [[2, 0, 0, 1]] and got.weight.tolist() == [[0, 0, 0, 1.0]]
+    assert got.rank.tolist() == [[2, 0, 0, 1]] and chosen(GOLDEN, got).weight.tolist() == [[0, 0, 0, 1.0]]
     funnel = screen(GOLDEN, panel, DAYS[1]).funnel.select("step", "passed", "left").rows()
     assert funnel == [
+        ("listed", 4, 4),
+        ("bar", 4, 4),
         ("universe", 4, 4),
         ("exclude_st", 3, 3),
         ("ranked", 2, 2),
@@ -57,8 +65,9 @@ def test_a_rank_in_a_condition_counts_only_the_pool(panel):
 def test_the_order_of_the_conditions_changes_no_score_rank_or_weight(panel):
     swapped = replace(GOLDEN, filters=(PRICED, RANKED))
     one, two = select(GOLDEN, panel, [0, 1]), select(swapped, panel, [0, 1])
-    for name in ("eligible", "scored", "score", "rank", "weight", "backup"):
+    for name in ("eligible", "scored", "score", "rank", "order"):
         assert np.array_equal(getattr(one, name), getattr(two, name), equal_nan=True), name
+    assert all(np.array_equal(a, b) for a, b in zip(chosen(GOLDEN, one), chosen(swapped, two)))
     assert expressions(GOLDEN)["priced"] is PRICED.expr  # a root without a cross-sectional operator keeps its key
 
 
@@ -102,6 +111,7 @@ def orders(draw):
 def test_any_order_of_the_filters_selects_the_same(mixed, pair):
     rows = np.arange(len(mixed.dates))
     one, two = (select(strategy, mixed, rows) for strategy in pair)
-    for name in ("scored", "score", "rank", "weight", "backup"):
+    for name in ("scored", "score", "rank", "order"):
         assert np.array_equal(getattr(one, name), getattr(two, name), equal_nan=True), name
     assert all(np.array_equal(one.steps[name], two.steps[name]) for name in one.steps)
+    assert all(np.array_equal(a, b) for a, b in zip(chosen(pair[0], one), chosen(pair[1], two)))
