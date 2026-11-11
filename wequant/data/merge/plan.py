@@ -192,7 +192,7 @@ def _merge_bars(store, manifest, raw, stored, entries, years, days, bars_new, st
     duplicate codes dropped, the approved resolutions applied and the store's bars on audited days compared."""
     old, kept, bj_rows = _stored_bars(store, manifest, years, days)
     bars_new, status_new, duplicates = drop_duplicate_codes(bars_new, status_new, old, source)
-    found = marks(bars_new, status_new, previous, old)
+    found, cut = marks(bars_new, status_new, previous, old), truncated_days(bars_new, old)  # as BaoStock delivered them
     bars_new, resolved, unresolved, counts = _resolve(raw, stored, entries, days, bars_new, old, found, source)
     calendar, securities = stored["calendar"]["date"], stored["securities"]
     audited = calendar.filter(calendar.is_in(days))
@@ -202,7 +202,7 @@ def _merge_bars(store, manifest, raw, stored, entries, years, days, bars_new, st
         "bj_rows": bj_rows,
         **_bar_stats(compared, bars_new, status_new, old, securities, audited),
         "resolutions": counts,
-        "detections": _detection_stats(found, truncated_days(bars_new, old)),
+        "detections": _detection_stats(found, cut),
         "turn": _turn_counts(bars_new),
     }
     issues = pl.concat([duplicates, resolved, bar_issues])
