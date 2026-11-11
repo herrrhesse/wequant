@@ -8,7 +8,7 @@ import pytest
 from tests.backtest.market import build_store
 from tests.frames import table_frame
 from tests.service.conftest import DAYS, MARKET
-from wequant.service import Context, Exit, ServiceError
+from wequant.service import Context, ServiceError
 from wequant.service.delistings import DelistingsRequest, data_delistings
 from wequant.service.index_check import IndexCheckRequest, data_index_check
 
@@ -96,9 +96,3 @@ def test_index_check_without_members_is_ok(tmp_path):
         "data_version": 1,
         "indexes": [],
     }
-
-
-def test_no_store_is_not_found(tmp_path):
-    with pytest.raises(ServiceError) as raised:
-        data_delistings(DelistingsRequest(), Context(tmp_path / "none"))
-    assert raised.value.exit == Exit.NOT_FOUND

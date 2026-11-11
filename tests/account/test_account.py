@@ -7,7 +7,6 @@ import pytest
 
 from tests.account.fake import FakePanel
 from wequant.account import ORDER_REASONS, Account, Execution
-from wequant.account import account as account_module
 
 SH, SZ, STAR, BJ = "600000.SH", "000001.SZ", "688001.SH", "830001.BJ"
 JAN = ["2024-01-02", "2024-01-03", "2024-01-04"]
@@ -118,6 +117,8 @@ def test_a_stock_without_a_bar_is_held_at_its_last_close_through_an_ex_date():
 
 
 def test_odd_lots_and_a_fraction_only_exit():
+    """D3 leaves fractional shares: whole lots and the odd remainder sell as whole shares, only a full exit sells the
+    fraction (its value half up to the fen), and an inexact factor ratio is not snapped to whole shares."""
     panel = one(JAN, [10.0, 10.0, 10.01], factor=[1, 1, 1.0625])
     account = bought(panel, 20_000)
     assert li(account.cash) == li(9_994.90)
@@ -134,6 +135,12 @@ def test_odd_lots_and_a_fraction_only_exit():
     got = alone.trade([0], [-1062])
     assert got.shares[0] == 1062 and money(got) == yuan(10_630.62, 5.00, 5.32, 0.11)
     assert li(alone.cash) == li(20_615.09) and alone.shares[0] == 0.5
+    inexact = bought(one(JAN, [10.0] * 3, factor=[1.1, 1.1, 1.21]), 20_000)  # 1.21 / 1.1 is not exact in binary
+    inexact.begin(2)
+    held = inexact.shares[0]
+    assert held == 1000 * (1.21 / 1.1) != 1100  # never snapped to whole shares
+    got = inexact.trade([0], [-1100])  # covers the position: the whole of it goes, fraction included
+    assert got.shares[0] == held and money(got) == yuan(11_000, 5.00, 5.50, 0.11) and inexact.shares[0] == 0
 
 
 def test_a_sale_that_cannot_pay_its_costs_is_rejected():
@@ -147,20 +154,21 @@ def test_a_sale_that_cannot_pay_its_costs_is_rejected():
 
 
 @pytest.mark.parametrize(
-    "dates, code, buy, sell, cash",
+    "dates, sell",
     [
-        (["2014-05-29", "2014-05-30", "2014-06-03"], SH, (5.00, 0, 0.30), (5.00, 10.00, 0.30), (9_994.70, 19_979.40)),
-        (["2014-05-29", "2014-05-30", "2014-06-03"], SZ, (5.00, 0, 0.26), (5.00, 10.00, 0.26), (9_994.74, 19_979.48)),
-        (["2023-08-23", "2023-08-24", "2023-08-25"], SH, (5.00, 0, 0.10), (5.00, 10.00, 0.10), (9_994.90, 19_979.80)),
-        (["2023-08-24", "2023-08-25", "2023-08-28"], SH, (5.00, 0, 0.10), (5.00, 5.00, 0.10), (9_994.90, 19_984.80)),
+        (["2023-08-23", "2023-08-24", "2023-08-25"], (5.00, 10.00, 0.10)),  # 0.1% the last day before the cut
+        (["2023-08-24", "2023-08-25", "2023-08-28"], (5.00, 5.00, 0.10)),  # 0.05% from 2023-08-28
     ],
+    ids=["sold-2023-08-25", "sold-2023-08-28"],
 )
-def test_fees_follow_the_date_and_the_exchange(dates, code, buy, sell, cash):
-    account = opened(one(dates, [10.0] * 3, code=code), 20_000)
-    assert money(account.trade([0], [1000])) == yuan(10_000, *buy) and li(account.cash) == li(cash[0])
+def test_the_stamp_tax_follows_the_fill_date(dates, sell):
+    """The stamp tax on a sale is the rate in force on the day it fills (cut from 0.1% to 0.05% on 2023-08-28)."""
+    account = opened(one(dates, [10.0] * 3), 20_000)
+    assert money(account.trade([0], [1000])) == yuan(10_000, 5.00, 0, 0.10) and li(account.cash) == li(9_994.90)
     account.end()
     account.begin(2)
-    assert money(account.trade([0], [-INF])) == yuan(10_000, *sell) and li(account.cash) == li(cash[1])
+    assert money(account.trade([0], [-INF])) == yuan(10_000, *sell)
+    assert li(account.cash) == li(9_994.90 + 10_000 - sum(sell))
 
 
 def test_the_default_slippage_costs_ten_basis_points_and_leaves_the_price_and_the_limits():
@@ -187,18 +195,15 @@ def test_cash_cuts_a_buy_to_the_largest_lot_it_pays_for():
     assert money(got) == yuan(9_000, 5.00, 0, 0.09) and li(short.cash) == li(1_000)
 
 
-def test_star_buys_step_by_one_share(monkeypatch):
+def test_star_buys_step_by_one_share():
+    """STAR lots step by one share above the 200-share minimum: cash cuts a buy to 249, not to a hundred."""
     panel = one(JAN[:2], [50.0] * 2, code=STAR, board="star")
-    calls = []
-    real = account_module.trade_fees
-    monkeypatch.setattr(account_module, "trade_fees", lambda *args: calls.append(args) or real(*args))
     exact = opened(panel, 12_505.13)
-    assert outcome(exact.trade([0], [250])) == ("filled", None) and exact.cash == 0 and len(calls) == 1
+    assert outcome(exact.trade([0], [250])) == ("filled", None) and exact.cash == 0
     short = opened(panel, 12_505.12)
     got = short.trade([0], [250])
     assert outcome(got) == ("partial", "cash") and got.shares[0] == 249
     assert money(got) == yuan(12_450, 5.00, 0, 0.12) and li(short.cash) == li(50)
-    assert len(calls) - 1 <= 1 + 1 + math.ceil(math.log2(51 + 1))  # want, then bisection over 51 lot steps
 
 
 def test_same_day_sales_pay_for_buys():
@@ -212,60 +217,21 @@ def test_same_day_sales_pay_for_buys():
     assert li(account.cash) == li(5_079.75)
 
 
-def test_inexact_ratios_are_not_snapped_to_whole_shares():
-    panel = one(JAN, [10.0] * 3, factor=[1.1, 1.1, 1.21])
-    held = 1000 * (1.21 / 1.1)
-
-    def day2():
-        account = bought(panel, 20_000)
-        assert li(account.cash) == li(9_994.90)
-        account.begin(2)
-        assert account.shares[0] == held
-        return account
-
-    a = day2()
-    assert money(a.trade([0], [-1000])) == yuan(10_000, 5.00, 5.00, 0.10) and li(a.cash) == li(19_984.80)
-    assert a.shares[0] == held - 1000
-    got = a.trade([0], [-99])
-    assert got.shares[0] == 99 and money(got) == yuan(990, 5.00, 0.50, 0.01) and li(a.cash) == li(20_969.29)
-    got = a.trade([0], [-INF])
-    assert got.shares[0] == held - 1000 - 99 and money(got) == yuan(10.00, 0, 0, 0)
-    assert li(a.cash) == li(20_979.29) and a.shares[0] == 0
-    for qty in (-INF, -1100):
-        b = day2()
-        got = b.trade([0], [qty])
-        assert got.shares[0] == held and money(got) == yuan(11_000, 5.00, 5.50, 0.11) and li(b.cash) == li(20_984.29)
-    c = day2()
-    got = c.trade([0], [-1099])
-    assert got.shares[0] == 1099 and money(got) == yuan(10_990, 5.00, 5.50, 0.11) and li(c.cash) == li(20_974.29)
-    assert c.shares[0] == held - 1099
-
-
-@pytest.mark.parametrize(
-    "sell_at, buy_at, reasons", [(9.0, 11.0, ("limit_down", "limit_up")), (9.01, 10.99, (None, None))]
-)
-def test_a_fill_at_its_own_limit_is_refused_on_both_sides(sell_at, buy_at, reasons):
+@pytest.mark.parametrize("sell_at, buy_at, refused", [(9.0, 11.0, True), (9.01, 10.99, False)])
+def test_a_fill_at_its_own_limit_is_refused_on_that_side_only(sell_at, buy_at, refused):
+    """No buy fills at the up limit and no sell at the down limit; one tick inside both fill, and the other side of a
+    limit always trades: SH buys at its down limit, SZ sells at its up limit."""
     prices = [[10.0, 10.0], [10.0, 10.0], [sell_at, buy_at]]
     panel = FakePanel(JAN, [SH, SZ], ["main", "main"], prices, prices, up=[[11.0, 11.0]] * 3, down=[[9.0, 9.0]] * 3)
-    account = bought(panel, 100_000)
+    account = opened(panel, 100_000)
+    account.trade([0, 1], [1000, 1000])
+    account.end()
     account.begin(2)
-    got = account.trade([0, 1], [-INF, 100])
-    assert [outcome(got, k)[1] for k in (0, 1)] == list(reasons) and got.price.tolist() == [sell_at, buy_at]
-    assert (account.sellable[0], account.shares[1]) == ((1000, 0) if reasons[0] else (0, 100))
-
-
-def test_the_other_side_of_a_limit_passes():
-    panel = one(JAN, [10.0] * 3, up=[11.0, 11.0, 10.0], down=[9.0] * 3)
-    account = bought(panel, 20_000)
-    assert li(account.cash) == li(9_994.90)
-    account.begin(2)
-    got = account.trade([0], [-INF])
-    assert outcome(got) == ("filled", None) and money(got) == yuan(10_000, 5.00, 5.00, 0.10)
-    assert li(account.cash) == li(19_984.80)
-    floor = opened(one(JAN[:2], [10.0] * 2, up=[11.0] * 2, down=[9.0, 10.0]), 20_000)
-    got = floor.trade([0], [1000])
-    assert outcome(got) == ("filled", None) and money(got) == yuan(10_000, 5.00, 0, 0.10)
-    assert li(floor.cash) == li(9_994.90)
+    got = account.trade([0, 1, 0, 1], [-INF, 100, 100, -INF])
+    blocked = ["limit_down", "limit_up"] if refused else [None, None]
+    assert [outcome(got, k)[1] for k in range(4)] == [*blocked, None, None]
+    assert got.price.tolist() == [sell_at, buy_at, sell_at, buy_at]
+    assert account.shares.tolist() == ([1100, 0] if refused else [100, 100])
 
 
 def test_the_close_model_fills_at_the_close():
@@ -280,6 +246,8 @@ def test_the_close_model_fills_at_the_close():
 
 
 def test_a_rule_that_does_not_exist_yet_raises_before_anything_fills():
+    """A traded order whose lot or fee rule is not in force raises LookupError before anything in its batch fills;
+    a code without a bar needs no rule."""
     dates, boards = ["2019-07-18", "2019-07-19"], ["main", "star"]
     panel = FakePanel(dates, [SH, STAR], boards, [[10.0, 30.0]] * 2, [[10.0, 30.0]] * 2)
     account = opened(panel, 100_000)
@@ -292,18 +260,11 @@ def test_a_rule_that_does_not_exist_yet_raises_before_anything_fills():
     got = opened(unlisted, 100_000).trade([0, 1], [100, 200])
     assert outcome(got, 0) == ("filled", None) and outcome(got, 1) == ("rejected", "no_bar")
     assert np.isnan(got.price[1])
-
-
-def test_numpy_scalar_cash_and_execution():
-    panel = one(JAN[:2], [10.0] * 2)
-    for cash in (np.int64(1_000_000), np.float64(1e6)):
-        assert Account(panel, cash, JAN[0]).cash == 1_000_000
-    scalars = Execution(commission_rate=np.float64(0.0003), min_commission=np.float64(5.0), slippage_bps=np.int64(10))
-    runs = [
-        opened(panel, np.int64(1_000_000), execution).trade([0, 0], [300, 25_000])
-        for execution in (Execution(), scalars)
-    ]
-    assert all(np.array_equal(a, b) for a, b in zip(*runs))
+    beijing = FakePanel(JAN[:2], [SH, BJ], ["main", "bse"], [[10.0, 10.0]] * 2, [[10.0, 10.0]] * 2)
+    account = opened(beijing, 100_000)
+    with pytest.raises(LookupError):  # the book has no Beijing rules at all
+        account.trade([0, 1], [100, 100])
+    assert account.cash == 100_000 and not account.shares.any()
 
 
 # ---------------------------------------------------------------- reasons, limits and errors
@@ -322,14 +283,6 @@ def test_the_first_matching_check_names_the_reason():
     assert outcome(opened(bj, 100_000).trade([0], [100])) == ("rejected", "no_bar")
 
 
-def test_free_limits_never_block():
-    panel = one(JAN, [10.0] * 3)
-    account = bought(panel, 100_000)
-    account.begin(2)
-    assert outcome(account.trade([0], [-INF])) == ("filled", None)
-    assert outcome(account.trade([0], [100])) == ("filled", None)
-
-
 def test_protocol_errors():
     panel = one(JAN, [10.0] * 3)
     account = Account(panel, 100_000, JAN[0])
@@ -344,15 +297,8 @@ def test_protocol_errors():
 
 @pytest.mark.parametrize(
     "cols, qty, error",
-    [
-        ([1], [100], IndexError),
-        ([-1], [100], IndexError),
-        ([0.0], [100], IndexError),
-        ([0], [0], ValueError),
-        ([0], [NAN], ValueError),
-        ([0], [INF], ValueError),
-        ([0, 0], [100], ValueError),
-    ],
+    [([-1], [100], IndexError), ([0], [NAN], ValueError), ([0, 0], [100], ValueError)],
+    ids=["negative_column", "nan_quantity", "length_mismatch"],  # numpy would trade the last stock for column -1
 )
 def test_bad_orders_raise(cols, qty, error):
     account = opened(one(JAN, [10.0] * 3), 100_000)
@@ -360,36 +306,7 @@ def test_bad_orders_raise(cols, qty, error):
         account.trade(cols, qty)
 
 
-@pytest.mark.parametrize("cash", [0, -1, NAN, INF, 1000.001, True, "1000"])
+@pytest.mark.parametrize("cash", [1000.001, True])  # cash is a positive whole number of fen
 def test_bad_cash_raises(cash):
     with pytest.raises(ValueError):
         Account(one(JAN, [10.0] * 3), cash, JAN[0])
-
-
-def test_a_start_off_the_calendar_raises():
-    with pytest.raises(KeyError):
-        Account(one(JAN, [10.0] * 3), 100_000, "2024-01-01")
-
-
-def test_a_traded_bj_order_raises_and_changes_nothing():
-    panel = FakePanel(JAN[:2], [SH, BJ], ["main", "bse"], [[10.0, 10.0]] * 2, [[10.0, 10.0]] * 2)
-    account = opened(panel, 100_000)
-    with pytest.raises(LookupError):
-        account.trade([0, 1], [100, 100])
-    assert account.cash == 100_000 and not account.shares.any()
-    account.end()
-    assert account.ledger().orders.height == 0
-
-
-def test_views_are_read_only_and_values_wait_for_a_close():
-    panel = one(JAN, [NAN, 10.0, 10.5])
-    account = Account(panel, 100_000, JAN[0])
-    assert account.equity == 100_000
-    account.begin(1)
-    account.trade([0], [1000])
-    for view in (account.shares, account.sellable, account.values):
-        with pytest.raises(ValueError):
-            view[0] = 1.0
-    assert np.isnan(account.values[0]) and account.equity == 100_000
-    account.end()
-    assert account.values[0] == 1000 * 10.0

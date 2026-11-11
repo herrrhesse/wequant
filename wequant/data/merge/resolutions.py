@@ -14,7 +14,7 @@ from wequant.data import codes
 from wequant.data.files import atomic_write
 from wequant.data.merge.audit import OHLC
 
-PACKAGED = Path(__file__).with_name("resolutions.toml")
+RESOLUTIONS = Path("resolutions") / "baostock.toml"  # under the data root, never in the repository (D20)
 ENTRY_KEY = ("code", "date", "kind")
 ENTRY = (*ENTRY_KEY, "fields", "take", "evidence", "status")
 FIELDS = {  # (kind, take): the field lists such an entry may decide
@@ -53,9 +53,16 @@ HEADER = """\
 _BLOCK = re.compile(r"(?m)^(?=\[\[resolution\]\])")
 
 
-def load(path: Path | None = None) -> pl.DataFrame:
-    """The file's entries (the packaged file by default) in SCHEMA; ValueError names a malformed entry."""
-    _, blocks = _split((path or PACKAGED).read_text("utf-8"))
+def default_path(home: Path) -> Path:
+    """The data root's resolutions file."""
+    return Path(home) / RESOLUTIONS
+
+
+def load(path: Path) -> pl.DataFrame:
+    """The file's entries in SCHEMA, none when it does not exist; ValueError names a malformed entry."""
+    if not path.exists():
+        return frame([])
+    _, blocks = _split(path.read_text("utf-8"))
     entries = [entry for _, entry in blocks]
     keys = [_sort_key(e) for e in entries]
     if len(set(keys)) < len(keys):

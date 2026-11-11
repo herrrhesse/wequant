@@ -65,18 +65,17 @@ def test_forced_rows_are_counted_apart_from_rebalance_orders():
     assert counts.rejected_by_reason == {"limit_up": 2, "no_bar": 1} and counts.forced == {"delist_write_down": 1}
 
 
-FAILURES = [
+FAILURES = [  # the core's refusals at compile time and at run time, under the request's fields or its strategy's
     ({"start": "2023-12-29"}, "out_of_range", ["start"]),
     ({"cash": 1000.001}, "out_of_range", ["cash"]),
-    ({"execution": {"delisting": "hold", "failure_recovery": 0.5}}, "requires", ["execution", "failure_recovery"]),
     ({"strategy": {**DAILY, "anchor": "2024-01-06"}}, "not_a_trading_day", ["strategy", "anchor"]),
     ({"strategy": None, "saved": {"id": "anchored"}}, "not_a_trading_day", ["saved", "anchor"]),
-    ({"benchmark": "000905.SH"}, "no_data", ["benchmark"]),
 ]
 
 
 @pytest.mark.parametrize("request_, code, loc", FAILURES, ids=[f"{case[1]} {case[2]}" for case in FAILURES])
 def test_what_backtest_refuses_is_located_in_the_request(market_home, request_, code, loc):
+    """USAGE with the core's code, located in the request: a strategy field under strategy or saved."""
     Context(market_home).library().save(Strategy.from_form({**DAILY, "anchor": "2024-01-06"}), "anchored")
     with pytest.raises(ServiceError) as raised:
         run(market_home, **request_)

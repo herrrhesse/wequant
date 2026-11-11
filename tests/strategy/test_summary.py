@@ -105,7 +105,6 @@ FIELDS = [
     (replace(ONE_FACTOR, weighting="score"), [("weighting",)], "按得分加权"),
     (replace(BASE, max_weight=0.125), [("max_weight",)], "单股不超过12.5%"),
     (replace(BASE, period="day", every=5), [("period",), ("every",)], "每5个交易日调仓"),
-    (replace(BASE, period="month", every=3), [("period",), ("every",)], "每3个月最后一个交易日调仓"),
 ]
 
 

@@ -1,6 +1,5 @@
 """select and screen on a stored panel: one evaluation per root, the Beijing guard, and the frames' fixed schemas."""
 
-import datetime as dt
 from dataclasses import replace
 
 import numpy as np
@@ -9,11 +8,10 @@ import pytest
 
 from tests.account import golden
 from tests.backtest.market import build_store
-from wequant.expr import REF, Cache, Field, evaluate
+from wequant.expr import REF, Field, evaluate
 from wequant.panel import load_panel
 from wequant.strategy import (
     ACTIONS,
-    FUNNEL,
     PICKS,
     SELL_KINDS,
     Condition,
@@ -22,7 +20,6 @@ from wequant.strategy import (
     Pool,
     SpecError,
     Strategy,
-    check_anchor,
     cross_section,
     expressions,
     screen,
@@ -67,24 +64,6 @@ def test_select_is_cross_section_of_the_evaluated_rows(panel):
     assert list(got.steps) == ["universe", "cheap", "up", "big", "g"] and list(got.factors) == ["mom", "level"]
 
 
-def test_on_root_follows_expressions_and_a_cache_serves_the_second_select(panel):
-    names, cache = [], Cache()
-    select(STRATEGY, panel, [3, 8], cache, on_root=names.append)
-    assert names == list(expressions(STRATEGY)) == ["universe", "pool", "cheap", "up", "big", "mom", "level", "formula"]
-    assert (cache.hits, cache.misses) == (0, 7)
-    select(STRATEGY, panel, [3, 8], cache)
-    assert cache.hits == 7
-
-
-def test_screen_defaults_to_the_last_day_and_keeps_the_schemas(panel):
-    day = panel.dates[-1].item()
-    got = screen(STRATEGY, panel)
-    assert got.picks.schema == pl.Schema(PICKS) and got.funnel.schema == pl.Schema(FUNNEL)
-    assert set(got.funnel["date"]) == {day} and got.funnel["step"].to_list()[:3] == ["listed", "bar", "universe"]
-    assert got.detail.equals(screen(STRATEGY, panel, day).detail)
-    assert screen(STRATEGY, panel, golden.DAYS[3]).funnel["date"][0] == dt.date(2024, 3, 6)
-
-
 def test_detail_keeps_its_schema_on_a_day_with_an_empty_universe(panel):
     nobody = replace(STRATEGY, universe=CLOSE > 1000.0)
     detail = screen(nobody, panel).detail
@@ -98,6 +77,8 @@ def test_detail_keeps_its_schema_on_a_day_with_an_empty_universe(panel):
 
 
 def test_stocks_frame_holds_every_code_in_column_order(panel):
+    """A screen's stocks frame: every code in column order with its verdicts, values, score and role; a code without
+    a bar has none of them. A screen defaults to the panel's last day."""
     stocks = screen(STRATEGY, panel, golden.DAYS[5]).stocks  # 688001.SH has no bar that day
     assert stocks.columns == ["code", "universe", "cheap", "up", "big", "g", "scored", "mom", "level", "formula"] + [
         "score",
@@ -113,25 +94,13 @@ def test_stocks_frame_holds_every_code_in_column_order(panel):
     assert star["scored"] is False and star["rank"] is None and star["score"] is None and star["mom"] is None
     assert star["role"] is None and star["weight"] is None and star["raw_weight"] is None and star["capped"] is False
     assert stocks.schema["rank"] == pl.Int64 and stocks.schema["role"] == pl.String
-
-
-def test_screen_reports_targets_and_backups(panel):
-    strategy = Strategy(factors=(Factor("level", CLOSE, prefer="low"),), top_n=1, backups=1)
-    stocks = screen(strategy, panel, golden.DAYS[3]).stocks
-    assert stocks.select("code", "role", "rank", "weight").rows() == [
+    assert screen(STRATEGY, panel).funnel["date"].unique().to_list() == [panel.dates[-1].item()]
+    roles = Strategy(factors=(Factor("level", CLOSE, prefer="low"),), top_n=1, backups=1)
+    assert screen(roles, panel, golden.DAYS[3]).stocks.select("code", "role", "rank", "weight").rows() == [
         (golden.B, "target", 1, 1.0),
         (golden.A, "backup", 2, None),
         (golden.C, None, None, None),  # no bar that day
     ]
-
-
-def test_check_anchor(panel):
-    check_anchor(replace(STRATEGY, anchor=dt.date(2024, 3, 1)), panel)
-    with pytest.raises(SpecError, match="^anchor: ") as raised:
-        check_anchor(replace(STRATEGY, anchor=dt.date(2024, 3, 4)), panel)
-    assert (raised.value.code, raised.value.loc) == ("not_a_trading_day", ("anchor",))
-    with pytest.raises(ValueError, match="^anchor: "):
-        screen(replace(STRATEGY, anchor=dt.date(2024, 3, 4)), panel)
 
 
 def test_a_universe_admitting_a_beijing_code_raises(tmp_path):

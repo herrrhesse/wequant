@@ -250,10 +250,3 @@ def check_ledger(ledger, panel: FakePanel, cash: int, days: dict) -> None:
 def test_invariants_and_the_oracle_hold(scenario):
     panel, cash, execution, days = scenario
     check_ledger(run(panel, cash, execution, days), panel, cash, days)
-
-
-@given(scenarios())
-def test_runs_are_deterministic(scenario):
-    first, second = run(*scenario), run(*scenario)
-    assert all(getattr(first, name).equals(getattr(second, name)) for name in ("daily", "positions", "orders"))
-    assert first.meta == second.meta

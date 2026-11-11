@@ -48,6 +48,9 @@ wequant data issues [--table T] [--kind K] [--codes C...] [--start D] [--end D] 
 wequant data check [--commit]
 wequant data delistings [--delisting RULE] [--failure-recovery X] [--data-version N]
 wequant data index-check [--data-version N]
+wequant data verify submit FILE|-
+wequant data verify list [--id V] [--table T] [--code C] [--start D] [--end D] [--source-type T] [--source S]
+                         [--verifier NAME] [--limit N] [--offset N]
 wequant expr check --form JSON
 wequant expr eval --form JSON --codes C... [--start D] [--end D] [--data-version N]
 wequant strategy validate --strategy S
@@ -112,6 +115,13 @@ name.
   (`data_anomaly`, `runs anomalies`). `exclude_day` reads error-level anomalous days as missing, and suspicious ones too
   with `--exclude-suspicious`. Excluding is a robustness check of whether a result rests on disputed data, not a
   point-in-time rule: some anomaly labels rest on the next day's exchange data.
+- **`data verify`** keeps verification records under `$WEQUANT_HOME/verifications/`: what each source (BaoStock, the
+  seed, an exchange, a data vendor, an announcement, a rule) says about a cell, who checked it (a person, or an agent
+  and its model), how, the conclusion, the verified values and the level. `submit` takes a JSON list or JSON Lines
+  (values in yuan, shares and percent, as the exchanges publish them); each record's id is the digest of its content,
+  so a resubmitted record is not added again, and records are never changed or removed. Resolutions and `data_issues`
+  cite them by id. This is the entry point for an agent that checks data; the checking itself (fetching from outside
+  sources) stays out of the repository.
 - **`data delistings`** lists every delisted code with its kind, what classified it (the rule, or an entry of
   `$WEQUANT_HOME/overrides/delisting.toml` with its evidence and source) and how a holding is treated, with counts.
   **`data index-check`** compares each index's daily member count, as `member@` reads it, with its nominal size and
@@ -141,10 +151,10 @@ Exit codes (`wequant.service.Exit`):
 | --- | --- | --- |
 | 0 | `OK` | success |
 | 1 | `PROBLEMS` | a check found something to act on: `data check` found breaches the store does not record, recorded breaches that are gone, or no current limit check; `data index-check` found days off an index's nominal size |
-| 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day |
+| 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day, an invalid verification record (none of the submission is added) |
 | 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, or run |
 | 4 | `UNREACHABLE` | a data source cannot be reached |
-| 5 | `LOCKED` | another writer holds the store lock or a strategy's lock; try again later |
+| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock or the verification records' lock; try again later |
 | 70 | `INTERNAL` | a bug (the traceback is on stderr), or the cli extra is not installed |
 | 130 | `INTERRUPTED` | Ctrl-C, or a cancelled run |
 

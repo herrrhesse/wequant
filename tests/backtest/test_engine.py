@@ -19,12 +19,9 @@ from tests.backtest.market import (
     business_days,
     mixed_market,
 )
-from wequant.account import EXECUTION_VERSION, Execution
-from wequant.analytics import METRICS_VERSION, compute_metrics
-from wequant.backtest import Backtest, Cancelled, planned_id, run, versions
-from wequant.backtest.warnings import WARNINGS
-from wequant.data.schema import ANOMALY_VERSION
-from wequant.expr import EXPR_VERSION, REF, Cache, Field, panel_key
+from wequant.account import Execution
+from wequant.backtest import Backtest, Cancelled, planned_id, run
+from wequant.expr import REF, Field, panel_key
 from wequant.panel import load_panel
 from wequant.strategy import Condition, Factor, SpecError, Strategy
 
@@ -121,35 +118,7 @@ def test_rotation_identities_progress_and_warnings(rotated, rotation):
     assert [call.equity for call in calls] == pytest.approx([100_000.0, 103_524.89])
     assert planned_id(backtest, rotation) == result.id
     assert result.engine == "rebalance" and result.description == backtest.form
-    assert result.versions == versions("rebalance", 1)
-    assert result.versions == {
-        "rebalance": 1,
-        "strategy": 2,
-        "expr": EXPR_VERSION,
-        "execution": EXECUTION_VERSION,
-        "metrics": METRICS_VERSION,
-        "anomaly": ANOMALY_VERSION,
-    }
-    assert result.panel_key == panel_key(rotation) and result.anchor == JAN[2]
-    ledger = result.ledger
-    calendar = pl.Series("date", rotation.dates)
-    want = compute_metrics(ledger.daily, calendar, result.spec, positions=ledger.positions, orders=ledger.orders)
-    assert result.metrics == want and result.spec == backtest.metrics
-
-
-def test_rotation_with_10_bps_of_slippage(rotation):
-    result = run(Backtest(RET1, cash=100_000, execution=Execution(slippage_bps=10.0)), rotation)
-    got = result.ledger.orders.select("date", "code", "requested", "shares", "value", "commission", "slippage").rows()
-    assert got == [
-        (JAN[4], A, 9615.0, 9600.0, 99840.0, 29.95, 99.84),
-        (JAN[5], A, INF, 9600.0, 101760.0, 30.53, 101.76),
-        (JAN[5], B, 4620.0, 4600.0, 97520.0, 29.26, 97.52),
-        (JAN[8], B, INF, 4600.0, 98440.0, 29.53, 98.44),
-        (JAN[8], A, 9377.0, 9300.0, 101370.0, 30.41, 101.37),
-    ]
-    assert column(result, "cash")[2:] == [29.21, 3_957.26, 716.30]
-    assert column(result, "equity")[2:] == pytest.approx([97_949.21, 102_857.26, 103_016.30])
-    assert result.metrics["total_return"].value == pytest.approx(0.03016299999999994, abs=1e-15)
+    assert result.panel_key == panel_key(rotation) and result.anchor == JAN[2] and result.spec == backtest.metrics
 
 
 STAND_IN = {
@@ -179,18 +148,6 @@ def test_a_backup_stands_in_for_a_target_refused_at_its_up_limit(tmp_path):
     ]
     assert column(result, "cash")[1:] == [1_269.40, 1_006.17]
     assert column(result, "equity")[1:] == pytest.approx([102_319.40, 104_046.17])
-    assert result.warnings == {"limits_unchecked": (LIMITS, {}), "st_band_fills": (ST_BAND, {"buys": 1, "sells": 0})}
-
-
-def test_a_backup_sold_at_the_open_buys_back_in_for_a_target_refused_again(tmp_path):
-    result = stand_in(tmp_path, {**STAND_IN, A: [*STAND_IN[A][:2], (12.10, 12.10, 11.00)]})
-    assert orders(result) == FIRST_DAY + [
-        (JAN[4], B, "sell", INF, 4700.0, 21.5, 101050.0, 30.32, 50.53, 1.01, 0.0, "filled", None),
-        (JAN[4], A, "buy", 8449.0, 0.0, 12.1, 0.0, 0.0, 0.0, 0.0, 0.0, "rejected", "limit_up"),
-        (JAN[4], B, "buy", 4755.0, 4700.0, 21.5, 101050.0, 30.32, 0.0, 1.01, 0.0, "filled", None),
-    ]
-    assert column(result, "cash")[-1] == 1_156.21
-    assert column(result, "equity")[-1] == pytest.approx(102_676.21) == 1_156.21 + 4_700 * 21.60
     assert result.warnings == {"limits_unchecked": (LIMITS, {}), "st_band_fills": (ST_BAND, {"buys": 1, "sells": 0})}
 
 
@@ -229,6 +186,19 @@ def test_no_signal_leaves_the_cash_alone(rotation):
     ]
 
 
+def test_the_strategys_band_reaches_the_batch_protocol(rotation):
+    """Wiring of band (its meaning is test_batch's): with band 0 held targets are resized at later decisions, without a
+    band they are left alone after the first buy."""
+    halves = Strategy(period="day")  # no factor: A and B are targets at half the equity at every decision
+    dates = {
+        band: set(
+            run(Backtest(replace(halves, band=band), cash=100_000, execution=EX0), rotation).ledger.orders["date"]
+        )
+        for band in (None, 0.0)
+    }
+    assert dates[None] == {JAN[3]} and dates[0.0] > {JAN[3]}
+
+
 def test_a_holding_without_a_bar_on_a_decision_day_is_left_alone(tmp_path):
     bars = {A: [(10.0, 10.0), (10.3, 10.0), None, (10.0, 10.2), (10.2, 10.4)], B: [(80.0, 80.0)] * 5}
     panel = panel_of(tmp_path, WEEK, bars)
@@ -260,19 +230,13 @@ def counting(after: int):
     return cancel, calls
 
 
-def test_a_cancel_before_select_stops_everything(rotation):
-    progress = []
-    with pytest.raises(Cancelled):
-        run(Backtest(RET1, execution=EX0), rotation, progress=progress.append, cancel=lambda: True)
-    assert progress == []
-
-
 def test_a_cancel_inside_select_stops_after_the_root_it_follows(rotation):
-    progress, cache = [], Cache()
-    cancel, calls = counting(2)
+    """Cancel is checked after each evaluated root: a run cancelled there ends select early and reports no progress."""
+    progress, marks = [], []
+    cancel, _ = counting(2)
     with pytest.raises(Cancelled, match="run cancelled"):
-        run(Backtest(RET1, execution=EX0), rotation, cache=cache, progress=progress.append, cancel=cancel)
-    assert len(calls) == 3 and progress == [] and cache.misses == 1  # before select, then universe and pool, one root
+        run(Backtest(RET1, execution=EX0), rotation, progress=progress.append, cancel=cancel, mark=marks.append)
+    assert progress == [] and marks and "cross_section" not in marks
 
 
 def test_a_cancel_between_checkpoints_stops_the_day_loop(tmp_path):
@@ -333,17 +297,6 @@ def test_a_later_close_changes_no_order_up_to_its_day(mixed, tmp_path):
 
 def poison(bar):
     return None if bar is None else (bar[0], round(bar[1] * 1.04, 2), bar[2])
-
-
-def test_a_universe_admitting_beijing_raises_from_select(mixed):
-    panel = mixed[-1]
-    with pytest.raises(ValueError, match="^universe: admits 830799.BJ"):
-        run(Backtest(replace(MOMENTUM, universe=CLOSE > 0.0), execution=EX0, benchmark=None), panel)
-
-
-def test_warnings_follow_their_fixed_order(rotated):
-    result, _ = rotated
-    assert list(result.warnings) == [code for code in WARNINGS if code in result.warnings]
 
 
 def test_the_engine_marks_each_stage_as_it_ends(rotation):

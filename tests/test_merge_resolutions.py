@@ -104,3 +104,8 @@ def test_an_entry_the_split_would_miss_is_refused(tmp_path, opening):
         load(path)
     with pytest.raises(ValueError, match="only comments may precede the first entry"):
         add(path, [LATE])
+
+
+def test_a_missing_file_holds_no_decisions(tmp_path):
+    """D20: the decisions live in the data root; without its file every conflict stops the merge, as before."""
+    assert load(tmp_path / "resolutions" / "baostock.toml").is_empty()

@@ -1,7 +1,7 @@
 """The run archive through the service: two runs of the synthetic market (tests.service.conftest.MARKET).
 
 a is saved strategy m (weekly: decisions on 2024-01-05 and 2024-01-11, buys filled on 2024-01-08); b trades daily
-with half the cash and is not saved. 600004.SH, held by a, has an anomalous close on 2024-01-09.
+with half the cash and is not saved. 600004.SH, held by a, has anomalous closes on 2024-01-09 and 2024-01-10.
 """
 
 import datetime as dt
@@ -44,7 +44,8 @@ ISSUE = {
 
 @pytest.fixture
 def archived(market_home):
-    Store(market_home).commit({}, replace={"data_issues": table_frame("data_issues", [ISSUE], source="test")})
+    issues = [ISSUE, {**ISSUE, "date": "2024-01-10"}]
+    Store(market_home).commit({}, replace={"data_issues": table_frame("data_issues", issues, source="test")})
     context = Context(market_home)
     a = backtest(BacktestRequest(saved={"id": "m"}), context)
     b = backtest(BacktestRequest(strategy=DAILY, cash=500_000.0), context)
@@ -61,8 +62,8 @@ def test_the_list_is_newest_first_filters_by_strategy_and_pages(archived):
         (a.run_id, ["m"], True),
     ]
     assert [r.id for r in runs_list(RunsListRequest(strategy_hash=a.strategy_hash), context).rows] == [a.run_id]
-    second = runs_list(RunsListRequest(limit=1, offset=1), context)
-    assert (second.total, [r.id for r in second.rows]) == (2, [a.run_id])
+    pages = [runs_list(RunsListRequest(limit=1, offset=offset), context) for offset in (0, 1)]
+    assert [(page.total, [r.id for r in page.rows]) for page in pages] == [(2, [b.run_id]), (2, [a.run_id])]
 
 
 def test_show_gives_what_was_run_and_daily_rows_that_agree_with_the_metrics(archived):
@@ -124,11 +125,13 @@ def test_anomaly_uses_are_filtered_by_channel_and_paged(archived):
     context, a, _ = archived
     every = runs_anomalies(AnomaliesRequest(id=a.run_id), context)  # the last decision has no fill day: no signal use
     assert [(u.code, u.channel, u.anomaly_date) for u in every.rows] == [
-        ("600004.SH", "valuation", dt.date(2024, 1, 9))
+        ("600004.SH", "valuation", dt.date(2024, 1, 9)),
+        ("600004.SH", "valuation", dt.date(2024, 1, 10)),
     ]
-    for request, total in (({"channel": "signal"}, 0), ({"code": "000001.SZ"}, 0), ({"offset": 1}, 1)):
+    pages = (({"channel": "signal"}, 0, []), ({"code": "000001.SZ"}, 0, []), ({"limit": 1}, 2, every.rows[:1]))
+    for request, total, rows in (*pages, ({"offset": 1}, 2, every.rows[1:])):
         page = runs_anomalies(AnomaliesRequest(id=a.run_id, **request), context)
-        assert (page.total, len(page.rows)) == (total, 0)
+        assert (page.total, page.rows) == (total, rows)
 
 
 FAILURES = [

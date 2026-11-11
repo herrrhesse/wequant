@@ -24,7 +24,7 @@ from wequant.data.merge.audit import FLAGGED, status_disagreements
 from wequant.data.merge.conflicts import SEEDED
 from wequant.data.merge.plan import LATE_EVENT_DAYS
 from wequant.data.merge.propose import propose
-from wequant.data.merge.resolutions import PACKAGED, add, load
+from wequant.data.merge.resolutions import add, default_path, load
 from wequant.data.merge.resolve import STATES
 from wequant.data.raw import BaoStockRaw
 from wequant.data.store import CommitResult, Store, wequant_home
@@ -79,7 +79,7 @@ def run(args: argparse.Namespace) -> int:
         checks = acceptance(store, plan, commit)
         if args.check_idempotency:
             checks["idempotent"] = idempotent(store, raw, plan, args.resolutions)
-    report = render(plan, commit, checks, args.resolutions or PACKAGED)
+    report = render(plan, commit, checks, args.resolutions or default_path(store.home))
     targets = [Path(args.out)] if args.out else []
     if commit is not None:
         name = f"baostock_merge_{store.manifest()['last_trade_date']}_v{commit.version}.md"
@@ -97,7 +97,7 @@ def propose_entries(args: argparse.Namespace) -> int:
     check follows; reads the store and raw only."""
     store = Store(args.home)
     raw = BaoStockRaw(Path(args.raw)) if args.raw else BaoStockRaw.at(store.home)
-    path = args.out or PACKAGED
+    path = args.out or default_path(store.home)
     entries = load(path) if path.exists() else None
     proposals = propose(store, raw, days=raw_days(raw, args.days), entries=entries)
     added = add(path, proposals)
@@ -294,9 +294,7 @@ def bj_frozen(store: Store, base: dict, manifest: dict) -> tuple[bool, str]:
 # ------------------------------------------------------------ report
 
 
-def render(
-    plan: MergePlan, commit: CommitResult | None, checks: dict[str, tuple[bool, str]], resolutions: Path = PACKAGED
-) -> str:
+def render(plan: MergePlan, commit: CommitResult | None, checks: dict[str, tuple[bool, str]], resolutions: Path) -> str:
     """The Markdown report of one merge."""
     sections = [
         _header(plan, commit, resolutions),
@@ -638,8 +636,9 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--home", type=Path, default=None)
         command.add_argument("--raw", type=Path, default=None, help="raw BaoStock root (default: <home>/raw/baostock)")
         command.add_argument("--days", default=None, help="FIRST..LAST, inclusive ISO dates (default: every raw day)")
-    proposing.add_argument("--out", type=Path, default=None, help="resolutions file (default: the packaged one)")
-    merge.add_argument("--resolutions", type=Path, default=None, help="resolutions file (default: the packaged one)")
+    default = "resolutions file (default: <home>/resolutions/baostock.toml)"
+    proposing.add_argument("--out", type=Path, default=None, help=default)
+    merge.add_argument("--resolutions", type=Path, default=None, help=default)
     merge.add_argument("--commit", action="store_true")
     merge.add_argument("--check-idempotency", action="store_true", help="re-plan and re-apply; needs --commit")
     merge.add_argument("--out", type=Path, default=None)

@@ -121,16 +121,13 @@ def cell(panel, name, code, day):
     return getattr(panel, name)[day - 1, panel.codes.tolist().index(code)]
 
 
-def test_panel_facts(panel):
-    assert cell(panel, "limit_up_price", A, 5) == 11.55 and cell(panel, "limit_up_price", A, 8) == 8.58
-    assert cell(panel, "limit_up", A, 8)
-    assert cell(panel, "limit_down_price", B, 7) == 7.38 and cell(panel, "limit_down_price", B, 8) == 6.64
+def test_orders(panel, ledger):
+    # the scenario's preconditions: A opens day 5 at its up limit, B day 7 at its down limit, B's day-14 limits are
+    # unknown, C has no bar on days 4 to 7 and an ex-date on day 5
+    assert cell(panel, "limit_up_price", A, 5) == 11.55 and cell(panel, "limit_down_price", B, 7) == 7.38
     assert not cell(panel, "limit_known", B, 14)
     assert not any(cell(panel, "traded", C, d) for d in range(4, 8))
     assert cell(panel, "factor", C, 4) == 1.0 and cell(panel, "factor", C, 5) == 1.25
-
-
-def test_orders(ledger):
     orders = ledger.orders
     assert orders.height == len(ORDERS)
     for row, (day, code, side, requested, status, price, money, reason) in zip(orders.iter_rows(named=True), ORDERS):

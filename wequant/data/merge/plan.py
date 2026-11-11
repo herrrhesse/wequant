@@ -36,6 +36,7 @@ from wequant.data.merge.conflicts import price_conflicts, with_references
 from wequant.data.merge.daily import read_daily, split
 from wequant.data.merge.factors import events, normalize, read_factors
 from wequant.data.merge.reconcile import drop_duplicate_codes, drop_status_before_first_bar
+from wequant.data.merge.resolutions import default_path
 from wequant.data.merge.resolutions import load as load_resolutions
 from wequant.data.merge.resolve import UnresolvedConflicts, first_before, idle_entries, resolve, state_counts
 from wequant.data.raw import BaoStockRaw
@@ -73,11 +74,11 @@ def plan_merge(
     resolutions: Path | None = None,
 ) -> MergePlan:
     """What one merge of raw snapshots (None: every day on disk) and factor files (None: every file) writes, with the
-    approved entries of a resolutions file (None: the packaged one) applied; reads only."""
+    approved entries of a resolutions file (None: the data root's) applied; reads only."""
     manifest = store.manifest()
     if manifest is None:
         raise ValueError(f"{store.home} has no committed version to merge into")
-    entries = load_resolutions(resolutions)
+    entries = load_resolutions(resolutions or default_path(store.home))
     stored = {table: store.read_table(table, manifest=manifest) for table in STORED}
     calendar, stored_adj = stored["calendar"]["date"], stored["adj_factor"]
     days = _merge_days(raw, days, calendar)

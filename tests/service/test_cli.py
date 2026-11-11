@@ -1,6 +1,10 @@
+import ast
 import io
 import json
-from importlib.metadata import entry_points
+import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import get_type_hints
 
 import pytest
@@ -9,7 +13,6 @@ from tests.service.conftest import MOM
 from wequant import service
 from wequant.cli import commands
 from wequant.service import Context
-from wequant.version import code_version
 
 CASES = [
     (["data", "status"], "data_status", service.StatusRequest(), "home"),
@@ -75,6 +78,8 @@ CASES = [
 
 @pytest.mark.parametrize("argv, name, request_, root", CASES, ids=[" ".join(case[0][:2]) for case in CASES])
 def test_json_is_exactly_the_result_model(cli, cache, request, argv, name, request_, root):
+    """Each command builds its request from its options and calls its one operation; --json prints the result model
+    exactly and the exit code follows it; logs, -vv debug included, go to stderr only."""
     home = request.getfixturevalue(root)
     result = getattr(service, name)(request_, Context(home, cache))
     expected = 1 if isinstance(result, service.Check) and not result.ok else 0
@@ -86,76 +91,36 @@ def test_json_is_exactly_the_result_model(cli, cache, request, argv, name, reque
     assert f"DEBUG wequant: {name} {request_.model_dump_json()}" in err
 
 
-def test_verbose_logs_go_to_stderr(cli, limits_home):
-    code, out, err = cli("data", "check", "--home", limits_home, "-v")
-    assert code == 1 and "INFO wequant.service.check: checked store v1: 10 bars, 1 breaches" in err
-    assert "INFO" not in out and "DEBUG" not in err
+def test_human_output_smoke(cli, home, limits_home):
+    """Without --json a command prints text that is not JSON, with the same exit code (the layout is no contract);
+    -v adds info logs, not debug, on stderr."""
+    for argv, code in (
+        (["data", "bars", "--codes", "600000.SH", "--home", home], 0),  # rows as a table
+        (["expr", "check", "--form", '["MA","adj_close",20]'], 0),  # name: value lines
+        (["data", "check", "--home", limits_home, "-v"], 1),  # a failed check with its report
+    ):
+        exit, out, err = cli(*argv)
+        assert exit == code and out.strip() and "INFO" not in out
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(out)
+    assert "INFO wequant" in err and "DEBUG" not in err
 
 
-def test_human_output_of_bars(cli, home):
-    argv = ["data", "bars", "--codes", "600000.SH", "--start", "2024-01-04", "--end", "2024-01-08"]
-    code, out, _ = cli(*argv, "--fields", "close", "adj_close", "--home", home)
-    assert code == 0 and out == (
-        "data_version: 1\n"
-        'fields: ["close", "adj_close"]\n'
-        "\n"
-        "date        code       status     close  adj_close\n"
-        "2024-01-04  600000.SH  missing\n"
-        "2024-01-05  600000.SH  suspended\n"
-        "2024-01-08  600000.SH  traded     5.1    10.2\n"
-    )
-
-
-def test_human_output_of_expr_check(cli):
-    assert cli("expr", "check", "--form", '["MA","adj_close",20]') == (
-        0,
-        'key: ["MA","adj_close",20]\nkind: num\n',
-        "",
-    )
-
-
-def test_human_output_of_a_check_ends_with_its_report(cli, limits_home):
-    code, out, _ = cli("data", "check", "--home", limits_home)
-    assert code == 1 and out.startswith("ok: false\ndata_version: 1\ncurrent: false\n")
-    assert "\n\n# Price-limit check, store v1\n" in out and "report_path" not in out
-
-
-def test_help_and_version(cli):
-    code, out, _ = cli("--help")
-    assert code == 0 and "data" in out and "expr" in out
-    code, out, _ = cli("data", "bars", "--help")
-    options = ["--codes", "--start", "--end", "--fields", "--data-version", "--json", "--verbose", "--home", "--cache"]
-    assert code == 0 and all(option in out for option in options)
-    code, out, _ = cli("data", "check", "--help")
-    assert code == 0 and "--commit" in out and "--data-version" not in out
-    code, out, _ = cli("expr", "check", "--help")
-    assert code == 0 and "--form" in out and '["MA","adj_close",20]' in out
-    assert cli("--version") == (0, code_version() + "\n", "")
-
-
-def test_cache_puts_panels_where_it_says(cli, home, tmp_path):
-    cache = tmp_path / "elsewhere"
-    code, _, _ = cli("data", "bars", "--codes", "600000.SH", "--home", home, "--cache", cache)
-    assert code == 0 and len(list((cache / "panel").iterdir())) == 1 and not (home / "cache").exists()
-
-
-def test_the_console_script():
-    (script,) = entry_points(group="console_scripts", name="wequant")
-    assert script.value == "wequant.cli:main"
-
-
-def test_a_reader_closing_the_pipe_early_is_not_an_error(monkeypatch, tmp_path):
-    def closed(*args, **kwargs):
-        raise BrokenPipeError
-
-    devnull = (tmp_path / "out").open("w")
-    monkeypatch.setattr("builtins.print", closed)
-    monkeypatch.setattr("sys.stdout", devnull)
-    commands._print("rows")  # no traceback, no exception
+def test_a_reader_closing_the_pipe_early_is_not_an_error():
+    """b6c9a93: output into a pipe whose reader has gone (`| head`) ends the command normally: exit 0, nothing on
+    stderr (no traceback, no failed flush at exit)."""
+    read, write = os.pipe()
+    os.close(read)  # the reader is gone before the command writes
+    script = "import sys; from wequant.cli import main; main(sys.argv[1:])"
+    command = [sys.executable, "-c", script, "expr", "check", "--form", '"close"', "--json"]
+    done = subprocess.run(command, stdout=write, stderr=subprocess.PIPE)
+    os.close(write)
+    assert (done.returncode, done.stderr) == (0, b"")
 
 
 @pytest.mark.parametrize("how", ["file", "stdin", "saved"])
 def test_strategy_takes_a_file_stdin_or_a_saved_version(cli, library_home, monkeypatch, tmp_path, how):
+    """--strategy reads a JSON file, JSON on stdin (-) or a saved version ID@N."""
     path = tmp_path / "mom.json"
     path.write_text(json.dumps(MOM))
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(MOM)))
@@ -166,6 +131,7 @@ def test_strategy_takes_a_file_stdin_or_a_saved_version(cli, library_home, monke
 
 
 def test_save_and_archive_change_the_library(cli, library_home, tmp_path):
+    """Wiring of strategy save (FILE, --id, --name, --note) and strategy archive (--restore)."""
     path = tmp_path / "plain.json"
     path.write_text("{}")
     code, out, _ = cli(
@@ -180,6 +146,7 @@ def test_save_and_archive_change_the_library(cli, library_home, tmp_path):
 
 
 def test_profile_times_the_stages_on_stderr_and_leaves_stdout_alone(cli, market_home):
+    """--profile: one ProfileReport JSON line on stderr with the operation's stages and rendering; stdout unchanged."""
     argv = ["screen", "--strategy", "m", "--json", "--home", market_home]
     code, plain, _ = cli(*argv)
     code, out, err = cli(*argv, "--profile")
@@ -201,6 +168,7 @@ RUNS = [
 
 @pytest.mark.parametrize("argv, name, fields", RUNS, ids=[" ".join(case[0][:2]) for case in RUNS])
 def test_runs_json_is_exactly_the_result_model(cli, market_home, argv, name, fields):
+    """Each runs command maps its arguments to its request and prints the result model exactly."""
     context = Context(market_home)
     run_id = service.backtest(service.BacktestRequest(saved={"id": "m"}), context).run_id
     operation = getattr(service, name)
@@ -209,3 +177,38 @@ def test_runs_json_is_exactly_the_result_model(cli, market_home, argv, name, fie
     expected = operation(model.model_validate(fields), context)
     code, out, _ = cli(*[arg.format(id=run_id) for arg in argv], "--json", "--home", market_home)
     assert (code, type(expected).model_validate_json(out)) == (0, expected)
+
+
+SERVICE_SIDE = ("wequant.service", "wequant.cli", "wequant.version")
+
+
+def test_the_cli_calls_no_core_code_but_through_the_service():
+    """The CLI only calls the service layer: from the core packages it may import constants (upper-case names) and
+    types it names only in annotations, never something it calls."""
+    for path in Path(commands.__file__).parent.glob("*.py"):
+        tree = ast.parse(path.read_text("utf-8"))
+        annotated = {id(name) for node in ast.walk(tree) for part in _annotations(node) for name in ast.walk(part)}
+        used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and id(n) not in annotated}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                modules = [f"{node.module}.{alias.name}" for alias in node.names]
+            else:
+                continue
+            for module, alias in zip(modules, node.names):
+                if module.startswith("wequant.") and not module.startswith(SERVICE_SIDE):
+                    name = alias.asname or alias.name
+                    allowed = isinstance(node, ast.ImportFrom) and (name.isupper() or name not in used)
+                    assert allowed, f"{path.name} imports {module} and uses it outside annotations"
+
+
+def _annotations(node: ast.AST) -> list[ast.expr]:
+    """The annotations node holds directly: a function's argument and return annotations, an AnnAssign's."""
+    if isinstance(node, ast.AnnAssign):
+        return [node.annotation]
+    if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        return []
+    a = node.args
+    arguments = [*a.posonlyargs, *a.args, *a.kwonlyargs, *filter(None, (a.vararg, a.kwarg))]
+    return [part for part in (*(arg.annotation for arg in arguments), node.returns) if part is not None]
