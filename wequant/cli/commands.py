@@ -42,6 +42,9 @@ data = app.command(
 )
 expr = app.command(App(name="expr", help="Signal expressions in canonical JSON form."))
 strategies = app.command(App(name="strategy", help="Strategies and their saved versions."))
+verify = data.command(
+    App(name="verify", help="Verification records: what each source says about a cell, and who checked.")
+)
 runs = app.command(App(name="runs", help="The run archive: list, show, rerun, diff, orders, a day, anomalous data."))
 StrategyArg = Annotated[
     str, Parameter(name="--strategy", allow_leading_hyphen=True, help="A JSON file, - for JSON on stdin, or ID[@N].")
@@ -127,6 +130,30 @@ def index_check(
 ) -> int:
     """Each index's daily member count against its nominal size; exit 1 when any run of days is off."""
     return run(service.data_index_check, request, common)
+
+
+@verify.command(name="submit")
+def verify_submit(source: JsonFile, /, *, common: Common = COMMON) -> int:
+    """Add verification records from a JSON list or JSON Lines; records already stored are not added again.
+
+    Parameters
+    ----------
+    source
+        A file, or - for stdin.
+    """
+    return run(
+        service.data_verify_submit,
+        lambda: validated(service.VerifySubmitRequest, {"records": read_records(source)}),
+        common,
+    )
+
+
+@verify.command(name="list")
+def verify_list(
+    *, request: Annotated[service.VerifyListRequest, FLAT] = service.VerifyListRequest(), common: Common = COMMON
+) -> int:
+    """Stored verification records, filtered and paged."""
+    return run(service.data_verify_list, request, common)
 
 
 @expr.command(name="check")
@@ -584,6 +611,27 @@ def read_json(source: str) -> object:
     except ValueError as error:
         where = "stdin" if source == "-" else source
         detail = ErrorDetail(code="not_json", message=f"{where} is not JSON: {error}", loc=["strategy"])
+        raise ServiceError(Exit.USAGE, detail.message, [detail]) from None
+
+
+def read_records(source: str) -> list:
+    """The records in file source (or stdin for -): one JSON list, or one JSON object per line."""
+    try:
+        text = sys.stdin.read() if source == "-" else Path(source).read_text("utf-8")
+    except OSError as error:
+        raise ServiceError(Exit.USAGE, f"cannot read {source}: {error.strerror}") from None
+    try:
+        found = json.loads(text)
+        return found if isinstance(found, list) else [found]
+    except ValueError:
+        pass
+    try:
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+    except ValueError as error:
+        where = "stdin" if source == "-" else source
+        detail = ErrorDetail(
+            code="not_json", message=f"{where} is neither JSON nor JSON Lines: {error}", loc=["records"]
+        )
         raise ServiceError(Exit.USAGE, detail.message, [detail]) from None
 
 
