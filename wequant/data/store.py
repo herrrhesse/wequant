@@ -24,7 +24,7 @@ from pathlib import Path
 
 import polars as pl
 
-from wequant.data.files import atomic_write, parquet_bytes
+from wequant.data.files import atomic_write, parquet_bytes, utc_now
 from wequant.data.schema import TABLES, Table
 
 KEEP_VERSIONS = 3
@@ -348,7 +348,7 @@ def _write_fd(fd: int, text: str) -> None:
 
 
 def _now() -> str:
-    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    return utc_now()
 
 
 def _date(value: dt.date | str | None) -> dt.date | None:

@@ -7,15 +7,17 @@ import asyncio
 import dataclasses
 import json
 import logging
+import os
 import threading
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import get_type_hints
 
 import anyio
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from wequant.service import Context, ErrorBody, ErrorDetail, Exit, SchemaRequest, ServiceError, schema
 from wequant.service.base import error_body
@@ -33,10 +35,24 @@ STATUS = {  # HTTP status of each failure; a check that finds problems is a 200 
     Exit.INTERRUPTED: 499,  # the client went away; nobody reads it
 }
 POLL = 0.25  # seconds between checks whether the client is still connected
+STATIC = Path(__file__).resolve().parents[2] / "frontend" / "dist"  # the repository's frontend build
+UNBUILT = """<!doctype html><meta charset="utf-8"><title>WeQuant</title>
+<h1>前端未构建 · The frontend is not built</h1>
+<p>在 frontend/ 运行 <code>npm ci && npm run build</code>，然后重启 <code>wequant serve</code>。接口照常工作：POST /api/&lt;操作名&gt;。</p>
+<p>In frontend/, run <code>npm ci && npm run build</code>, then restart <code>wequant serve</code>. The API works: POST
+/api/&lt;operation&gt;.</p>
+<p>Looked for: {where}</p>
+"""
 
 
-def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS) -> FastAPI:
-    """The app serving operations (default: all of them) with context, which a resident process keeps between calls."""
+def static_dir(given: Path | None = None) -> Path:
+    """The frontend build to serve: given, else $WEQUANT_STATIC, else the repository's frontend/dist."""
+    return Path(given or os.environ.get("WEQUANT_STATIC") or STATIC)
+
+
+def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, static: Path | None = None) -> FastAPI:
+    """The app serving operations (default: all of them) with context, which a resident process keeps between calls,
+    and the frontend build at / (static_dir(static)), or a page saying how to build it."""
     app = FastAPI(title="WeQuant", version=code_version(), docs_url="/api/docs", openapi_url="/api/openapi.json")
     for operation in operations:
         method, path = route(operation.__name__)
@@ -49,9 +65,31 @@ def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS) ->
             summary=(operation.__doc__ or "").split("\n")[0],
             openapi_extra=_documented(hints["request"], hints["return"]),
         )
+    app.add_api_route("/api/{rest:path}", _no_route, methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)  # fmt: skip
+    app.add_api_route("/{path:path}", _frontend(static_dir(static)), methods=["GET"], include_in_schema=False)
     app.add_exception_handler(RequestValidationError, _invalid)
     app.openapi = lambda: _openapi(app)
     return app
+
+
+def _frontend(root: Path) -> Callable:
+    """GET of a file of the build; any other path its index.html (the app routes in the browser)."""
+    root = root.resolve()
+    index = root / "index.html"
+
+    async def frontend(path: str) -> Response:
+        if not index.is_file():
+            return HTMLResponse(UNBUILT.format(where=root))
+        found = (root / path).resolve()
+        inside = found.is_relative_to(root) and found.is_file()
+        return FileResponse(found if inside else index)
+
+    return frontend
+
+
+async def _no_route(rest: str) -> Response:
+    message = f"no operation at /api/{rest}; operations are POST /api/<operation>, listed by wequant schema"
+    return _failure(error_body(ServiceError(Exit.NOT_FOUND, message, [ErrorDetail(code="no_route", message=message)])))
 
 
 def _endpoint(operation: Callable, model: type, context: Context) -> Callable:

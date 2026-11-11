@@ -55,8 +55,8 @@ def test_every_operation_of_the_snapshot_has_its_route_and_no_route_is_extra(hom
     """Adding an operation needs no change in wequant.api: the routes are the snapshot's (method, path) pairs."""
     listed = {(o.method, o.path) for o in service.schema(service.SchemaRequest()).operations}
     app = create_app(Context(home))
-    docs = (app.openapi_url, app.docs_url, f"{app.docs_url}/oauth2-redirect")
-    routes = {(m, r.path) for r in app.routes if r.path.startswith("/api/") and r.path not in docs for m in r.methods}
+    documented = [r for r in app.routes if getattr(r, "include_in_schema", False)]  # not the docs, the catch-alls
+    routes = {(m, r.path) for r in documented for m in r.methods}
     assert routes == listed and len(listed) == len(OPERATIONS)
 
 
@@ -124,6 +124,7 @@ def test_the_framework_s_own_validation_errors_are_error_bodies_too(home):
 
     app = create_app(Context(home))
     app.add_api_route("/api/extra", extra, methods=["GET"])
+    app.router.routes.insert(0, app.router.routes.pop())  # ahead of the catch-all routes
     response = TestClient(app).get("/api/extra")
     error = ErrorBody.model_validate_json(response.text)
     assert (response.status_code, error.name, error.detail[0].loc) == (422, "USAGE", ["n"])
@@ -203,10 +204,27 @@ def test_serve_runs_one_resident_process_and_warns_off_the_loopback(cli, monkeyp
     """Wiring of wequant serve: loopback and the default port unless told otherwise, one resident context whose
     expression cache holds --cache-limit GB; another address is served with a warning on stderr."""
     started = []
-    monkeypatch.setattr("wequant.api.server.run_server", lambda context, host, port: started.append((context, host, port)))  # fmt: skip
+    monkeypatch.setattr("wequant.api.server.run_server", lambda *args: started.append(args))
     code, _, err = cli("serve", "--home", tmp_path, "--cache-limit", "1")
-    context, host, port = started[-1]
+    context, host, port, _ = started[-1]
     assert (code, err, host, port) == (0, "", "127.0.0.1", DEFAULT_PORT)
     assert (context.home, context.expr_cache.max_bytes) == (tmp_path, 1 << 30)
     code, _, err = cli("serve", "--host", "0.0.0.0", "--port", "9000")
-    assert started[-1][1:] == ("0.0.0.0", 9000) and "WARNING" in err
+    assert started[-1][1:3] == ("0.0.0.0", 9000) and "WARNING" in err
+
+
+def test_the_frontend_build_is_served_at_the_root_and_the_api_stays_apart(home, tmp_path):
+    """A file of the build is served as is, any other path gets index.html (the browser routes); /api paths never
+    fall through to it, an unknown one is a 404 ErrorBody."""
+    (tmp_path / "dist" / "assets").mkdir(parents=True)
+    (tmp_path / "dist" / "index.html").write_text("<html>app</html>")
+    (tmp_path / "dist" / "assets" / "a.js").write_text("js")
+    client = TestClient(create_app(Context(home), static=tmp_path / "dist"))
+    assert [client.get(p).text for p in ("/", "/assets/a.js", "/picks", "/../secret")] == ["<html>app</html>", "js", "<html>app</html>", "<html>app</html>"]  # fmt: skip
+    missing = client.post("/api/no_such_operation")
+    assert (missing.status_code, ErrorBody.model_validate_json(missing.text).detail[0].code) == (404, "no_route")
+
+
+def test_without_a_build_the_root_says_how_to_build_it(home, tmp_path):
+    response = TestClient(create_app(Context(home), static=tmp_path / "none")).get("/")
+    assert response.status_code == 200 and "npm run build" in response.text

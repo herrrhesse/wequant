@@ -9,6 +9,21 @@ uv run pytest                # offline tests; network tests are skipped
 uv sync --extra baostock     # BaoStock data source
 ```
 
+## Quick start (快速开始)
+
+Use an existing data root, or make the synthetic demo home (60 made-up stocks over 2023–2025, about two seconds; first
+run setup on real data comes later, S2.9):
+
+```bash
+uv sync --extra server                                   # Python dependencies, the web server included
+uv run python -m tools.demo_home --out ~/wequant-demo    # or skip this and use your own data root below
+(cd frontend && npm ci && npm run build)                 # the browser app, into frontend/dist
+uv run wequant serve --home ~/wequant-demo               # or --home /path/to/your/Database
+```
+
+Then open http://127.0.0.1:8731 . The demo home holds two saved strategies (`demo-momentum`, `demo-csi300`); the same
+seed always writes the same bytes, so end-to-end tests run on it.
+
 ## Layout
 
 - `wequant/data/`: table definitions (`schema.py`), the versioned store, data sources, the raw layer and the merge of
@@ -197,6 +212,13 @@ uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl
 - **Local only:** `--host` defaults to 127.0.0.1 and any other address prints a warning; there is no CORS. During
   frontend development Vite proxies `/api` to the server. `--port` defaults to 8731; `/api/docs` shows the generated
   OpenAPI document.
+- **The frontend at `/`:** the build in `--static DIR`, else `$WEQUANT_STATIC`, else the repository's `frontend/dist`.
+  A file of the build is served as is and any other path outside `/api` gets its `index.html`. Without a build, `/`
+  is a page saying how to build it; the API works either way. An unknown `/api/...` path is a 404 ErrorBody.
+- **Demo home:** `uv run python -m tools.demo_home --out DIR [--seed N]` writes a synthetic data root into a new
+  directory: every board, two ST stocks, a suspension, a delisting, a new listing, limit-up and limit-down streaks, a
+  bonus issue and a dividend, 000300.SH with synthetic members, data issues (one at error level), its limit check
+  recorded and two saved strategies. Nothing comes from a real market.
 
 ## Fetching BaoStock raw data
 

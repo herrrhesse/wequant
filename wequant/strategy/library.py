@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from wequant.canonical import digest, document
-from wequant.data.files import atomic_write
+from wequant.data.files import atomic_write, utc_now
 from wequant.data.store import exclusive
 from wequant.strategy.errors import SpecError
 from wequant.strategy.strategy import STRATEGY_VERSION, Strategy
@@ -206,4 +206,4 @@ def _rebuilt(n: int, path: Path) -> Version:
 
 
 def _now() -> str:
-    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    return utc_now()
