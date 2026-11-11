@@ -6,13 +6,16 @@
 // (or frontend/.env.e2e.local, KEY=VALUE lines), with the defaults below.
 //   WQ_UV            uv binary                       (default: /home/sure/micromamba/envs/quant/bin/uv, else `uv`)
 //   WQ_DEMO_HOME     demo home directory             (default: ../../wequant_frontend_dev/demo-home, outside git)
-//   WQ_DEMO_CMD      command that writes the demo home; {home} is replaced. Unset: use the home as it is.
-//   WQ_SERVE_CMD     command that serves the API; {home} and {port} are replaced. Unset: no API (smoke only).
-//   WQ_API_PORT      API port                        (default: 8765)
-//   WQ_WEB_PORT      vite preview port, dev shape    (default: 4179)
+//   WQ_DEMO_CMD      command that writes the demo home into a new directory; {home} and {uv} are replaced
+//                    (default: {uv} run --frozen python -m tools.demo_home --out {home}; "none" keeps the home as is)
+//   WQ_SERVE_CMD     command that serves the API; {home}, {port} and {uv} are replaced
+//                    (default: {uv} run --frozen wequant serve --home {home} --port {port}; "none": smoke only)
+//   WQ_API_PORT      API port                        (default: a free port, apart from a dev serve on 8731)
+//   WQ_WEB_PORT      vite preview port, dev shape    (default: a free port)
 //   WQ_E2E_MODE      release | dev                   (default: release)
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,13 +33,25 @@ const fileEnv = existsSync(local)
   : {};
 const env = { ...fileEnv, ...process.env };
 const uvDefault = "/home/sure/micromamba/envs/quant/bin/uv";
+
+/** A port nothing listens on now. */
+function freePort() {
+  return new Promise((ok, fail) => {
+    const srv = createServer();
+    srv.once("error", fail);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => ok(String(port)));
+    });
+  });
+}
 const cfg = {
   uv: env.WQ_UV ?? (existsSync(uvDefault) ? uvDefault : "uv"),
   home: resolve(root, env.WQ_DEMO_HOME ?? "../../wequant_frontend_dev/demo-home"),
-  demo: env.WQ_DEMO_CMD ?? "",
-  serve: env.WQ_SERVE_CMD ?? "",
-  apiPort: env.WQ_API_PORT ?? "8765",
-  webPort: env.WQ_WEB_PORT ?? "4179",
+  demo: env.WQ_DEMO_CMD === "none" ? "" : (env.WQ_DEMO_CMD ?? "{uv} run --frozen python -m tools.demo_home --out {home}"),
+  serve: env.WQ_SERVE_CMD === "none" ? "" : (env.WQ_SERVE_CMD ?? "{uv} run --frozen wequant serve --home {home} --port {port}"),
+  apiPort: env.WQ_API_PORT ?? (await freePort()),
+  webPort: env.WQ_WEB_PORT ?? (await freePort()),
   mode: env.WQ_E2E_MODE ?? "release",
 };
 const fill = (cmd) => cmd.replaceAll("{home}", cfg.home).replaceAll("{port}", cfg.apiPort).replaceAll("{uv}", cfg.uv);
@@ -50,9 +65,12 @@ function run(cmd, cwd) {
   if (r.status !== 0) throw new Error(`failed (${r.status}): ${cmd}`);
 }
 
-function start(cmd, cwd, extra = {}) {
-  log(`& ${cmd}`);
-  const child = spawn(cmd, { cwd, shell: true, stdio: ["ignore", "inherit", "inherit"], env: { ...env, ...extra }, detached: true });
+/** Background process; its output goes to test-results/<name>.log, not the test report. */
+function start(name, cmd, cwd, extra = {}) {
+  log(`& ${cmd}  (log: test-results/${name}.log)`);
+  mkdirSync(resolve(root, "test-results"), { recursive: true });
+  const out = openSync(resolve(root, `test-results/${name}.log`), "w");
+  const child = spawn(cmd, { cwd, shell: true, stdio: ["ignore", out, out], env: { ...env, ...extra }, detached: true });
   children.push(child);
   return child;
 }
@@ -87,25 +105,34 @@ process.on("SIGINT", () => {
 
 let code = 1;
 try {
-  run("npm run build --silent", root);
-  if (cfg.demo) run(fill(cfg.demo), repo);
+  run("npm run build --silent -- --logLevel warn", root);
+  if (cfg.demo) {
+    // The generator wants a new directory; the demo home is disposable test data outside git.
+    rmSync(cfg.home, { recursive: true, force: true });
+    run(fill(cfg.demo), repo);
+  }
   if (cfg.serve) {
-    start(fill(cfg.serve), repo);
+    start("serve", fill(cfg.serve), repo);
     await waitFor(`http://127.0.0.1:${cfg.apiPort}/`);
   }
   let web = `http://127.0.0.1:${cfg.apiPort}/`;
   if (!cfg.serve || cfg.mode === "dev") {
-    start(`npx vite preview --strictPort --port ${cfg.webPort}`, root, cfg.serve ? { WQ_API_PORT: cfg.apiPort } : { WQ_API_PORT: "" });
+    start("preview", `npx vite preview --strictPort --port ${cfg.webPort}`, root, cfg.serve ? { WQ_API_PORT: cfg.apiPort } : { WQ_API_PORT: "" });
     web = `http://127.0.0.1:${cfg.webPort}/`;
   }
   await waitFor(web);
+  // The same build with no backend behind it, for the "backend not running" test.
+  const noApiPort = await freePort();
+  start("preview-noapi", `npx vite preview --strictPort --port ${noApiPort}`, root, { WQ_API_PORT: "" });
+  const noApi = `http://127.0.0.1:${noApiPort}/`;
+  await waitFor(noApi);
   log(`testing ${web} (${cfg.serve ? cfg.mode : "smoke"})`);
   const args = process.argv.slice(2).join(" ");
   const r = spawnSync(`npx playwright test ${args}`, {
     cwd: root,
     shell: true,
     stdio: "inherit",
-    env: { ...env, WQ_WEB_URL: web, WQ_API_PORT: cfg.apiPort, WQ_API: cfg.serve ? "1" : "", WQ_E2E_MODE: cfg.serve ? cfg.mode : "smoke", WQ_DEMO_HOME: cfg.home, WQ_SERVE_CMD: fill(cfg.serve) },
+    env: { ...env, WQ_WEB_URL: web, WQ_API_PORT: cfg.apiPort, WQ_API: cfg.serve ? "1" : "", WQ_NOAPI_URL: noApi, WQ_E2E_MODE: cfg.serve ? cfg.mode : "smoke", WQ_DEMO_HOME: cfg.home, WQ_SERVE_CMD: fill(cfg.serve) },
   });
   code = r.status ?? 1;
 } catch (e) {

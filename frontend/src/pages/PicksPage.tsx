@@ -229,7 +229,7 @@ function Funnel({ funnel, rejects, selected, onSelect }: { funnel: FunnelStep[];
                 {f.left !== null ? `${p.left} ${f.left.toLocaleString("zh-CN")}` : `${p.passed} ${f.passed.toLocaleString("zh-CN")}`}
                 {f.chain && f.left !== null && f.passed !== f.left && <span className="code-sub">{p.passed} {f.passed.toLocaleString("zh-CN")}</span>}
               </span>
-              <span className="funnel-r num">{n > 0 ? p.rejected(n) : ""}</span>
+              <span className="funnel-r num" data-testid="funnel-rejected">{n > 0 ? p.rejected(n) : ""}</span>
             </button>
           </li>
         );
@@ -245,7 +245,7 @@ function ScoredTable({ rows, onRow, selected }: { rows: ScreenRow[]; onRow: (cod
     () => [
       { header: p.cols.rank, accessorKey: "rank", meta: { className: "r num" } },
       { header: p.cols.code, accessorKey: "code", cell: (c) => <span className="link">{c.row.original.code}</span> },
-      { header: p.cols.role, id: "role", cell: (c) => <span className={`badge role-${c.row.original.role}`}>{p.roles[c.row.original.role]}</span> },
+      { header: p.cols.role, id: "role", cell: (c) => <span className={`badge role-${c.row.original.role}`} data-testid="row-role">{p.roles[c.row.original.role]}</span> },
       { header: p.cols.score, id: "score", meta: { className: "r num" }, cell: (c) => num(c.row.original.score) },
       ...factorNames.map(
         (name, i): ColumnDef<ScreenRow, unknown> => ({
@@ -432,7 +432,7 @@ export function Chain({ explain, command }: { explain: Explain; command: string 
       <span className="stat-l">{p.side.score}</span>
       {explain.score ? (
         <span className="note">
-          {p.cols.rank} {explain.score.rank} / {explain.score.scored_count} · {p.cols.score} {num(explain.score.score)} · {p.roles[explain.role]}
+          {p.cols.rank} {explain.score.rank} / {explain.score.scored_count} · {p.cols.score} {num(explain.score.score)} · <span data-testid="chain-role">{p.roles[explain.role]}</span>
           {explain.weight !== null && ` · ${p.cols.weight} ${pct(explain.weight)}`}
         </span>
       ) : (

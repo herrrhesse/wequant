@@ -294,7 +294,7 @@ export const zh = {
     where: (loc: string) => `位置：${loc || "整个策略"}`,
     exprPath: (path: string) => `表达式内部位置：${path}`,
     commandTitle: "等效命令",
-    commandNote: "草稿没有文件，用 --strategy - 从标准输入传入",
+    commandNote: "同一个请求的 curl 命令，可以在终端里直接运行",
     steps: ["股票池", "筛选条件", "排名打分", "交易与仓位", "风控与择时"],
     pool: {
       scope: "范围",

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation, type Request } from "../../api/client";
 import { ApiError } from "../../api/http";
-import type { ErrorBody, StrategySpec } from "../../api/types.gen";
+import type { ErrorBody, SavedVersion, StrategySpec } from "../../api/types.gen";
 import { Card } from "../../components/Card";
 import { Command } from "../../components/Command";
 import { Problem } from "../../components/Problem";
@@ -15,6 +15,9 @@ import { dirtyState, summarySegments } from "../../strategy/summary";
 import { FiltersEditor } from "./filters";
 import { ErrorsContext, Seg, StepCard, locAttr } from "./shared";
 import { FactorsStep, PoolStep, TradeStep } from "./steps";
+
+/** The last save, kept across the remount that opening the saved version causes, so its message stays. */
+let lastSave: SavedVersion | null = null;
 
 /** Wait after the last edit before asking the backend (strategy validate and summary). */
 const DEBOUNCE_MS = 300;
@@ -56,9 +59,11 @@ export function StrategyPage({ id, n }: { id: string | null; n: number | null })
   const doSave = () =>
     save.mutate(saveRequest, {
       onSuccess: (v) => {
+        lastSave = v;
         if (v.id !== id || v.n !== n) location.hash = href.strategy(v.id, v.n);
       },
     });
+  const saved = save.data ?? (lastSave && lastSave.id === id && lastSave.n === n ? lastSave : null);
 
   const locate = (loc: (string | number)[]) => {
     const target = strategyLoc(loc);
@@ -102,9 +107,9 @@ export function StrategyPage({ id, n }: { id: string | null; n: number | null })
         </div>
       </div>
       <p className="note">{s.versionRule}</p>
-      {save.data && (
+      {saved && (
         <p className="lead" role="status">
-          {save.data.created ? s.savedAs(save.data.id, save.data.n) : s.unchanged(save.data.id, save.data.n)}
+          {saved.created ? s.savedAs(saved.id, saved.n) : s.unchanged(saved.id, saved.n)}
         </p>
       )}
       {save.error && !(save.error instanceof ApiError && save.error.status === 422) && <Problem error={save.error} />}
