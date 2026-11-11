@@ -109,8 +109,8 @@ default `$WEQUANT_HOME`) and `--cache PATH` (panels go under `PATH/panel/`, defa
 name.
 
 - **Output:** stdout carries the result. `--json` prints the result model exactly as `model_dump_json()` gives it, the
-  same JSON the HTTP API will return; NaN and infinity are `null`. Logs and errors go to stderr. When a command fails,
-  stdout is empty, or with `--json` holds its `ErrorBody` (below).
+  same JSON the HTTP API returns; NaN and infinity are `null`. Logs and errors go to stderr. When a command fails,
+  stdout is empty, or with `--json` holds its `ErrorBody` (below); Ctrl-C included (`INTERRUPTED`, exit 130).
 - **`--profile`:** times each stage (opening the store and the panel, each expression, the cross-section, the day
   loop, metrics, frames, archiving, rendering) and writes the table to stderr, or one `ProfileReport` JSON line with
   `--json`; the result on stdout is unchanged.

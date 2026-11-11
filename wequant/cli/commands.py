@@ -31,6 +31,7 @@ FLAT = Parameter(name="*")  # a request model's fields become the command's opti
 DEFAULT_PORT = 8731  # wequant serve's port; README states it
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 SERVER_MODULES = ("fastapi", "uvicorn", "starlette", "anyio")  # what the server extra installs
+INTERRUPTED = ErrorBody(exit=Exit.INTERRUPTED, name=Exit.INTERRUPTED.name, message="interrupted by Ctrl-C")
 
 app = App(
     name="wequant",
@@ -649,6 +650,9 @@ def run(
             log.exception("internal error")
             message = f"{type(error).__name__}: {error}"
             return _failed(ErrorBody(exit=Exit.INTERNAL, name=Exit.INTERNAL.name, message=message), common)
+        except KeyboardInterrupt:  # caught here, before cyclopts would exit 130 without a body
+            log.error(INTERRUPTED.message)
+            return _failed(INTERRUPTED, common)
     _print(text)
     return Exit.PROBLEMS if isinstance(result, Check) and not result.ok else Exit.OK
 
@@ -662,6 +666,10 @@ def launch(argv: list[str] | None = None) -> None:
         if "--json" in tokens:
             _print(refused(error).model_dump_json())
         sys.exit(Exit.USAGE)
+    except KeyboardInterrupt:  # Ctrl-C while the command line is parsed
+        if "--json" in tokens:
+            _print(INTERRUPTED.model_dump_json())
+        sys.exit(Exit.INTERRUPTED)
 
 
 def strategy_fields(text: str) -> dict:
