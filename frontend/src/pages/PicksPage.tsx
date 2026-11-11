@@ -1,58 +1,159 @@
 // 选股: one decision day of a strategy (wequant screen). Every number is the backend's; the page selects and lays out.
-import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
-import { screen, screenChoices, screenExplain } from "../api/runs";
-import { useStock } from "../api/queries";
-import type { AnomalyUse, Explain, FunnelStep, Reject, ScreenResult, ScreenRow } from "../api/types.gen";
+import { lazy, Suspense, useMemo, useState } from "react";
+import { BAR_FIELDS, commandOf, useCall, type Request } from "../api/client";
+import type { AnomalyUse, Explain, FunnelStep, PoolCheck, Reject, ScreenResult, ScreenRow, StrategyRef, StrategySpec } from "../api/types.gen";
 import { Card } from "../components/Card";
 import { Command } from "../components/Command";
-import { KChart } from "../components/KChart";
+import { Problem } from "../components/Problem";
 import { VirtualTable } from "../components/VirtualTable";
+import { useRunningSeconds } from "../hooks";
 import { t } from "../i18n";
-import { href } from "../router";
+import { href, type Route } from "../router";
 import { percent, rejectsAt } from "../runs/display";
+import { storedDraft } from "../strategy/draft";
 import { AnomalyTable, WarningList } from "./runs/shared";
+
+const KChart = lazy(() => import("../components/KChart").then((m) => ({ default: m.KChart })));
 
 const p = t.picks;
 const num = (v: number | null | undefined, digits = 3) => (typeof v === "number" ? Number(v.toPrecision(digits + 1)).toLocaleString("zh-CN") : t.common.none);
 const pct = (v: number | null | undefined) => (typeof v === "number" ? percent(v, 1) : t.common.none);
 const stepName = (step: string) => p.steps[step] ?? step;
 
-export function PicksPage({ name, look }: { name: string | null; look: string }) {
-  const choices = useQuery({ queryKey: ["screen", "choices"], queryFn: screenChoices });
-  const result = useQuery({ queryKey: ["screen", name], queryFn: () => screen(name) });
-  if (result.error) return <main className="page"><p className="note">{String(result.error)}</p></main>;
-  if (!result.data) return <main className="page"><p className="note">{t.app.loading}</p></main>;
-  const { data, command, name: shown } = result.data;
+type PicksRoute = Extract<Route, { page: "picks" }>;
+
+/** The strategy a screen runs: a saved one (id, version) or this browser's draft. */
+type Subject = { saved: StrategyRef; strategy?: undefined } | { strategy: StrategySpec; saved?: undefined };
+
+function subjectOf(route: PicksRoute): Subject | null {
+  if (route.id) return { saved: { id: route.id, n: route.n } };
+  if (route.draft) {
+    const d = storedDraft();
+    return d ? { strategy: d } : null;
+  }
+  return null;
+}
+
+export function PicksPage({ route, look }: { route: PicksRoute; look: string }) {
+  const status = useCall("data_status", {}, { staleTime: 0 });
+  // Trading days of the current store version (data calendar): the date picker's range and the non-trading-day hint.
+  const calendar = useCall("data_calendar", status.data ? { data_version: status.data.data_version } : null);
+  const last = calendar.data?.last ?? status.data?.last_trade_date ?? "";
+  const subject = subjectOf(route);
+  // The URL holds the submitted choice; the screen runs for it (back/forward restore it).
+  const request: Request<"screen"> | null = subject ? { ...subject, date: route.date } : null;
+  const result = useCall("screen", request);
+  const elapsed = useRunningSeconds(result.isFetching);
   return (
     <main className="page">
       <div className="card-head">
         <h1>{p.title}</h1>
         <span className="note">{p.lead}</span>
       </div>
-      <Card title={p.choose} version={data.data_version} command={command}>
-        <div className="filters">
+      <Chooser route={route} first={calendar.data?.first ?? ""} last={last} dates={calendar.data?.dates ?? null} running={result.isFetching} elapsed={elapsed} command={commandOf("screen", request)} version={result.data?.data_version} />
+      {status.error && <Problem error={status.error} />}
+      {result.error && <Problem error={result.error} />}
+      {result.data && subject && (
+        <div className={result.isFetching ? "pending" : undefined}>
+          <Card title={p.resultTitle(result.data.date)}>
+            <div className="filters">
+              <Meta label={p.date} value={result.data.date} />
+              <Meta label={p.nextDay} value={result.data.next_day ?? p.nextDayNone} />
+              <Meta label={p.hash} value={result.data.strategy_hash} mono />
+              <Meta label={p.savedAs} value={result.data.saved_as.length ? result.data.saved_as.map((x) => p.saved(x.id, x.n)).join("、") : p.unsaved} />
+            </div>
+            <span className="note">{p.noReweight}</span>
+          </Card>
+          <ScreenView key={JSON.stringify(request)} data={result.data} subject={subject} look={look} />
+        </div>
+      )}
+      {!subject && <p className="note">{route.draft ? p.noDraft : p.pickFirst}</p>}
+    </main>
+  );
+}
+
+/** Strategy (saved + version, or the draft) and decision day; "选股" submits them to the URL. */
+function Chooser({
+  route,
+  first,
+  last,
+  dates,
+  running,
+  elapsed,
+  command,
+  version,
+}: {
+  route: PicksRoute;
+  first: string;
+  last: string;
+  dates: string[] | null;
+  running: boolean;
+  elapsed: number;
+  command: string;
+  version?: number;
+}) {
+  const list = useCall("strategy_list", {});
+  const [id, setId] = useState(route.id ?? (route.draft ? "" : ""));
+  const [useDraft, setUseDraft] = useState(route.draft || !route.id);
+  const [n, setN] = useState<number | null>(route.n);
+  const [date, setDate] = useState(route.date ?? "");
+  const versions = useCall("strategy_versions", id && !useDraft ? { id } : null);
+  const draftExists = storedDraft() !== null;
+  const trading = useMemo(() => (dates ? new Set(dates) : null), [dates]);
+  const nonTrading = !!date && !!trading && !trading.has(date);
+  const submit = () => {
+    location.hash = useDraft ? href.picks({ draft: true, date: date || null }) : href.picks({ id, n, date: date || null });
+  };
+  return (
+    <Card title={p.choose} version={version} command={command}>
+      <div className="filters">
+        <label className="field">
+          {p.strategy}
+          <select
+            aria-label={p.strategy}
+            value={useDraft ? "__draft" : id}
+            onChange={(e) => {
+              const v = e.target.value;
+              setUseDraft(v === "__draft");
+              setId(v === "__draft" ? "" : v);
+              setN(null);
+            }}
+          >
+            <option value="__draft" disabled={!draftExists}>
+              {p.draftOption}
+            </option>
+            {(list.data?.rows ?? []).map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!useDraft && id && (
           <label className="field">
-            {p.choose}
-            <select value={shown} onChange={(e) => (location.hash = href.picks(e.target.value))}>
-              {(choices.data ?? []).map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.strategy} · {c.date}
+            {p.version}
+            <select aria-label={p.version} value={n ?? ""} onChange={(e) => setN(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">{p.currentVersion}</option>
+              {(versions.data?.rows ?? []).map((v) => (
+                <option key={v.n} value={v.n}>
+                  v{v.n}
                 </option>
               ))}
             </select>
           </label>
-          <Meta label={p.date} value={data.date} />
-          <Meta label={p.nextDay} value={data.next_day ?? p.nextDayNone} />
-          <Meta label={p.hash} value={data.strategy_hash} mono />
-          <Meta label={p.savedAs} value={data.saved_as.length ? data.saved_as.map((s) => p.saved(s.id, s.n)).join("、") : p.unsaved} />
-        </div>
-        <span className="note">{p.chooseNote}</span>
-        <span className="note">{p.noReweight}</span>
-      </Card>
-      <ScreenView key={shown} data={data} name={shown} look={look} />
-    </main>
+        )}
+        <label className="field">
+          {p.date}
+          <input type="date" aria-label={p.date} value={date} min={first || undefined} max={last || undefined} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        {nonTrading && <span className="sfield-hint">{p.nonTrading}</span>}
+        <button type="button" className="btn" disabled={running || nonTrading || (!useDraft && !id) || (useDraft && !draftExists)} onClick={submit}>
+          {running ? p.running(elapsed) : p.run}
+        </button>
+      </div>
+      <span className="note">{p.chooseNote(last)}</span>
+    </Card>
   );
 }
 
@@ -65,7 +166,8 @@ function Meta({ label, value, mono }: { label: string; value: string; mono?: boo
   );
 }
 
-function ScreenView({ data, name, look }: { data: ScreenResult; name: string; look: string }) {
+function ScreenView({ data, subject, look }: { data: ScreenResult; subject: Subject; look: string }) {
+  const name = data.date;
   const [step, setStep] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null);
   const rejects = useMemo(() => (step ? rejectsAt(data.rejects, step) : []), [data.rejects, step]);
@@ -118,7 +220,7 @@ function ScreenView({ data, name, look }: { data: ScreenResult; name: string; lo
             )}
           </Card>
         </div>
-        {code && <SidePanel data={data} name={name} code={code} look={look} onClose={() => setCode(null)} />}
+        {code && <SidePanel data={data} subject={subject} code={code} look={look} onClose={() => setCode(null)} />}
       </div>
     </>
   );
@@ -150,7 +252,7 @@ function Funnel({ funnel, rejects, selected, onSelect }: { funnel: FunnelStep[];
                 {f.left !== null ? `${p.left} ${f.left.toLocaleString("zh-CN")}` : `${p.passed} ${f.passed.toLocaleString("zh-CN")}`}
                 {f.chain && f.left !== null && f.passed !== f.left && <span className="code-sub">{p.passed} {f.passed.toLocaleString("zh-CN")}</span>}
               </span>
-              <span className="funnel-r num">{n > 0 ? p.rejected(n) : ""}</span>
+              <span className="funnel-r num" data-testid="funnel-rejected">{n > 0 ? p.rejected(n) : ""}</span>
             </button>
           </li>
         );
@@ -166,7 +268,7 @@ function ScoredTable({ rows, onRow, selected }: { rows: ScreenRow[]; onRow: (cod
     () => [
       { header: p.cols.rank, accessorKey: "rank", meta: { className: "r num" } },
       { header: p.cols.code, accessorKey: "code", cell: (c) => <span className="link">{c.row.original.code}</span> },
-      { header: p.cols.role, id: "role", cell: (c) => <span className={`badge role-${c.row.original.role}`}>{p.roles[c.row.original.role]}</span> },
+      { header: p.cols.role, id: "role", cell: (c) => <span className={`badge role-${c.row.original.role}`} data-testid="row-role">{p.roles[c.row.original.role]}</span> },
       { header: p.cols.score, id: "score", meta: { className: "r num" }, cell: (c) => num(c.row.original.score) },
       ...factorNames.map(
         (name, i): ColumnDef<ScreenRow, unknown> => ({
@@ -244,8 +346,9 @@ function RejectTable({ rows, onRow, selected }: { rows: Reject[]; onRow: (code: 
   return <VirtualTable rows={rows} columns={columns} rowKey={(r) => `${r.code}/${r.step}`} onRow={(r) => onRow(r.code)} selected={selected} label={p.cols.step} />;
 }
 
-function SidePanel({ data, name, code, look, onClose }: { data: ScreenResult; name: string; code: string; look: string; onClose: () => void }) {
-  const explain = useQuery({ queryKey: ["screen", name, "explain", code], queryFn: () => screenExplain(name, code) });
+function SidePanel({ data, subject, code, look, onClose }: { data: ScreenResult; subject: Subject; code: string; look: string; onClose: () => void }) {
+  const explainRequest: Request<"explain"> = { ...subject, code, date: data.date };
+  const explain = useCall("explain", explainRequest);
   const row = data.rows.find((r) => r.code === code);
   const used: AnomalyUse[] = data.anomalies?.sample.filter((a) => a.code === code) ?? [];
   return (
@@ -254,7 +357,7 @@ function SidePanel({ data, name, code, look, onClose }: { data: ScreenResult; na
         title={`${p.side.title} ${code}`}
         extra={
           <>
-            <a className="link" href={href.stock(code, data.date)}>
+            <a className="link" href={href.stock(code, { date: data.date, from: "picks" })}>
               {p.side.open}
             </a>
             <button type="button" className="cmd" onClick={onClose}>
@@ -297,12 +400,28 @@ function SidePanel({ data, name, code, look, onClose }: { data: ScreenResult; na
         <h3 className="sub-h">{p.side.anomalies}</h3>
         {used.length ? <AnomalyTable rows={used} /> : <span className="note">{p.side.noAnomalies}</span>}
         <h3 className="sub-h">{p.side.chain}</h3>
-        {explain.data ? <Chain explain={explain.data.data} command={explain.data.command} /> : <span className="note">{explain.isLoading ? t.app.loading : p.side.chainNone}</span>}
+        {explain.data ? (
+          <Chain explain={explain.data} command={commandOf("explain", explainRequest)} />
+        ) : explain.error ? (
+          <Problem error={explain.error} />
+        ) : (
+          <span className="note">{t.app.loading}</span>
+        )}
         <h3 className="sub-h">{p.side.chart}</h3>
         <MiniChart code={code} date={data.date} look={look} />
       </Card>
     </aside>
   );
+}
+
+/** A pool check's value as the page shows it: the backend's value with its unit or a yes/no word (layout only). */
+function poolValue(name: string, value: PoolCheck["value"]): string {
+  const kind = p.pool[name]?.kind;
+  if (kind === "yesno") return value === null ? p.yesNo.unknown : value === true ? p.yesNo.yes : value === false ? p.yesNo.no : String(value);
+  if (value === null) return name === "universe" ? "" : p.yesNo.unknown;
+  if (kind === "yuan") return `${value} 元`;
+  if (kind === "days") return `${value} 天`;
+  return String(value);
 }
 
 /** explain: the backend's checks in order; nothing is re-derived. */
@@ -314,9 +433,9 @@ export function Chain({ explain, command }: { explain: Explain; command: string 
       {explain.pool.map((c) => (
         <div key={c.name} className="chain-row">
           {mark(c.passed)}
-          <span>{stepName(c.name)}</span>
-          <span className="num">{c.value === null ? "" : String(c.value)}</span>
-          {c.note && <span className="note">{c.note}</span>}
+          <span>{p.pool[c.name]?.label ?? stepName(c.name)}</span>
+          <span className="num">{poolValue(c.name, c.value)}</span>
+          {c.note && <span className="note">{t.explainNotes[c.note] ?? c.note}</span>}
         </div>
       ))}
       <span className="stat-l">{p.side.stepsTitle}</span>
@@ -336,7 +455,7 @@ export function Chain({ explain, command }: { explain: Explain; command: string 
       <span className="stat-l">{p.side.score}</span>
       {explain.score ? (
         <span className="note">
-          {p.cols.rank} {explain.score.rank} / {explain.score.scored_count} · {p.cols.score} {num(explain.score.score)} · {p.roles[explain.role]}
+          {p.cols.rank} {explain.score.rank} / {explain.score.scored_count} · {p.cols.score} {num(explain.score.score)} · <span data-testid="chain-role">{p.roles[explain.role]}</span>
           {explain.weight !== null && ` · ${p.cols.weight} ${pct(explain.weight)}`}
         </span>
       ) : (
@@ -351,13 +470,16 @@ export function Chain({ explain, command }: { explain: Explain; command: string 
 }
 
 function MiniChart({ code, date, look }: { code: string; date: string; look: string }) {
-  const stock = useStock(code);
-  if (stock.error) return <span className="note">{p.side.noChart}</span>;
-  if (!stock.data) return <span className="note">{t.app.loading}</span>;
-  const rows = stock.data.bars.data.rows;
+  const start = `${Number(date.slice(0, 4)) - 1}${date.slice(4)}`;
+  const bars = useCall("data_bars", { codes: [code], start, end: date, fields: [...BAR_FIELDS] });
+  if (bars.error) return <span className="note">{p.side.noChart}</span>;
+  if (!bars.data) return <span className="note">{t.app.loading}</span>;
+  const rows = bars.data.rows;
   return (
     <div className="mini-chart">
-      <KChart rows={rows} mode="raw" ma={[]} issues={stock.data.issues.data.rows} focus={rows.some((r) => r.date === date) ? date : null} look={look} onHover={() => {}} onIssue={() => {}} />
+      <Suspense fallback={<span className="note">{t.app.loading}</span>}>
+        <KChart rows={rows} mode="raw" ma={[]} issues={[]} focus={rows.some((r) => r.date === date) ? date : null} look={look} onHover={() => {}} onIssue={() => {}} />
+      </Suspense>
     </div>
   );
 }

@@ -22,6 +22,8 @@ export interface ServiceModels {
   BacktestResult?: BacktestResult;
   Bars?: Bars;
   BarsRequest?: BarsRequest;
+  Calendar?: Calendar;
+  CalendarRequest?: CalendarRequest;
   CheckReport?: CheckReport;
   CheckRequest?: CheckRequest;
   ConditionSpec?: ConditionSpec;
@@ -30,6 +32,8 @@ export interface ServiceModels {
   DataAnomaly?: DataAnomaly;
   DataSpec?: DataSpec1;
   DataStatus?: DataStatus;
+  Decision?: Decision;
+  DecisionRequest?: DecisionRequest;
   DecisionRow?: DecisionRow;
   DelistedRow?: DelistedRow;
   DelistingCounts?: DelistingCounts;
@@ -77,6 +81,9 @@ export interface ServiceModels {
   PositionRow?: PositionRow;
   ProfileReport?: ProfileReport;
   Reject?: Reject;
+  Resolution?: Resolution;
+  ResolveListRequest?: ResolveListRequest;
+  ResolvePage?: ResolvePage;
   Row?: Row;
   RunComparison?: RunComparison;
   RunDay?: RunDay;
@@ -84,6 +91,7 @@ export interface ServiceModels {
   RunDetail?: RunDetail;
   RunDiff?: RunDiff;
   RunDiffRequest?: RunDiffRequest;
+  RunReport?: RunReport;
   RunRequest?: RunRequest;
   RunRow?: RunRow;
   RunsListRequest?: RunsListRequest;
@@ -97,10 +105,15 @@ export interface ServiceModels {
   ScreenRequest?: ScreenRequest;
   ScreenResult?: ScreenResult;
   ScreenRow?: ScreenRow;
+  Securities?: Securities;
+  SecuritiesRequest?: SecuritiesRequest;
+  SecurityRow?: SecurityRow;
   SellReason?: SellReason;
   ServiceSchema?: ServiceSchema;
   ShowRequest?: ShowRequest;
+  SourceRef?: SourceRef;
   Stage?: Stage;
+  StatusCount?: StatusCount;
   StatusRequest?: StatusRequest;
   StepCheck?: StepCheck;
   StrategyCheck?: StrategyCheck;
@@ -116,6 +129,14 @@ export interface ServiceModels {
   StrategyVersions?: StrategyVersions;
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
+  VerificationIn?: VerificationIn;
+  VerificationOut?: VerificationOut;
+  VerifiedCell?: VerifiedCell;
+  Verifier?: Verifier;
+  VerifyListRequest?: VerifyListRequest;
+  VerifyPage?: VerifyPage;
+  VerifySubmitRequest?: VerifySubmitRequest;
+  VerifySubmitResult?: VerifySubmitResult;
   VersionInfo?: VersionInfo;
   VersionsRequest?: VersionsRequest;
   Warning?: Warning;
@@ -752,6 +773,47 @@ export interface BarsRequest {
   ];
 }
 /**
+ * A store version's trading days.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Calendar".
+ */
+export interface Calendar {
+  data_version: number;
+  /**
+   * The version's first trading day, whatever the range; null: an empty calendar.
+   */
+  first: string | null;
+  /**
+   * Its last trading day.
+   */
+  last: string | null;
+  /**
+   * The trading days in the range, ascending.
+   */
+  dates: string[];
+}
+/**
+ * Trading days within [start, end].
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "CalendarRequest".
+ */
+export interface CalendarRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  /**
+   * First day (default: the first trading day).
+   */
+  start?: string | null;
+  /**
+   * Last day (default: the last trading day).
+   */
+  end?: string | null;
+}
+/**
  * The check's counts and report; ok when a current check is recorded and, in a dry run, every breach is too.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -932,6 +994,50 @@ export interface TableStatus {
   name: string;
   files: number;
   rows: number;
+}
+/**
+ * What a decision changed.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Decision".
+ */
+export interface Decision {
+  status: "proposed" | "approved" | "rejected";
+  matched: number;
+  /**
+   * Entries whose status or note changed; the others already had them.
+   */
+  changed: number;
+}
+/**
+ * A decision on the selected entries.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "DecisionRequest".
+ */
+export interface DecisionRequest {
+  code?: string | null;
+  date?: string | null;
+  /**
+   * A conflict kind, e.g. price_mismatch.
+   */
+  kind?: string | null;
+  /**
+   * A group, e.g. D11-B.
+   */
+  category?: string | null;
+  /**
+   * First date of a range.
+   */
+  start?: string | null;
+  /**
+   * Last date of a range.
+   */
+  end?: string | null;
+  /**
+   * Who decides and on what basis, e.g. "user 2026-11-10: class B approved per D11".
+   */
+  note: string;
 }
 /**
  * A target, backup or held stock on a decision day.
@@ -1695,7 +1801,7 @@ export interface MetricSpecModel1 {
   tail_fraction?: number;
 }
 /**
- * One operation and the names of its request and result models.
+ * One operation, the names of its request and result models, and its HTTP route.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "OperationModels".
@@ -1711,6 +1817,14 @@ export interface OperationModels {
    * False: its models are fixed and its command is still to come.
    */
   available: boolean;
+  /**
+   * HTTP method of its route under wequant serve: always POST, the request model as the JSON body.
+   */
+  method: string;
+  /**
+   * Its route: /api/ and the operation's name, e.g. /api/data_bars.
+   */
+  path: string;
 }
 /**
  * Orders in archive order: date, batch, submission.
@@ -1876,6 +1990,84 @@ export interface Reject {
   missing: string | null;
 }
 /**
+ * One entry of the resolutions file.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Resolution".
+ */
+export interface Resolution {
+  code: string;
+  date: string;
+  kind: string;
+  fields: string[];
+  take: string;
+  /**
+   * take corrected: field -> value in store units (prices in 厘).
+   */
+  values: {
+    [k: string]: number | null;
+  };
+  category: string;
+  level: "error" | "suspicious" | "notice";
+  verifications: string[];
+  evidence: string;
+  status: "proposed" | "approved" | "rejected";
+  approval: string;
+}
+/**
+ * Entries, filtered and paged.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ResolveListRequest".
+ */
+export interface ResolveListRequest {
+  limit?: number;
+  offset?: number;
+  code?: string | null;
+  date?: string | null;
+  /**
+   * A conflict kind, e.g. price_mismatch.
+   */
+  kind?: string | null;
+  /**
+   * A group, e.g. D11-B.
+   */
+  category?: string | null;
+  /**
+   * First date of a range.
+   */
+  start?: string | null;
+  /**
+   * Last date of a range.
+   */
+  end?: string | null;
+  status?: ("proposed" | "approved" | "rejected") | null;
+}
+/**
+ * Entries in file order (date, code, kind), and the counts of all that match.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ResolvePage".
+ */
+export interface ResolvePage {
+  total: number;
+  offset: number;
+  limit: number;
+  counts: StatusCount[];
+  rows: Resolution[];
+}
+/**
+ * Entries of one category in one status.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "StatusCount".
+ */
+export interface StatusCount {
+  category: string;
+  status: string;
+  entries: number;
+}
+/**
  * A re-run compared byte for byte with the archive.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -1999,6 +2191,19 @@ export interface RunDiff {
 export interface RunDiffRequest {
   a: string;
   b: string;
+}
+/**
+ * An archived run's Markdown report.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "RunReport".
+ */
+export interface RunReport {
+  id: string;
+  /**
+   * The text backtest attaches with report true, from the archive.
+   */
+  report: string;
 }
 /**
  * One archived run.
@@ -2232,6 +2437,51 @@ export interface ScreenRow {
   };
 }
 /**
+ * The first limit matches and how many there are.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Securities".
+ */
+export interface Securities {
+  data_version: number;
+  total: number;
+  rows: SecurityRow[];
+}
+/**
+ * One listed or delisted code.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SecurityRow".
+ */
+export interface SecurityRow {
+  code: string;
+  /**
+   * null until a source provides names.
+   */
+  name: string | null;
+  exchange: string;
+  board: string;
+  first_date: string;
+  last_date: string;
+}
+/**
+ * Codes matching query, in code order.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SecuritiesRequest".
+ */
+export interface SecuritiesRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  /**
+   * A code prefix (600, 600000, 600000.SH; any case) or part of a name; empty: every code.
+   */
+  query?: string;
+  limit?: number;
+}
+/**
  * A JSON Schema document: $defs holds every service model by name, in alphabetical order.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2264,6 +2514,27 @@ export interface ShowRequest {
    * The version; null: the current one.
    */
   n?: number | null;
+}
+/**
+ * Where values came from.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SourceRef".
+ */
+export interface SourceRef {
+  /**
+   * The label its values carry in values, e.g. sse, eastmoney, cninfo.
+   */
+  name: string;
+  type: "exchange" | "vendor" | "announcement" | "rule";
+  /**
+   * null: none to give (e.g. a rule).
+   */
+  url: string | null;
+  /**
+   * ISO 8601.
+   */
+  fetched_at: string;
 }
 /**
  * One store version to describe.
@@ -2473,6 +2744,181 @@ export interface VersionInfo {
   strategy_version: number | null;
   note: string | null;
   current: boolean;
+}
+/**
+ * One checked cell, as submitted.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerificationIn".
+ */
+export interface VerificationIn {
+  object: VerifiedCell;
+  /**
+   * By label (baostock, seed or a source's name): field -> value.
+   */
+  values: {
+    [k: string]: {
+      [k: string]: number | string | null;
+    };
+  };
+  /**
+   * @minItems 1
+   */
+  sources: [SourceRef, ...SourceRef[]];
+  verifier: Verifier;
+  method: string;
+  conclusion: string;
+  /**
+   * The verified values; empty when the record decides nothing.
+   */
+  correct: {
+    [k: string]: number | string | null;
+  };
+  level: "error" | "suspicious" | "notice";
+}
+/**
+ * The cell a record checks.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifiedCell".
+ */
+export interface VerifiedCell {
+  table:
+    "securities" | "calendar" | "bars" | "daily_status" | "adj_factor" | "index_bars" | "index_members" | "data_issues";
+  code: string;
+  date: string;
+  /**
+   * Columns of the table.
+   *
+   * @minItems 1
+   */
+  fields: [string, ...string[]];
+}
+/**
+ * Who checked.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Verifier".
+ */
+export interface Verifier {
+  kind: "human" | "agent";
+  name: string;
+  /**
+   * The model's name for an agent; null for a person.
+   */
+  model: string | null;
+}
+/**
+ * A stored record.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerificationOut".
+ */
+export interface VerificationOut {
+  object: VerifiedCell;
+  /**
+   * By label (baostock, seed or a source's name): field -> value.
+   */
+  values: {
+    [k: string]: {
+      [k: string]: number | string | null;
+    };
+  };
+  /**
+   * @minItems 1
+   */
+  sources: [SourceRef, ...SourceRef[]];
+  verifier: Verifier;
+  method: string;
+  conclusion: string;
+  /**
+   * The verified values; empty when the record decides nothing.
+   */
+  correct: {
+    [k: string]: number | string | null;
+  };
+  level: "error" | "suspicious" | "notice";
+  /**
+   * 'v-' and the digest of its content: the same record always gets the same id.
+   */
+  id: string;
+  submitted_at: string;
+}
+/**
+ * Stored records, filtered; null filters match all.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifyListRequest".
+ */
+export interface VerifyListRequest {
+  limit?: number;
+  offset?: number;
+  id?: string | null;
+  table?:
+    | (
+        | "securities"
+        | "calendar"
+        | "bars"
+        | "daily_status"
+        | "adj_factor"
+        | "index_bars"
+        | "index_members"
+        | "data_issues"
+      )
+    | null;
+  code?: string | null;
+  start?: string | null;
+  end?: string | null;
+  source_type?: ("exchange" | "vendor" | "announcement" | "rule") | null;
+  /**
+   * A source name.
+   */
+  source?: string | null;
+  /**
+   * A verifier's name.
+   */
+  verifier?: string | null;
+}
+/**
+ * Records by submission, then line.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifyPage".
+ */
+export interface VerifyPage {
+  total: number;
+  offset: number;
+  limit: number;
+  rows: VerificationOut[];
+}
+/**
+ * Records to add.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifySubmitRequest".
+ */
+export interface VerifySubmitRequest {
+  /**
+   * @minItems 1
+   */
+  records: [VerificationIn, ...VerificationIn[]];
+}
+/**
+ * What the submission added.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifySubmitResult".
+ */
+export interface VerifySubmitResult {
+  added: number;
+  /**
+   * Records already stored with the same content.
+   */
+  existing: number;
+  /**
+   * In submission order.
+   */
+  ids: string[];
 }
 /**
  * The versions of one strategy.

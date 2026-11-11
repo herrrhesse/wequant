@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useDataIssues, useDataStatus, useStatusVersions } from "../api/queries";
+import { commandOf, useCall } from "../api/client";
 import type { DataStatus } from "../api/types.gen";
 import { Card } from "../components/Card";
+import { Problem } from "../components/Problem";
 import { localTime, show } from "../format";
 import { t } from "../i18n";
 import { DelistingsSection } from "./DelistingsSection";
@@ -10,17 +11,20 @@ import { IssuesSection } from "./IssuesSection";
 /** The data page: store status, versions, data issues and the update and resolution actions to come. */
 export function DataPage({ focusCode, focusDate }: { focusCode: string | null; focusDate: string | null }) {
   const [version, setVersion] = useState<number | null>(null);
-  const status = useDataStatus(version);
-  const allIssues = useDataIssues({ table: null, kind: null });
+  const statusRequest = { data_version: version };
+  // data status is re-read on every visit: a new store version invalidates what was read before.
+  const status = useCall("data_status", statusRequest, { staleTime: 0 });
+  const allIssues = useCall("data_issues", { data_version: version, limit: 1 });
 
   if (status.isPending) return <main className="page">{t.app.loading}</main>;
-  if (status.isError) return <main className="page">{t.app.error}</main>;
-  const s = status.data.data;
+  if (status.isError) return <main className="page"><Problem error={status.error} /></main>;
+  const s = status.data;
+  const command = commandOf("data_status", statusRequest);
 
   return (
     <main className="page">
       <h1>{t.data.title}</h1>
-      <StatusCard status={s} command={status.data.command} />
+      <StatusCard status={s} command={command} />
       <div className="row2">
         <Card title={t.data.update.title} version={s.current_version}>
           <button type="button" className="btn" disabled>
@@ -33,14 +37,14 @@ export function DataPage({ focusCode, focusDate }: { focusCode: string | null; f
         </Card>
       </div>
       {allIssues.data && <IssuesSection
-          counts={allIssues.data.data.counts}
-          total={allIssues.data.data.total}
-          version={allIssues.data.data.data_version}
+          counts={allIssues.data.counts}
+          total={allIssues.data.total}
+          version={allIssues.data.data_version}
           focusCode={focusCode}
           focusDate={focusDate}
         />}
       <DelistingsSection />
-      <VersionsCard status={s} command={status.data.command} onView={setVersion} />
+      <VersionsCard status={s} command={command} onView={setVersion} />
     </main>
   );
 }
@@ -102,7 +106,6 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 function VersionsCard({ status: s, command, onView }: { status: DataStatus; command: string; onView: (v: number | null) => void }) {
-  const available = new Set(useStatusVersions().data ?? []);
   return (
     <Card title={t.data.versions.title} version={s.data_version} command={command}>
       <p className="lead">{t.data.versions.lead}</p>
@@ -115,12 +118,10 @@ function VersionsCard({ status: s, command, onView }: { status: DataStatus; comm
               <td className="r">
                 {v === s.data_version ? (
                   <span className="note">{t.data.versions.viewing}</span>
-                ) : available.has(v) ? (
+                ) : (
                   <button type="button" className="cmd" onClick={() => onView(v === s.current_version ? null : v)}>
                     {t.data.versions.view}
                   </button>
-                ) : (
-                  <span className="note">{t.data.versions.noFixture}</span>
                 )}
               </td>
             </tr>

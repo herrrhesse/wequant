@@ -3,7 +3,7 @@ import type { FactorSpec, PoolSpec, StrategySpec } from "../../api/types.gen";
 import { t } from "../../i18n";
 import { metricForm, parseMetric, type Form } from "../../strategy/expr";
 import { FormEditor, MetricPicker, knownMetric } from "./builder";
-import { Field, NumberInput, Seg, Switch, backendNote, locAttr } from "./shared";
+import { Field, NumberInput, Seg, Switch, locAttr } from "./shared";
 
 /** Writes key = value, or removes the key when value is undefined (the backend's default then applies). */
 function put<T extends object, K extends keyof T>(obj: T, key: K, value: T[K] | undefined): T {
@@ -116,7 +116,7 @@ export function FactorsStep({ factors, shares, onChange }: { factors: FactorSpec
               <Field loc={[...loc, "weight"]} label={f.weight} hint={factor.weight !== undefined && factor.weight <= 0 ? t.strategy.hints.atLeast(0) : null}>
                 <NumberInput value={factor.weight ?? 1} width={60} onChange={(v) => set(i, put(factor, "weight", v === null || v === 1 ? undefined : v))} />
                 <span className="note">
-                  {f.share} {share === undefined ? backendNote("strategy_validate", "wequant strategy validate") : `${(share * 100).toFixed(1)}%`}
+                  {f.share} {share === undefined ? t.common.none : `${(share * 100).toFixed(1)}%`}
                 </span>
               </Field>
             </div>
