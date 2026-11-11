@@ -1,12 +1,16 @@
-// `npm run e2e`: build, make a demo home, start `wequant serve` on it, serve dist with `vite preview` (proxying /api),
-// run Playwright, then stop everything. Nothing is hard-coded: commands, paths and ports come from the environment
+// `npm run e2e`: build, make a demo home, start `wequant serve` on it, run Playwright, then stop everything.
+// Two shapes (WQ_E2E_MODE):
+//   release (default with an API): `wequant serve` hosts the built dist itself; the browser talks to serve only.
+//   dev: `vite preview` serves dist and proxies /api to serve, as during development.
+// Without WQ_SERVE_CMD only the smoke test runs, on vite preview. Nothing is hard-coded: commands, paths and ports come from the environment
 // (or frontend/.env.e2e.local, KEY=VALUE lines), with the defaults below.
 //   WQ_UV            uv binary                       (default: /home/sure/micromamba/envs/quant/bin/uv, else `uv`)
 //   WQ_DEMO_HOME     demo home directory             (default: ../../wequant_frontend_dev/demo-home, outside git)
 //   WQ_DEMO_CMD      command that writes the demo home; {home} is replaced. Unset: use the home as it is.
 //   WQ_SERVE_CMD     command that serves the API; {home} and {port} are replaced. Unset: no API (smoke only).
 //   WQ_API_PORT      API port                        (default: 8765)
-//   WQ_WEB_PORT      vite preview port               (default: 4179)
+//   WQ_WEB_PORT      vite preview port, dev shape    (default: 4179)
+//   WQ_E2E_MODE      release | dev                   (default: release)
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -33,6 +37,7 @@ const cfg = {
   serve: env.WQ_SERVE_CMD ?? "",
   apiPort: env.WQ_API_PORT ?? "8765",
   webPort: env.WQ_WEB_PORT ?? "4179",
+  mode: env.WQ_E2E_MODE ?? "release",
 };
 const fill = (cmd) => cmd.replaceAll("{home}", cfg.home).replaceAll("{port}", cfg.apiPort).replaceAll("{uv}", cfg.uv);
 const children = [];
@@ -88,15 +93,19 @@ try {
     start(fill(cfg.serve), repo);
     await waitFor(`http://127.0.0.1:${cfg.apiPort}/`);
   }
-  start(`npx vite preview --strictPort --port ${cfg.webPort}`, root, cfg.serve ? { WQ_API_PORT: cfg.apiPort } : { WQ_API_PORT: "" });
-  const web = `http://127.0.0.1:${cfg.webPort}/`;
+  let web = `http://127.0.0.1:${cfg.apiPort}/`;
+  if (!cfg.serve || cfg.mode === "dev") {
+    start(`npx vite preview --strictPort --port ${cfg.webPort}`, root, cfg.serve ? { WQ_API_PORT: cfg.apiPort } : { WQ_API_PORT: "" });
+    web = `http://127.0.0.1:${cfg.webPort}/`;
+  }
   await waitFor(web);
+  log(`testing ${web} (${cfg.serve ? cfg.mode : "smoke"})`);
   const args = process.argv.slice(2).join(" ");
   const r = spawnSync(`npx playwright test ${args}`, {
     cwd: root,
     shell: true,
     stdio: "inherit",
-    env: { ...env, WQ_WEB_URL: web, WQ_API_PORT: cfg.apiPort, WQ_API: cfg.serve ? "1" : "", WQ_DEMO_HOME: cfg.home, WQ_SERVE_CMD: fill(cfg.serve) },
+    env: { ...env, WQ_WEB_URL: web, WQ_API_PORT: cfg.apiPort, WQ_API: cfg.serve ? "1" : "", WQ_E2E_MODE: cfg.serve ? cfg.mode : "smoke", WQ_DEMO_HOME: cfg.home, WQ_SERVE_CMD: fill(cfg.serve) },
   });
   code = r.status ?? 1;
 } catch (e) {
