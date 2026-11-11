@@ -13,13 +13,12 @@ from tests.baostock_raw_fake import (
     SOURCE,
     conflict_world,
     day_row,
-    empty_resolutions,
     standard_world,
     write_day,
 )
 from tests.frames import table_frame
 from tools import baostock_merge as tool
-from wequant.data.merge import apply_merge, plan_merge, resolutions
+from wequant.data.merge import apply_merge, plan_merge
 from wequant.data.merge.assemble import BJ
 from wequant.data.raw import BaoStockRaw
 from wequant.data.schema import TABLES
@@ -35,14 +34,6 @@ CRITERIA = (
     "status_complete",
     "bj_frozen",
 )
-
-
-@pytest.fixture(autouse=True)
-def no_decisions(tmp_path, monkeypatch):
-    """The merge reads an empty resolutions file, never the user's packaged one."""
-    path = empty_resolutions(tmp_path)
-    monkeypatch.setattr(resolutions, "PACKAGED", path)
-    monkeypatch.setattr(tool, "PACKAGED", path)
 
 
 @pytest.fixture
