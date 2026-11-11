@@ -73,7 +73,7 @@ def build(out: Path, seed: int = SEED) -> dict:
         factors += events
     tables = _tables(days, bars, factors)
     meta = {"source": "demo", "seed": seed, "last_trade_date": days[-1].isoformat()}
-    Store(out, clock=_stamp).commit(meta, replace=tables)
+    Store(out, clock=_stamp).commit(meta, replace=tables, reason="demo")
     with tempfile.TemporaryDirectory() as cache:  # panel caches stay out of the demo home
         context = service.Context(out, Path(cache), clock=_stamp)
         service.data_check(service.CheckRequest(commit=True), context)

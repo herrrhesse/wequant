@@ -18,6 +18,7 @@ from wequant.service.explain import Explain, ExplainRequest, FactorScore, PoolCh
 from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest, expr_check, expr_eval
 from wequant.service.index_check import CountSpan, IndexCheck, IndexCheckRequest, IndexCoverage, data_index_check
 from wequant.service.issues import IssueCount, IssueRow, Issues, IssuesRequest, data_issues
+from wequant.service.labels import IssueKindLabel, Label, Labels, LabelsRequest, TemplateLabel, WarningLabel, labels
 from wequant.service.profile import ProfileReport, Stage
 from wequant.service.resolutions import (
     Decision,
@@ -98,6 +99,13 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "IssueKindLabel",
+    "Label",
+    "Labels",
+    "LabelsRequest",
+    "TemplateLabel",
+    "WarningLabel",
+    "labels",
     "Calendar",
     "CalendarRequest",
     "data_calendar",

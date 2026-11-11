@@ -7,7 +7,7 @@ import datetime as dt
 import polars as pl
 from pydantic import Field
 
-from wequant.service.base import Context, DataRequest, Model, manifest
+from wequant.service.base import Context, DataRequest, Model, manifest, named
 
 
 class IssuesRequest(DataRequest):
@@ -52,6 +52,8 @@ class Issues(Model):
     """The matching rows: their total, their counts and the first limit of them by (table, code, date, kind)."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     total: int
     counts: list[IssueCount]
     rows: list[IssueRow]
@@ -70,7 +72,7 @@ def data_issues(request: IssuesRequest, context: Context = Context()) -> Issues:
     listed = found.sort("table", "code", "date", "kind").head(request.limit)
     return Issues.model_validate(
         {
-            "data_version": pinned["version"],
+            **named(pinned),
             "total": found.height,
             "counts": counts.to_dicts(),
             "rows": listed.to_dicts(),

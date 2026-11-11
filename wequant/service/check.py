@@ -12,7 +12,7 @@ from wequant.data.store import Store, StoreLocked
 from wequant.rules.book import RuleBook, default_book
 from wequant.rules.check import KIND, missing_issues
 from wequant.rules.tables import CheckResult, check_store, limit_check_current
-from wequant.service.base import Check, Context, Model, manifest
+from wequant.service.base import Check, Context, Model, manifest, named
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.limit_report import report
 
@@ -31,6 +31,8 @@ class CheckReport(Check):
 
     data_version: int
     """Version checked."""
+    data_version_name: str
+    """Its display name."""
     committed: int | None
     """New version, or null if none was made."""
     current: bool
@@ -69,7 +71,7 @@ def data_check(request: CheckRequest, context: Context = Context()) -> CheckRepo
     current = limit_check_current(store.manifest(version), book)
     return CheckReport(
         ok=current and (request.commit or result.missing.height == result.stale.height == 0),
-        data_version=result.version,
+        **named(manifest(store, result.version)),
         committed=result.committed,
         current=current,
         rules=result.digest,

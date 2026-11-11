@@ -28,6 +28,18 @@ from wequant.data.files import atomic_write, parquet_bytes, utc_now
 from wequant.data.schema import TABLES, Table
 
 KEEP_VERSIONS = 3
+REASONS = (  # why a version was made; the service layer gives each a Chinese sentence
+    "seed_import",
+    "baostock_merge",
+    "limit_check",
+    "daily_update",
+    "names",
+    "version_import",
+    "demo",
+    "unspecified",
+    "legacy",  # read only: a version written before names and reasons
+)
+OWN_KEYS = ("version", "name", "reason", "created_at", "tables")  # manifest keys a commit sets, never carries
 _VERSIONED = re.compile(r"\.v([0-9]+)\.parquet\Z")
 
 if os.name == "nt":
@@ -192,8 +204,11 @@ class Store:
         replace_parts: dict[str, pl.DataFrame] | None = None,
         upsert: dict[str, pl.DataFrame] | None = None,
         timeout: float = 0,
+        reason: str = "unspecified",
+        reason_params: dict | None = None,
     ) -> CommitResult:
-        """Write a new version; every table changes through the same manifest swap.
+        """Write a new version named YYYYMMDD.N (its last trade date, the next number for that date) with why it was
+        made (a REASONS code and its params); every table changes through the same manifest swap.
 
         replace:        the table becomes exactly df.
         replace_parts:  each part df covers becomes df's rows for it; other parts are kept.
@@ -206,6 +221,9 @@ class Store:
         """
         # Compare meta as the manifest will hold it (a tuple comes back a list); bad meta fails before any write.
         meta = json.loads(json.dumps(meta))
+        if reason not in REASONS[:-1]:
+            raise ValueError(f"reason {reason!r} is not one of {REASONS[:-1]}")
+        why = {"code": reason, "params": json.loads(json.dumps(reason_params or {}))}
         writes: dict[str, tuple[str, pl.DataFrame]] = {}
         for mode, tables in (("replace", replace), ("replace_parts", replace_parts), ("upsert", upsert)):
             for name, df in (tables or {}).items():
@@ -227,8 +245,10 @@ class Store:
             if current is not None and new_tables == old_tables and _same_meta(current, meta):
                 result.version = current["version"]
                 return result
-            carried = {k: v for k, v in (current or {}).items() if k not in ("version", "created_at", "tables")}
-            manifest = {"version": result.version, "created_at": self.clock(), **carried, **meta, "tables": new_tables}
+            carried = {k: v for k, v in (current or {}).items() if k not in OWN_KEYS}
+            body, now = {**carried, **meta, "tables": new_tables}, self.clock()
+            name = self._next_name(_name_day(body | {"created_at": now}))
+            manifest = {"version": result.version, "name": name, "reason": why, "created_at": now, **body}
             data = json.dumps(manifest, indent=1, ensure_ascii=False).encode("utf-8") + b"\n"
             self._manifest_path(result.version).parent.mkdir(parents=True, exist_ok=True)
             atomic_write(self._manifest_path(result.version), data)
@@ -247,6 +267,12 @@ class Store:
             return doomed
 
     # ------------------------------------------------------------ internals
+
+    def _next_name(self, day: str) -> str:
+        """day.N with N one past the highest number a kept version of that day has, so it is new among them."""
+        names = (version_name(found) for v in self.versions() if (found := self.manifest(v)) is not None)
+        taken = [int(n.split(".")[1]) for n in names if n.split(".")[0] == day]
+        return f"{day}.{max(taken, default=0) + 1}"
 
     def _write_table(
         self, name: str, mode: str, df: pl.DataFrame, old_files: list[dict], result: CommitResult
@@ -355,6 +381,22 @@ def _date(value: dt.date | str | None) -> dt.date | None:
 
 def _year_in(year: int, start: dt.date | None, end: dt.date | None) -> bool:
     return (start is None or year >= start.year) and (end is None or year <= end.year)
+
+
+def version_name(manifest: dict) -> str:
+    """The version's display name: the one it was written with, else (a legacy version) its day and its own number,
+    which no cleanup of other versions can change."""
+    return manifest.get("name") or f"{_name_day(manifest)}.{manifest['version']}"
+
+
+def version_reason(manifest: dict) -> dict:
+    """{code, params} of why the version was made; legacy for one written before reasons."""
+    return manifest.get("reason") or {"code": "legacy", "params": {}}
+
+
+def _name_day(manifest: dict) -> str:
+    """YYYYMMDD of the version's last trade date (of its creation when it has none)."""
+    return str(manifest.get("last_trade_date") or manifest["created_at"][:10]).replace("-", "")
 
 
 def _same_meta(current: dict, meta: dict) -> bool:

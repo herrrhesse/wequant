@@ -149,11 +149,14 @@ def apply_merge(store: Store, plan: MergePlan, timeout: float = 0) -> CommitResu
         if current != plan.base_version:
             raise StalePlan(f"planned on version {plan.base_version}, the store is at version {current}")
         block = {**plan.meta["baostock_merge"], "code_version": code_version()}
+        applied = sum(plan.stats["resolutions"]["applied"].values())
         return store.commit(
             {**plan.meta, "baostock_merge": block},
             replace_parts=plan.replace_parts,
             replace=plan.replace,
             upsert=plan.upsert,
+            reason="baostock_merge",
+            reason_params={"days": len(plan.days), "resolutions": applied},
         )
 
 

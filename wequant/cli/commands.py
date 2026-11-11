@@ -614,6 +614,14 @@ def schema(
 
 
 @app.command
+def labels(
+    *, request: Annotated[service.LabelsRequest, FLAT] = service.LabelsRequest(), common: Common = COMMON
+) -> int:
+    """The Chinese name and sentence of every code the operations return: warnings, data issues, metrics, orders."""
+    return run(service.labels, request, common)
+
+
+@app.command
 def serve(
     *,
     host: str = "127.0.0.1",

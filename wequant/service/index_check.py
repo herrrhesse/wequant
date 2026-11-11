@@ -10,7 +10,7 @@ import numpy as np
 from wequant.expr.vocab import INDEXES, STORED_AS
 from wequant.panel import Panel, load_panel
 from wequant.panel.coverage import NOMINAL, count_spans
-from wequant.service.base import Check, Context, DataRequest, Model, manifest
+from wequant.service.base import Check, Context, DataRequest, Model, manifest, named
 
 
 class IndexCheckRequest(DataRequest):
@@ -49,6 +49,8 @@ class IndexCheck(Check):
     counted); ok is False when any index has an anomalous span."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     indexes: list[IndexCoverage]
 
 
@@ -58,7 +60,7 @@ def data_index_check(request: IndexCheckRequest, context: Context = Context()) -
     manifest(store, request.data_version)
     panel = load_panel(version=request.data_version, store=store, cache_dir=context.cache)
     indexes = [found for index in INDEXES if (found := _coverage(panel, index)) is not None]
-    return IndexCheck(ok=not any(i.spans for i in indexes), data_version=panel.version, indexes=indexes)
+    return IndexCheck(ok=not any(i.spans for i in indexes), **named(panel.manifest), indexes=indexes)
 
 
 def _coverage(panel: Panel, index: str) -> IndexCoverage | None:

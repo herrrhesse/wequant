@@ -71,17 +71,24 @@ class Entry:
         )
 
 
+READ_TEXTS = {  # the English text of each read warning, filled from its params
+    "strategy_version_changed": lambda p: (
+        f"saved under STRATEGY_VERSION {p['saved']}, read under {p['current']}: its meaning may differ"
+    ),
+    "meta_rebuilt": lambda p: (
+        f"meta.json disagreed with the version files on {p['versions']} versions; the files were read instead"
+    ),
+}
+
+
 def read_warnings(entry: Entry, version: Version) -> dict[str, tuple[str, dict]]:
     """code -> (text, params) of what reading this version cannot vouch for."""
     found = {}
     if version.strategy_version not in (None, STRATEGY_VERSION):
-        params = {"saved": version.strategy_version, "current": STRATEGY_VERSION}
-        text = f"saved under STRATEGY_VERSION {params['saved']}, read under {params['current']}: its meaning may differ"
-        found["strategy_version_changed"] = (text, params)
+        found["strategy_version_changed"] = {"saved": version.strategy_version, "current": STRATEGY_VERSION}
     if entry.rebuilt:
-        text = f"meta.json disagreed with the version files on {entry.rebuilt} versions; the files were read instead"
-        found["meta_rebuilt"] = (text, {"versions": entry.rebuilt})
-    return found
+        found["meta_rebuilt"] = {"versions": entry.rebuilt}
+    return {code: (READ_TEXTS[code](params), params) for code, params in found.items()}
 
 
 def strategy_hash(strategy: Strategy) -> str:
