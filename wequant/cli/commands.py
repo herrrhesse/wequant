@@ -587,8 +587,10 @@ def serve(
     home: Path | None = None,
     cache: Path | None = None,
     cache_limit: float = 8.0,
+    static: Path | None = None,
 ) -> int:
-    """Serve every operation over local HTTP (POST /api/<operation>) from one resident process, until Ctrl-C.
+    """Serve every operation over local HTTP (POST /api/<operation>) and the frontend at /, from one resident process,
+    until Ctrl-C.
 
     Parameters
     ----------
@@ -602,6 +604,8 @@ def serve(
         Panel cache root (default: HOME/cache).
     cache_limit
         GB of evaluated expressions kept in memory between requests.
+    static
+        The frontend build to serve at / (default: $WEQUANT_STATIC, else the repository's frontend/dist).
     """
     try:
         from wequant.api.server import run_server  # the server extra, imported only here
@@ -616,7 +620,7 @@ def serve(
         print(
             f"WARNING: serving on {host}: anyone who can reach it can read your data and run commands", file=sys.stderr
         )
-    run_server(Context.resident(home, cache, int(cache_limit * (1 << 30))), host, port)
+    run_server(Context.resident(home, cache, int(cache_limit * (1 << 30))), host, port, static)
     return Exit.OK
 
 
