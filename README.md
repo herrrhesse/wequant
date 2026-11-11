@@ -30,6 +30,8 @@ uv sync --extra baostock     # BaoStock data source
   write-once and re-run byte for byte.
 - `wequant/service/`: the operations: one function each, pydantic models in and out.
 - `wequant/cli/`: the `wequant` command; it only calls the service.
+- `wequant/api/`: `wequant serve`, the operations over local HTTP; every route is built from the operation list and,
+  like the command, only calls the service.
 - `tools/`: command-line jobs: fetch, merge, data checks and reports. `tools/investment_data/` is a temporary seed
   import and not part of the package.
 
@@ -173,6 +175,28 @@ A failure's `ErrorBody` holds `exit`, `name`, `message`, `detail` and `complete`
 `unknown_strategy`, `unknown_version`, `unknown_run`), its `loc` in the request (e.g. `["strategy", "filters", 2,
 "expr"]`) and, inside an expression, its `path`. One failure reports every field error at once; `complete` is false
 when rules that relate fields to each other could not run yet because a field failed.
+
+## The HTTP API (`wequant serve`)
+
+```bash
+uv sync --extra server                       # fastapi and uvicorn (the dev group includes them)
+uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl-C
+```
+
+- **One rule for every route:** operation `<name>` (as listed by `wequant schema`) is `POST /api/<name>`; the JSON body
+  is its request model (`{}` or an empty body for all defaults) and the response is its result model, byte for byte
+  what `wequant <command> --json` prints (without the final newline). The snapshot
+  `frontend/contract/service-models.schema.json` carries each operation's `method` and `path`. Adding an operation needs
+  no change in `wequant/api/`.
+- **Errors:** the body is the ErrorBody the CLI prints, with the status: USAGE 422 (a malformed body or invalid fields
+  included, located like pydantic), NOT_FOUND 404, UNREACHABLE 503, LOCKED 409, INTERNAL 500. A check that finds
+  problems (`data check`, `data index-check`) is a 200 with `ok: false`.
+- **One resident process:** evaluated expressions stay in memory between requests (`--cache-limit` GB, default 8);
+  panels come from the on-disk panel cache (`--cache`). Each request runs in a worker thread, so a backtest does not hold up others. A client that
+  disconnects cancels its backtest, which then archives nothing. Writes take the same locks as the CLI (409 when busy).
+- **Local only:** `--host` defaults to 127.0.0.1 and any other address prints a warning; there is no CORS. During
+  frontend development Vite proxies `/api` to the server. `--port` defaults to 8731; `/api/docs` shows the generated
+  OpenAPI document.
 
 ## Fetching BaoStock raw data
 

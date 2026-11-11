@@ -28,6 +28,9 @@ from wequant.version import code_version
 
 log = logging.getLogger("wequant")
 FLAT = Parameter(name="*")  # a request model's fields become the command's options
+DEFAULT_PORT = 8731  # wequant serve's port; README states it
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+SERVER_MODULES = ("fastapi", "uvicorn", "starlette", "anyio")  # what the server extra installs
 
 app = App(
     name="wequant",
@@ -574,6 +577,47 @@ def schema(
 ) -> int:
     """JSON Schema of every request, result and failure model; the frontend's types are generated from it."""
     return run(service.schema, request, common, human=render_schema)
+
+
+@app.command
+def serve(
+    *,
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_PORT,
+    home: Path | None = None,
+    cache: Path | None = None,
+    cache_limit: float = 8.0,
+) -> int:
+    """Serve every operation over local HTTP (POST /api/<operation>) from one resident process, until Ctrl-C.
+
+    Parameters
+    ----------
+    host
+        Address to bind; anything but the loopback lets other machines read your data.
+    port
+        Port to listen on.
+    home
+        Data root (default: $WEQUANT_HOME, else ~/.wequant).
+    cache
+        Panel cache root (default: HOME/cache).
+    cache_limit
+        GB of evaluated expressions kept in memory between requests.
+    """
+    try:
+        from wequant.api.server import run_server  # the server extra, imported only here
+    except ModuleNotFoundError as error:
+        if error.name not in SERVER_MODULES:
+            raise
+        print(
+            f"wequant serve: {error.name} is missing; install the server extra: uv sync --extra server", file=sys.stderr
+        )
+        return Exit.INTERNAL
+    if host not in LOOPBACK:
+        print(
+            f"WARNING: serving on {host}: anyone who can reach it can read your data and run commands", file=sys.stderr
+        )
+    run_server(Context.resident(home, cache, int(cache_limit * (1 << 30))), host, port)
+    return Exit.OK
 
 
 def run(

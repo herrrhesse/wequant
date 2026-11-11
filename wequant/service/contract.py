@@ -32,7 +32,7 @@ class SchemaRequest(Model):
 
 
 class OperationModels(Model):
-    """One operation and the names of its request and result models."""
+    """One operation, the names of its request and result models, and its HTTP route."""
 
     operation: str
     """The function in wequant.service, e.g. data_bars for wequant data bars."""
@@ -40,6 +40,15 @@ class OperationModels(Model):
     result: str
     available: bool
     """False: its models are fixed and its command is still to come."""
+    method: str
+    """HTTP method of its route under wequant serve: always POST, the request model as the JSON body."""
+    path: str
+    """Its route: /api/ and the operation's name, e.g. /api/data_bars."""
+
+
+def route(operation: str) -> tuple[str, str]:
+    """(method, path) of an operation's HTTP route: POST /api/<operation>, the one rule for every operation."""
+    return "POST", f"/api/{operation}"
 
 
 class ServiceSchema(Model):
@@ -75,7 +84,9 @@ def schema(request: SchemaRequest, context: Context = Context()) -> ServiceSchem
     extra = [(ErrorBody, "serialization"), (ProfileReport, "serialization")]
     _, document = models_json_schema([*models, *extra], schema_generator=Untitled)
     operations = [
-        OperationModels(operation=name, request=request.__name__, result=result.__name__, available=ready)
+        OperationModels(
+            operation=name, request=request.__name__, result=result.__name__, available=ready, **_route(name)
+        )
         for name, request, result, ready in rows
     ]
     return ServiceSchema.model_validate({"operations": operations, "$defs": document["$defs"]})
@@ -94,5 +105,11 @@ OPERATIONS = (
     explain,
     schema,
 )
+
+
+def _route(name: str) -> dict:
+    method, path = route(name)
+    return {"method": method, "path": path}
+
 
 PLANNED = ()  # (name, request, result) of operations whose models are fixed before their command lands; none now
