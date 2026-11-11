@@ -4,6 +4,8 @@ import type * as M from "./types.gen";
 /** Each operation's request and result model. */
 export interface Operations {
   data_status: { request: M.StatusRequest; result: M.DataStatus };
+  data_calendar: { request: M.CalendarRequest; result: M.Calendar };
+  data_securities: { request: M.SecuritiesRequest; result: M.Securities };
   data_bars: { request: M.BarsRequest; result: M.Bars };
   data_issues: { request: M.IssuesRequest; result: M.Issues };
   data_check: { request: M.CheckRequest; result: M.CheckReport };
@@ -28,6 +30,7 @@ export interface Operations {
   backtest: { request: M.BacktestRequest; result: M.BacktestResult };
   runs_list: { request: M.RunsListRequest; result: M.RunsPage };
   runs_show: { request: M.RunRequest; result: M.RunDetail };
+  runs_report: { request: M.RunRequest; result: M.RunReport };
   runs_rerun: { request: M.RunRequest; result: M.RunComparison };
   runs_diff: { request: M.RunDiffRequest; result: M.RunDiff };
   runs_orders: { request: M.OrdersRequest; result: M.OrdersPage };
@@ -42,6 +45,8 @@ export type Operation = keyof Operations;
 /** Each operation's HTTP route, as `wequant serve` declares it in the snapshot. */
 export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_status: { method: "POST", path: "/api/data_status" },
+  data_calendar: { method: "POST", path: "/api/data_calendar" },
+  data_securities: { method: "POST", path: "/api/data_securities" },
   data_bars: { method: "POST", path: "/api/data_bars" },
   data_issues: { method: "POST", path: "/api/data_issues" },
   data_check: { method: "POST", path: "/api/data_check" },
@@ -66,6 +71,7 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   backtest: { method: "POST", path: "/api/backtest" },
   runs_list: { method: "POST", path: "/api/runs_list" },
   runs_show: { method: "POST", path: "/api/runs_show" },
+  runs_report: { method: "POST", path: "/api/runs_report" },
   runs_rerun: { method: "POST", path: "/api/runs_rerun" },
   runs_diff: { method: "POST", path: "/api/runs_diff" },
   runs_orders: { method: "POST", path: "/api/runs_orders" },

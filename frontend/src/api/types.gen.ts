@@ -22,6 +22,8 @@ export interface ServiceModels {
   BacktestResult?: BacktestResult;
   Bars?: Bars;
   BarsRequest?: BarsRequest;
+  Calendar?: Calendar;
+  CalendarRequest?: CalendarRequest;
   CheckReport?: CheckReport;
   CheckRequest?: CheckRequest;
   ConditionSpec?: ConditionSpec;
@@ -89,6 +91,7 @@ export interface ServiceModels {
   RunDetail?: RunDetail;
   RunDiff?: RunDiff;
   RunDiffRequest?: RunDiffRequest;
+  RunReport?: RunReport;
   RunRequest?: RunRequest;
   RunRow?: RunRow;
   RunsListRequest?: RunsListRequest;
@@ -102,6 +105,9 @@ export interface ServiceModels {
   ScreenRequest?: ScreenRequest;
   ScreenResult?: ScreenResult;
   ScreenRow?: ScreenRow;
+  Securities?: Securities;
+  SecuritiesRequest?: SecuritiesRequest;
+  SecurityRow?: SecurityRow;
   SellReason?: SellReason;
   ServiceSchema?: ServiceSchema;
   ShowRequest?: ShowRequest;
@@ -765,6 +771,47 @@ export interface BarsRequest {
       | "list_days"
     )[]
   ];
+}
+/**
+ * A store version's trading days.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Calendar".
+ */
+export interface Calendar {
+  data_version: number;
+  /**
+   * The version's first trading day, whatever the range; null: an empty calendar.
+   */
+  first: string | null;
+  /**
+   * Its last trading day.
+   */
+  last: string | null;
+  /**
+   * The trading days in the range, ascending.
+   */
+  dates: string[];
+}
+/**
+ * Trading days within [start, end].
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "CalendarRequest".
+ */
+export interface CalendarRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  /**
+   * First day (default: the first trading day).
+   */
+  start?: string | null;
+  /**
+   * Last day (default: the last trading day).
+   */
+  end?: string | null;
 }
 /**
  * The check's counts and report; ok when a current check is recorded and, in a dry run, every breach is too.
@@ -2146,6 +2193,19 @@ export interface RunDiffRequest {
   b: string;
 }
 /**
+ * An archived run's Markdown report.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "RunReport".
+ */
+export interface RunReport {
+  id: string;
+  /**
+   * The text backtest attaches with report true, from the archive.
+   */
+  report: string;
+}
+/**
  * One archived run.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2375,6 +2435,51 @@ export interface ScreenRow {
   values: {
     [k: string]: number | null;
   };
+}
+/**
+ * The first limit matches and how many there are.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Securities".
+ */
+export interface Securities {
+  data_version: number;
+  total: number;
+  rows: SecurityRow[];
+}
+/**
+ * One listed or delisted code.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SecurityRow".
+ */
+export interface SecurityRow {
+  code: string;
+  /**
+   * null until a source provides names.
+   */
+  name: string | null;
+  exchange: string;
+  board: string;
+  first_date: string;
+  last_date: string;
+}
+/**
+ * Codes matching query, in code order.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SecuritiesRequest".
+ */
+export interface SecuritiesRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  /**
+   * A code prefix (600, 600000, 600000.SH; any case) or part of a name; empty: every code.
+   */
+  query?: string;
+  limit?: number;
 }
 /**
  * A JSON Schema document: $defs holds every service model by name, in alphabetical order.
