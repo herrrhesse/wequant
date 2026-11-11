@@ -123,6 +123,7 @@ class Context:
     progress: Callable[[Progress], None] | None = None  # told where a long run is
     cancel: Callable[[], bool] | None = None  # asked whether to stop a long run
     mark: Callable[[str], None] | None = None  # told as each stage of the call ends (--profile)
+    clock: Callable[[], str] | None = None  # stamps what the call writes; None: now (the demo home fixes it)
 
     @classmethod
     def resident(cls, home: Path | None = None, cache: Path | None = None, cache_bytes: int = 8 << 30) -> Context:
@@ -130,7 +131,7 @@ class Context:
         return cls(home, cache, expr_cache=Cache(cache_bytes))
 
     def store(self) -> Store:
-        return Store(self.home)
+        return Store(self.home, self.clock)
 
     def stage(self, name: str) -> None:
         """Stage name has ended."""
@@ -139,7 +140,7 @@ class Context:
 
     def library(self) -> Library:
         """The saved strategies of the data root."""
-        return Library(self.store().home / "strategies")
+        return Library(self.store().home / "strategies", self.clock)
 
 
 def manifest(store: Store, version: int | None = None) -> dict:

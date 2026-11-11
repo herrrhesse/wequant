@@ -17,7 +17,7 @@ import os
 import re
 import socket
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -102,8 +102,10 @@ def tables_digest(manifest: dict, names: Iterable[str] | None = None) -> str:
 
 
 class Store:
-    def __init__(self, home: Path | None = None):
+    def __init__(self, home: Path | None = None, clock: Callable[[], str] | None = None):
+        """The store at home (default: $WEQUANT_HOME); clock stamps each committed manifest (tests, the demo home)."""
         self.home = Path(home) if home is not None else wequant_home()
+        self.clock = clock or utc_now
         self._lock_depth = 0
 
     # ------------------------------------------------------------ reading
@@ -226,7 +228,7 @@ class Store:
                 result.version = current["version"]
                 return result
             carried = {k: v for k, v in (current or {}).items() if k not in ("version", "created_at", "tables")}
-            manifest = {"version": result.version, "created_at": _now(), **carried, **meta, "tables": new_tables}
+            manifest = {"version": result.version, "created_at": self.clock(), **carried, **meta, "tables": new_tables}
             data = json.dumps(manifest, indent=1, ensure_ascii=False).encode("utf-8") + b"\n"
             self._manifest_path(result.version).parent.mkdir(parents=True, exist_ok=True)
             atomic_write(self._manifest_path(result.version), data)
@@ -313,7 +315,7 @@ def exclusive(path: Path, timeout: float = 0) -> Iterator[None]:
         os.close(fd)
         raise
     try:
-        _write_fd(fd, json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "started": _now()}))
+        _write_fd(fd, json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "started": utc_now()}))
         yield
     finally:
         _write_fd(fd, "")
@@ -345,10 +347,6 @@ def _write_fd(fd: int, text: str) -> None:
     os.lseek(fd, 0, os.SEEK_SET)
     os.write(fd, text.encode("utf-8"))
     os.fsync(fd)
-
-
-def _now() -> str:
-    return utc_now()
 
 
 def _date(value: dt.date | str | None) -> dt.date | None:

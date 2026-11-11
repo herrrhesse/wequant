@@ -86,7 +86,7 @@ def test_a_run_read_returns_the_bytes_the_cli_prints(cli, market_home, cache, ar
 
 @pytest.mark.parametrize("argv, name, fields, root", WRITES, ids=[case[1] for case in WRITES])
 def test_a_write_returns_the_bytes_the_cli_prints(cli, library_home, cache, tmp_path, monkeypatch, argv, name, fields, root):  # fmt: skip
-    monkeypatch.setattr("wequant.strategy.library._now", lambda: "2026-11-11T00:00:00+00:00")
+    monkeypatch.setattr("wequant.strategy.library.utc_now", lambda: "2026-11-11T00:00:00+00:00")
     origin = {"library": library_home, "verified": library_home, "resolutions": library_home}[root]
     if root == "verified":
         service.data_verify_submit(service.VerifySubmitRequest(records=[RECORD]), Context(origin))
@@ -228,3 +228,10 @@ def test_the_frontend_build_is_served_at_the_root_and_the_api_stays_apart(home, 
 def test_without_a_build_the_root_says_how_to_build_it(home, tmp_path):
     response = TestClient(create_app(Context(home), static=tmp_path / "none")).get("/")
     assert response.status_code == 200 and "npm run build" in response.text
+
+
+def test_the_openapi_document_is_served_without_a_page_that_needs_the_internet(home):
+    client = TestClient(create_app(Context(home), static=home / "no-build"))
+    assert client.get("/api/openapi.json").status_code == 200
+    assert [client.get(path).status_code for path in ("/api/docs", "/api/redoc")] == [404, 404]
+    assert client.get("/redoc").text == client.get("/").text  # the frontend's page, not FastAPI's ReDoc
