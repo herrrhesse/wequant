@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { dataDelistings } from "../api/client";
+import { commandOf, useCall } from "../api/client";
 import type { DelistingRow } from "../api/types.gen";
 import { Card } from "../components/Card";
+import { Problem } from "../components/Problem";
 import { Seg } from "./strategy/shared";
 import { show } from "../format";
 import { t } from "../i18n";
@@ -14,13 +14,15 @@ const KINDS: Kind[] = ["all", "forced", "merger", "suspension", "unknown"];
 /** F-22: every delisted code of the store version, how it is classified and treated, and on what basis. */
 export function DelistingsSection() {
   const d = t.data.delistings;
-  const query = useQuery({ queryKey: ["data", "delistings"], queryFn: dataDelistings });
+  const query = useCall("data_delistings", {});
   const [kind, setKind] = useState<Kind>("all");
+  if (query.error) return <Card title={d.title}><Problem error={query.error} /></Card>;
   if (!query.data) return null;
-  const { data, command, pending } = query.data;
+  const data = query.data;
+  const command = commandOf("data_delistings", {});
   const rows = data.rows.filter((r) => kind === "all" || r.kind === kind);
   return (
-    <Card title={d.title} version={data.data_version} command={command} extra={pending ? <span className="badge warn">{d.pending}</span> : undefined}>
+    <Card title={d.title} version={data.data_version} command={command}>
       <div className="grid">
         <Stat label={d.total} value={data.counts.total} />
         <Stat label={d.approximate} value={data.counts.approximate} />
@@ -58,7 +60,7 @@ export function DelistingsSection() {
             {rows.map((r) => (
               <tr key={r.code} className={r.approximate ? "approx-row" : undefined}>
                 <td>
-                  <a className="link" href={href.stock(r.code)}>
+                  <a className="link" href={href.stock(r.code, { date: r.day, from: "delistings" })}>
                     {r.code}
                   </a>
                 </td>

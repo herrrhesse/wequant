@@ -8,9 +8,7 @@
     "build": "tsc -p . && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p .",
-    "gen:fixtures": "bash scripts/gen-fixtures.sh",
     "gen:types": "node scripts/gen-types.mjs",
-    "check:fixtures": "tsc -p tsconfig.fixtures.json",
     "test": "node --experimental-strip-types --no-warnings --test src/**/*.test.ts",
     "e2e": "node scripts/e2e.mjs"
   },

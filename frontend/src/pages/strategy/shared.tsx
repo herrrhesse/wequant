@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { operationAvailable } from "../../api/contract-info";
 import type { ErrorDetail } from "../../api/types.gen";
 import { t } from "../../i18n";
 import { concerns, strategyLoc, type Loc } from "../../strategy/locate";
@@ -98,8 +97,3 @@ export function StepCard({ n, title, children, disabled }: { n: number; title: s
   );
 }
 
-/** What to say while a backend result is missing: "pending" until the snapshot marks the operation available, then
- * "the command exists, the page connects with S5.1a" (the browser cannot call the CLI). */
-export function backendNote(operation: string, command: string): string {
-  return operationAvailable(operation) ? t.strategy.awaitingUi(command) : t.strategy.pending(command);
-}

@@ -1,18 +1,12 @@
-import {
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  useReactTable,
-  type ColumnFiltersState,
-} from "@tanstack/react-table";
-import { useMemo, useState } from "react";
-import type { IssuesFilter } from "../api/client";
-import { useDataIssues, useIssueFilters } from "../api/queries";
+import { createColumnHelper, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
+import { useState } from "react";
+import { commandOf, useCall, type Request } from "../api/client";
 import type { IssueCount, IssueRow } from "../api/types.gen";
 import { Card } from "../components/Card";
 import { Coded } from "../components/Coded";
+import { Problem } from "../components/Problem";
 import { prettyDetail, show } from "../format";
+import { useDebounced } from "../hooks";
 import { t } from "../i18n";
 import { href } from "../router";
 
@@ -23,52 +17,65 @@ const columns = [
   col.accessor("code", {
     header: t.data.issues.code,
     cell: (c) => (
-      <a className="link" href={href.stock(c.getValue())} title={t.data.issues.openStock}>
+      <a className="link" href={href.stock(c.getValue(), { date: c.row.original.date, from: "data" })} title={t.data.issues.openStock}>
         {c.getValue()}
       </a>
     ),
-    filterFn: (row, id, value: string) => String(row.getValue(id)).includes(value.trim().toUpperCase()),
   }),
-  col.accessor("date", {
-    header: t.data.issues.date,
-    cell: (c) => <span className="num">{c.getValue()}</span>,
-    filterFn: (row, id, value: [string, string]) => {
-      const d = String(row.getValue(id));
-      return (!value[0] || d >= value[0]) && (!value[1] || d <= value[1]);
-    },
-  }),
+  col.accessor("date", { header: t.data.issues.date, cell: (c) => <span className="num">{c.getValue()}</span> }),
   col.accessor("kind", { header: t.data.issues.kind, cell: (c) => <Coded code={c.getValue()} names={t.data.kinds} /> }),
   col.accessor("action", { header: t.data.issues.action, cell: (c) => <Coded code={c.getValue()} names={t.data.actions} /> }),
   col.accessor("detail", { header: t.data.issues.detail, cell: (c) => <div className="detail mono">{prettyDetail(c.getValue())}</div> }),
   col.accessor("source", { header: t.data.issues.source, cell: (c) => <span className="note">{c.getValue()}</span> }),
 ];
 
-const ALL: IssuesFilter = { table: null, kind: null };
-const same = (a: IssuesFilter, b: IssuesFilter) => a.table === b.table && a.kind === b.kind && (a.code ?? null) === (b.code ?? null);
+/** Rows per request; "load more" asks for more (data issues pages by limit, F-06). */
+const PAGE = 200;
 
-/** data_issues: counts by table, kind and action, and the rows of one table and kind. */
+interface Group {
+  table: string | null;
+  kind: string | null;
+}
+const same = (a: Group, b: Group) => a.table === b.table && a.kind === b.kind;
+
 interface Props {
   counts: IssueCount[];
   total: number;
   version: number;
-  /** Opened from a stock page: that code's issues, with the date range set to that day. */
+  /** Opened from a stock page: that code's issues, from that day. */
   focusCode: string | null;
   focusDate: string | null;
 }
 
+/** data_issues: counts by table, kind and action, and the matching rows; every filter is a backend request. */
 export function IssuesSection({ counts, total, version, focusCode, focusDate }: Props) {
-  const [filter, setFilter] = useState<IssuesFilter>(focusCode ? { ...ALL, code: focusCode } : ALL);
-  const issues = useDataIssues(filter);
-  const offered = useIssueFilters().data ?? [];
-  const has = (f: IssuesFilter) => offered.some((o) => same(o, f));
+  const [group, setGroup] = useState<Group>({ table: null, kind: null });
+  const [code, setCode] = useState(focusCode ?? "");
+  const [from, setFrom] = useState(focusDate ?? "");
+  const [to, setTo] = useState(focusDate ?? "");
+  const [limit, setLimit] = useState(PAGE);
+  const typed = useDebounced({ code: code.trim().toUpperCase(), from, to }, 300);
+  const request: Request<"data_issues"> = {
+    table: group.table,
+    kind: group.kind,
+    codes: typed.code ? [typed.code] : null,
+    start: typed.from || null,
+    end: typed.to || null,
+    limit,
+  };
+  const issues = useCall("data_issues", request, { placeholderData: (prev) => prev });
+  const pick = (g: Group) => {
+    setGroup(g);
+    setLimit(PAGE);
+  };
 
   return (
-    <Card title={t.data.issues.title} version={issues.data?.data.data_version ?? version} command={issues.data?.command}>
+    <Card title={t.data.issues.title} version={issues.data?.data_version ?? version} command={commandOf("data_issues", request)}>
       <p className="lead">{t.data.issues.lead}</p>
-      {filter.code && (
+      {focusCode && (
         <span className="chip">
-          {t.data.issues.focus(filter.code, focusDate)}
-          <a className="link" href={href.stock(filter.code)}>
+          {t.data.issues.focus(focusCode, focusDate)}
+          <a className="link" href={href.stock(focusCode, { date: focusDate, from: "data" })}>
             {t.data.issues.openStock}
           </a>
           <button type="button" onClick={() => (location.hash = href.data())}>
@@ -88,20 +95,14 @@ export function IssuesSection({ counts, total, version, focusCode, focusDate }: 
             </tr>
           </thead>
           <tbody>
-            <tr className="clickable" aria-selected={same(filter, ALL)} onClick={() => setFilter(ALL)}>
+            <tr className="clickable" aria-selected={same(group, { table: null, kind: null })} onClick={() => pick({ table: null, kind: null })}>
               <td colSpan={3}>{t.data.issues.all}</td>
               <td className="r num">{show(total)}</td>
             </tr>
             {counts.map((c) => {
-              const f = { table: c.table, kind: c.kind };
+              const g = { table: c.table, kind: c.kind };
               return (
-                <tr
-                  key={`${c.table}/${c.kind}/${c.action}`}
-                  className={has(f) ? "clickable" : undefined}
-                  aria-selected={same(filter, f)}
-                  title={has(f) ? undefined : t.data.issues.noFixture}
-                  onClick={() => has(f) && setFilter(f)}
-                >
+                <tr key={`${c.table}/${c.kind}/${c.action}`} className="clickable" aria-selected={same(group, g)} onClick={() => pick(g)}>
                   <td>{c.table}</td>
                   <td>
                     <Coded code={c.kind} names={t.data.kinds} />
@@ -116,40 +117,6 @@ export function IssuesSection({ counts, total, version, focusCode, focusDate }: 
           </tbody>
         </table>
       </div>
-      {issues.isError && <span className="note">{t.data.issues.noFixture}</span>}
-      {issues.data && (
-        <IssueRows
-          key={`${filter.table}/${filter.kind}/${filter.code}`}
-          rows={issues.data.data.rows}
-          total={issues.data.data.total}
-          date={filter.code ? focusDate : null}
-        />
-      )}
-    </Card>
-  );
-}
-
-function IssueRows({ rows, total, date }: { rows: IssueRow[]; total: number; date: string | null }) {
-  const [code, setCode] = useState("");
-  const [from, setFrom] = useState(date ?? "");
-  const [to, setTo] = useState(date ?? "");
-  const columnFilters = useMemo<ColumnFiltersState>(() => {
-    const f: ColumnFiltersState = [];
-    if (code.trim()) f.push({ id: "code", value: code });
-    if (from || to) f.push({ id: "date", value: [from, to] });
-    return f;
-  }, [code, from, to]);
-  const table = useReactTable({
-    data: rows,
-    columns,
-    state: { columnFilters },
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-  });
-  const shown = table.getRowModel().rows;
-
-  return (
-    <>
       <div className="filters">
         <label className="field">
           {t.data.issues.code}
@@ -163,41 +130,55 @@ function IssueRows({ rows, total, date }: { rows: IssueRow[]; total: number; dat
           {t.data.issues.to}
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
-        <span className="note">{t.data.issues.filterHint}</span>
       </div>
-      <span className="note">
-        {t.data.issues.shown(total, rows.length)}
-        {columnFilters.length > 0 && ` · ${t.data.issues.filtered(shown.length)}`} · {t.data.issues.pagingNote}
-      </span>
-      <div className="tbl-wrap">
-        <table className="tbl">
-          <thead>
-            {table.getHeaderGroups().map((g) => (
-              <tr key={g.id}>
-                {g.headers.map((h) => (
-                  <th key={h.id}>{flexRender(h.column.columnDef.header, h.getContext())}</th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {shown.map((r) => (
-              <tr key={r.id}>
-                {r.getVisibleCells().map((c) => (
-                  <td key={c.id}>{flexRender(c.column.columnDef.cell, c.getContext())}</td>
-                ))}
-              </tr>
-            ))}
-            {shown.length === 0 && (
-              <tr>
-                <td colSpan={columns.length} className="note">
-                  {t.data.issues.empty}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </>
+      {issues.error && <Problem error={issues.error} />}
+      {issues.data && (
+        <div className={issues.isPlaceholderData ? "pending" : undefined}>
+          <span className="note">{t.data.issues.shown(issues.data.total, issues.data.rows.length)}</span>
+          <IssueRows rows={issues.data.rows} />
+          {issues.data.rows.length < issues.data.total && (
+            <button type="button" className="cmd" onClick={() => setLimit(limit + PAGE)}>
+              {t.data.issues.more}
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function IssueRows({ rows }: { rows: IssueRow[] }) {
+  const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
+  const shown = table.getRowModel().rows;
+  return (
+    <div className="tbl-wrap">
+      <table className="tbl">
+        <thead>
+          {table.getHeaderGroups().map((g) => (
+            <tr key={g.id}>
+              {g.headers.map((h) => (
+                <th key={h.id}>{flexRender(h.column.columnDef.header, h.getContext())}</th>
+              ))}
+            </tr>
+          ))}
+        </thead>
+        <tbody>
+          {shown.map((r) => (
+            <tr key={r.id}>
+              {r.getVisibleCells().map((c) => (
+                <td key={c.id}>{flexRender(c.column.columnDef.cell, c.getContext())}</td>
+              ))}
+            </tr>
+          ))}
+          {shown.length === 0 && (
+            <tr>
+              <td colSpan={columns.length} className="note">
+                {t.data.issues.empty}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -1,15 +1,17 @@
-// 回测 → 运行详情: runs show plus the run's orders, anomalies, days, rerun and report fixtures. Every number and curve
-// is a backend column (daily, periods, metrics); the page converts units and lays out, nothing more.
-import { useQuery } from "@tanstack/react-query";
+// 回测 → 运行详情: runs show, orders, anomalies, a day, rerun and the report, each a backend request. Every number and
+// curve is a backend column (daily, periods, metrics); the page converts units and lays out, nothing more.
+import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import { runBundle, runDay, runExplain, runExplainCodes, type RunBundle } from "../../api/runs";
-import type { DailyRow, OrderRow, RunDetail } from "../../api/types.gen";
+import { commandOf, useCall, useCallMutation, type Request } from "../../api/client";
+import type { BacktestResult, DailyRow, OrderRow, RunDetail } from "../../api/types.gen";
+import { Problem } from "../../components/Problem";
 import { Card } from "../../components/Card";
 import { Command } from "../../components/Command";
 import { cssVar, EChart, type ChartOption } from "../../components/EChart";
 import { VirtualTable } from "../../components/VirtualTable";
 import { localTime } from "../../format";
+import { useRunningSeconds } from "../../hooks";
 import { t } from "../../i18n";
 import { href } from "../../router";
 import { metricShown, percent, shares } from "../../runs/display";
@@ -42,14 +44,21 @@ const KPIS = [
 ];
 
 export function RunPage({ id, day, look, conv }: { id: string; day: string | null; look: string; conv: "cn" | "intl" }) {
-  const bundle = useQuery({ queryKey: ["runs", "bundle", id], queryFn: () => runBundle(id) });
-  if (bundle.error) return <main className="page"><a className="link" href={href.backtest()}>{r.back}</a><p className="note">{r.noFixture(id)}</p></main>;
-  if (!bundle.data) return <main className="page"><p className="note">{t.app.loading}</p></main>;
-  return <RunView b={bundle.data} day={day} look={look} conv={conv} />;
+  const show = useCall("runs_show", { id });
+  if (show.error)
+    return (
+      <main className="page">
+        <a className="link" href={href.backtest()}>
+          {r.back}
+        </a>
+        <Problem error={show.error} />
+      </main>
+    );
+  if (!show.data) return <main className="page"><p className="note">{t.app.loading}</p></main>;
+  return <RunView run={show.data} day={day} look={look} conv={conv} />;
 }
 
-function RunView({ b, day, look, conv }: { b: RunBundle; day: string | null; look: string; conv: "cn" | "intl" }) {
-  const run = b.show.data;
+function RunView({ run, day, look, conv }: { run: RunDetail; day: string | null; look: string; conv: "cn" | "intl" }) {
   const pick = (d: string) => (location.hash = href.run(run.id, d));
   return (
     <main className="page">
@@ -62,20 +71,20 @@ function RunView({ b, day, look, conv }: { b: RunBundle; day: string | null; loo
           {run.start} ~ {run.end}
         </span>
       </div>
-      <Info run={run} command={b.show.command} />
+      <Info run={run} command={commandOf("runs_show", { id: run.id })} />
       <Kpis run={run} />
       <Curves daily={run.daily} look={look} onPick={pick} selected={day} />
       <Periods run={run} look={look} conv={conv} />
-      <Orders b={b} />
+      <Orders run={run} />
       <Delisted run={run} />
-      <Anomalies b={b} />
+      <Anomalies run={run} />
       <Card title={r.warnings}>
         <WarningList warnings={run.warnings} empty={t.picks.noWarnings} />
       </Card>
-      <Day id={run.id} day={day} days={b.days} onPick={pick} />
+      <Day run={run} day={day} onPick={pick} />
       <div className="row2">
-        <Rerun b={b} />
-        <Report b={b} />
+        <Rerun id={run.id} />
+        <Report id={run.id} />
       </div>
     </main>
   );
@@ -326,16 +335,18 @@ function Periods({ run, look, conv }: { run: RunDetail; look: string; conv: "cn"
 
 type OrderFilter = { status: "all" | "rejected"; reason: string };
 
-function Orders({ b }: { b: RunBundle }) {
-  const counts = b.show.data.orders;
-  const all = useMemo(() => b.orders.flatMap((o) => o.data.rows), [b.orders]);
-  const total = b.orders[0]?.data.total ?? 0;
+/** Rows per page of runs orders (its limit is at most 500). */
+const ORDERS_PAGE = 500;
+
+function Orders({ run }: { run: RunDetail }) {
+  const counts = run.orders;
   const [filter, setFilter] = useState<OrderFilter>({ status: "all", reason: "" });
-  // Selection only: the backend's rows that match the filter.
-  const rows = useMemo(
-    () => all.filter((o) => (filter.status === "all" || o.status === "rejected") && (!filter.reason || o.reason === filter.reason)),
-    [all, filter],
-  );
+  const [offset, setOffset] = useState(0);
+  const request: Request<"runs_orders"> = { id: run.id, status: filter.status === "rejected" ? "rejected" : null, limit: ORDERS_PAGE, offset };
+  const page = useCall("runs_orders", request, { placeholderData: (prev) => prev });
+  const total = page.data?.total ?? 0;
+  // Selection only: the page's backend rows with that reason (runs orders filters by status, not by reason).
+  const rows = useMemo(() => (page.data?.rows ?? []).filter((o) => !filter.reason || o.reason === filter.reason), [page.data, filter.reason]);
   const columns = useMemo<ColumnDef<OrderRow, unknown>[]>(
     () => [
       { header: r.ocols.date, accessorKey: "date", meta: { className: "num" } },
@@ -360,7 +371,7 @@ function Orders({ b }: { b: RunBundle }) {
     [],
   );
   return (
-    <Card title={r.orders} command={b.orders[0]?.command}>
+    <Card title={r.orders} command={commandOf("runs_orders", request)}>
       <p className="lead">{r.ordersCounts(counts.total, counts.filled, counts.partial, counts.rejected)}</p>
       <p className="note">
         {r.rejectedBy}：
@@ -377,7 +388,15 @@ function Orders({ b }: { b: RunBundle }) {
       <div className="filters">
         <div className="seg" role="group" aria-label={r.ordersFilter}>
           {(["all", "rejected"] as const).map((s) => (
-            <button key={s} type="button" aria-pressed={filter.status === s} onClick={() => setFilter({ ...filter, status: s })}>
+            <button
+              key={s}
+              type="button"
+              aria-pressed={filter.status === s}
+              onClick={() => {
+                setFilter({ ...filter, status: s });
+                setOffset(0);
+              }}
+            >
               {s === "all" ? r.allOrders : r.rejectedOnly}
             </button>
           ))}
@@ -393,9 +412,26 @@ function Orders({ b }: { b: RunBundle }) {
           </select>
         </label>
       </div>
-      <span className="note">{r.ordersShown(rows.length, total)}</span>
-      <VirtualTable rows={rows} columns={columns} rowKey={(o, i) => `${o.date}/${o.code}/${o.side}/${i}`} height={420} label={r.orders} />
-      {b.rejected && filter.status === "rejected" && <Command command={b.rejected.command} />}
+      {page.error && <Problem error={page.error} />}
+      <div className="cond-row">
+        <span className="note">{r.ordersPage(offset + 1, Math.min(offset + ORDERS_PAGE, total), total)}</span>
+        <button type="button" className="cmd" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - ORDERS_PAGE))}>
+          {r.prevPage}
+        </button>
+        <button type="button" className="cmd" disabled={offset + ORDERS_PAGE >= total} onClick={() => setOffset(offset + ORDERS_PAGE)}>
+          {r.nextPage}
+        </button>
+      </div>
+      <div className={page.isPlaceholderData ? "pending" : undefined}>
+        <VirtualTable
+          rows={rows}
+          columns={columns}
+          rowKey={(o, i) => `${o.date}/${o.code}/${o.side}/${i}`}
+          onRow={(o) => (location.hash = href.stock(o.code, { date: o.date, run: run.id, from: "run" }))}
+          height={420}
+          label={r.orders}
+        />
+      </div>
     </Card>
   );
 }
@@ -440,11 +476,13 @@ function Delisted({ run }: { run: RunDetail }) {
   );
 }
 
-function Anomalies({ b }: { b: RunBundle }) {
-  const a = b.show.data.anomalies;
-  const rows = b.anomalies?.data.rows ?? a?.sample ?? [];
+function Anomalies({ run }: { run: RunDetail }) {
+  const a = run.anomalies;
+  const request: Request<"runs_anomalies"> = { id: run.id, limit: 500 };
+  const page = useCall("runs_anomalies", a ? request : null);
+  const rows = page.data?.rows ?? a?.sample ?? [];
   return (
-    <Card title={r.anomalies} command={b.anomalies?.command}>
+    <Card title={r.anomalies} command={a ? commandOf("runs_anomalies", request) : undefined}>
       <span className="note">{r.anomaliesNote}</span>
       {a ? (
         <>
@@ -463,7 +501,7 @@ function Anomalies({ b }: { b: RunBundle }) {
               .join(" · ")}
           </p>
           <AnomalyTable rows={rows} />
-          {b.anomalies && <span className="note">{r.ordersShown(b.anomalies.data.rows.length, b.anomalies.data.total)}</span>}
+          {page.data && <span className="note">{r.ordersShown(page.data.rows.length, page.data.total)}</span>}
         </>
       ) : (
         <span className="note">{r.anomaliesNone}</span>
@@ -472,26 +510,31 @@ function Anomalies({ b }: { b: RunBundle }) {
   );
 }
 
-function Day({ id, day, days, onPick }: { id: string; day: string | null; days: string[]; onPick: (d: string) => void }) {
-  const shown = day ?? days[0] ?? null;
-  const q = useQuery({ queryKey: ["runs", id, "day", shown], queryFn: () => (shown ? runDay(id, shown) : Promise.resolve(null)) });
-  const codes = useQuery({ queryKey: ["runs", id, "explain-codes", shown], queryFn: () => (shown ? runExplainCodes(id, shown) : Promise.resolve([])) });
+function Day({ run, day, onPick }: { run: RunDetail; day: string | null; onPick: (d: string) => void }) {
+  const id = run.id;
+  const shown = day;
+  const request: Request<"runs_day"> | null = shown ? { id, date: shown } : null;
+  const q = useCall("runs_day", request);
+  const [explained, setExplained] = useState<string | null>(null);
+  const first = run.daily[0]?.date;
+  const last = run.daily[run.daily.length - 1]?.date;
   return (
-    <Card title={`${r.day}${shown ? ` · ${shown}` : ""}`} command={q.data?.command}>
+    <section className="card" aria-label={r.day} data-testid="day">
+      <div className="card-head">
+        <h2>{`${r.day}${shown ? ` · ${shown}` : ""}`}</h2>
+        <div className="card-meta">{request && <Command command={commandOf("runs_day", request)} />}</div>
+      </div>
       <div className="cond-row">
         <span className="note">{r.dayPick}</span>
-        {days.map((d) => (
-          <button key={d} type="button" className="cmd" aria-pressed={d === shown} onClick={() => onPick(d)}>
-            {d}
-          </button>
-        ))}
+        <input type="date" aria-label={r.day} value={shown ?? ""} min={first} max={last} onChange={(e) => e.target.value && onPick(e.target.value)} />
       </div>
-      {shown && !q.isLoading && !q.data && <p className="approx-note">{r.dayNone(shown)}</p>}
+      {q.error && <Problem error={q.error} />}
+      {!shown && <span className="note">{r.dayHint}</span>}
       {q.data && (
         <>
           <span className="note">
-            {r.dayEquity(yuan(q.data.data.equity), yuan(q.data.data.cash))}
-            {!q.data.data.decision_day && ` · ${r.dayNotDecision}`}
+            {r.dayEquity(yuan(q.data.equity), yuan(q.data.cash))}
+            {!q.data.decision_day && ` · ${r.dayNotDecision}`}
           </span>
           <div className="row2">
             <div>
@@ -507,11 +550,15 @@ function Day({ id, day, days, onPick }: { id: string; day: string | null; days: 
                   </tr>
                 </thead>
                 <tbody>
-                  {q.data.data.positions.map((p) => {
+                  {q.data.positions.map((p) => {
                     const s = shares(p.shares);
                     return (
                       <tr key={p.code}>
-                        <td>{p.code}</td>
+                        <td>
+                          <a className="link" href={href.stock(p.code, { date: shown, run: id, from: "day" })}>
+                            {p.code}
+                          </a>
+                        </td>
                         <td className="r num" title={s.title}>
                           {s.text}
                         </td>
@@ -523,9 +570,10 @@ function Day({ id, day, days, onPick }: { id: string; day: string | null; days: 
                 </tbody>
               </table>
             </div>
-            {q.data.data.decision_day && (
+            {q.data.decision_day && (
               <div>
                 <h3 className="sub-h">{r.dayDecisions}</h3>
+                <span className="note">{r.explainHint}</span>
                 <span className="note">— = {r.scoreNone}</span>
                 <table className="tbl">
                   <thead>
@@ -541,9 +589,11 @@ function Day({ id, day, days, onPick }: { id: string; day: string | null; days: 
                     </tr>
                   </thead>
                   <tbody>
-                    {q.data.data.decisions.map((d) => (
-                      <tr key={d.code}>
-                        <td>{d.code}</td>
+                    {q.data.decisions.map((d) => (
+                      <tr key={d.code} className="clickable" aria-selected={explained === d.code || undefined} onClick={() => setExplained(d.code)}>
+                        <td>
+                          <span className="link">{d.code}</span>
+                        </td>
                         <td>{t.picks.roles[d.role]}</td>
                         <td className="r num">{d.rank ?? "—"}</td>
                         <td className="r num">{d.score === null ? "—" : d.score.toFixed(3)}</td>
@@ -562,7 +612,7 @@ function Day({ id, day, days, onPick }: { id: string; day: string | null; days: 
             )}
           </div>
           <h3 className="sub-h">{r.dayOrders}</h3>
-          {q.data.data.orders.length ? (
+          {q.data.orders.length ? (
             <table className="tbl">
               <thead>
                 <tr>
@@ -577,7 +627,7 @@ function Day({ id, day, days, onPick }: { id: string; day: string | null; days: 
                 </tr>
               </thead>
               <tbody>
-                {q.data.data.orders.map((o, i) => (
+                {q.data.orders.map((o, i) => (
                   <tr key={`${o.code}/${o.side}/${i}`}>
                     <td>{o.code}</td>
                     <td>{r.sides[o.side]}</td>
@@ -594,57 +644,64 @@ function Day({ id, day, days, onPick }: { id: string; day: string | null; days: 
           ) : (
             <span className="note">{t.common.none}</span>
           )}
-          {(codes.data ?? []).map((code) => (
-            <RunExplain key={code} id={id} date={shown!} code={code} />
-          ))}
+          {explained && <RunExplain key={explained} id={id} date={shown!} code={explained} />}
         </>
       )}
-    </Card>
+    </section>
   );
 }
 
 function RunExplain({ id, date, code }: { id: string; date: string; code: string }) {
-  const q = useQuery({ queryKey: ["runs", id, "explain", date, code], queryFn: () => runExplain(id, date, code) });
-  if (!q.data) return null;
+  const request: Request<"explain"> = { run: id, code, date };
+  const q = useCall("explain", request);
   return (
-    <details className="sources">
-      <summary>
+    <div className="card inset">
+      <h3 className="sub-h">
         {r.explain} · {code}
-      </summary>
-      <Chain explain={q.data.data} command={q.data.command} />
-    </details>
+      </h3>
+      {q.error ? <Problem error={q.error} /> : q.data ? <Chain explain={q.data} command={commandOf("explain", request)} /> : <span className="note">{t.app.loading}</span>}
+    </div>
   );
 }
 
-function Rerun({ b }: { b: RunBundle }) {
+function Rerun({ id }: { id: string }) {
+  const rerun = useCallMutation("runs_rerun");
+  const seconds = useRunningSeconds(rerun.isPending);
+  const result = rerun.data;
   return (
-    <Card title={r.rerun} command={b.rerun?.command}>
+    <Card title={r.rerun} command={commandOf("runs_rerun", { id })}>
       <span className="note">{r.rerunNote}</span>
-      {b.rerun ? (
-        <>
-          <p className={b.rerun.data.identical ? "lead" : "approx-note"}>{b.rerun.data.identical ? r.identical : r.different}</p>
-          {Object.entries(b.rerun.data.differences).map(([file, what]) => (
+      <div className="cond-row">
+        <button type="button" className="cmd" disabled={rerun.isPending} onClick={() => rerun.mutate({ id })}>
+          {rerun.isPending ? r.rerunning(seconds) : r.rerunButton}
+        </button>
+      </div>
+      {rerun.error && <Problem error={rerun.error} />}
+      {result && (
+        <div data-testid="rerun">
+          <p className={result.identical ? "lead" : "approx-note"}>{result.identical ? r.identical : r.different}</p>
+          {Object.entries(result.differences).map(([file, what]) => (
             <div key={file} className="note mono">
               {file}: {what}
             </div>
           ))}
-          {b.rerun.data.notes.map((n) => (
+          {result.notes.map((n) => (
             <div key={n} className="note">
               {n}
             </div>
           ))}
-        </>
-      ) : (
-        <span className="note">{r.noRerun}</span>
+        </div>
       )}
     </Card>
   );
 }
 
-function Report({ b }: { b: RunBundle }) {
+function Report({ id }: { id: string }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const text = b.report?.data.report ?? null;
+  // Only the backtest that made this run returns a report (F-28); the settings form leaves it in the cache.
+  const result = useQueryClient().getQueryData<BacktestResult>(["backtest_report", id]);
+  const text = result?.report ?? null;
   const copy = async () => {
     if (!text) return;
     try {
@@ -656,7 +713,7 @@ function Report({ b }: { b: RunBundle }) {
     }
   };
   return (
-    <Card title={r.report} command={b.report?.command}>
+    <Card title={r.report}>
       {text ? (
         <>
           <span className="note">{r.reportNote}</span>

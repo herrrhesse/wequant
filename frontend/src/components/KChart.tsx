@@ -22,6 +22,8 @@ interface Props {
   /** One EvalResult per moving-average window, in the price mode shown. */
   ma: { n: number; result: EvalResult }[];
   issues: IssueRow[];
+  /** A run's orders of this code (runs orders --code): marked 买 / 卖 on their fill day. */
+  trades?: { date: string; side: "buy" | "sell"; status: string }[];
   /** A date to scroll into view, e.g. when opened from a data issue. */
   focus: string | null;
   /** Changes when the theme or the up/down colours change, so the chart re-reads its colours. */
@@ -201,7 +203,7 @@ function runs(rows: Row[], test: (r: Row) => boolean): [number, number][] {
   return out;
 }
 
-export function KChart({ rows, mode, ma, issues, focus, look, onHover, onIssue, onRendered }: Props) {
+export function KChart({ rows, mode, ma, issues, trades = [], focus, look, onHover, onIssue, onRendered }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const hover = useRef(onHover);
   const issue = useRef(onIssue);
@@ -331,6 +333,22 @@ export function KChart({ rows, mode, ma, issues, focus, look, onHover, onIssue, 
       mark(i, y, { text: `! ${t.stock.mark.issue}`, color: "#ffffff", background: warn, below: true, date: is.date });
     }
 
+    // A run's fills: buy below the bar, sell above; a rejected order is drawn hollow (muted).
+    const muted = css("--muted");
+    for (const tr of trades) {
+      const i = index.get(tr.date);
+      const d = i === undefined ? undefined : data[i];
+      if (i === undefined || !d) continue;
+      const rejected = tr.status === "rejected";
+      const buy = tr.side === "buy";
+      mark(i, buy ? d.low : d.high, {
+        text: (buy ? t.stock.mark.buy : t.stock.mark.sell) + (rejected ? t.stock.mark.rejected : ""),
+        color: "#ffffff",
+        background: rejected ? muted : buy ? up : down,
+        below: buy,
+      });
+    }
+
     chart.subscribeAction("onCrosshairChange", (raw) => {
       const c = raw as Crosshair | undefined;
       if (c?.dataIndex !== undefined) hover.current(c.dataIndex);
@@ -341,7 +359,7 @@ export function KChart({ rows, mode, ma, issues, focus, look, onHover, onIssue, 
       ro.disconnect();
       dispose(el);
     };
-  }, [rows, mode, ma, issues, focus, look, onRendered]);
+  }, [rows, mode, ma, issues, trades, focus, look, onRendered]);
 
   return <div ref={ref} className="kchart" />;
 }

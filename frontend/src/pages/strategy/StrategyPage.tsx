@@ -1,39 +1,69 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { dirtyState, summarySegments } from "../../strategy/summary";
-import { exampleError, strategyExamples, summarizeStrategy, validateStrategy } from "../../api/strategy";
+import { useEffect, useMemo, useState } from "react";
+import { commandOf, useCall, useCallMutation, type Request } from "../../api/client";
+import { ApiError } from "../../api/http";
 import type { ErrorBody, StrategySpec } from "../../api/types.gen";
 import { Card } from "../../components/Card";
 import { Command } from "../../components/Command";
+import { Problem } from "../../components/Problem";
+import { localTime } from "../../format";
+import { useDebounced } from "../../hooks";
 import { t } from "../../i18n";
-import { useDraft } from "../../strategy/draft";
+import { href } from "../../router";
+import { useDraft, type Origin } from "../../strategy/draft";
 import { jsonLines, strategyLoc } from "../../strategy/locate";
+import { dirtyState, summarySegments } from "../../strategy/summary";
 import { FiltersEditor } from "./filters";
-import { ErrorsContext, Seg, StepCard, backendNote, locAttr } from "./shared";
+import { ErrorsContext, Seg, StepCard, locAttr } from "./shared";
 import { FactorsStep, PoolStep, TradeStep } from "./steps";
 
-/** The strategy editor: five steps over one StrategySpec draft; every judgement on it comes from the backend. */
-export function StrategyPage() {
+/** Wait after the last edit before asking the backend (strategy validate and summary). */
+const DEBOUNCE_MS = 300;
+
+/** The strategy editor: five steps over one StrategySpec draft; every judgement on it comes from the backend, live. */
+export function StrategyPage({ id, n }: { id: string | null; n: number | null }) {
   const s = t.strategy;
-  const [draft, setDraft] = useDraft();
+  const origin: Origin | null = useMemo(() => (id ? { id, n } : null), [id, n]);
+  const { draft, setDraft, restored } = useDraft(origin);
   const [view, setView] = useState<"visual" | "code">("visual");
+  const [showVersions, setShowVersions] = useState(false);
+
+  // A saved version: loaded into the draft unless this browser holds edits made from it.
+  const shown = useCall("strategy_show", id ? { id, n } : null);
   const [name, setName] = useState("");
-  const [shownError, setShownError] = useState<ErrorBody | null>(null);
-  const validation = useQuery({ queryKey: ["strategy", "validate", draft], queryFn: () => validateStrategy(draft) });
-  const summary = useQuery({ queryKey: ["strategy", "summary", draft], queryFn: () => summarizeStrategy(draft) });
-  const examples = useQuery({ queryKey: ["strategy", "examples"], queryFn: strategyExamples }).data ?? [];
-  const check = validation.data?.state === "ok" ? validation.data.data : null;
-  // The backend's ErrorBody for this draft (a local example), else the synthetic demonstration when shown.
-  const realError = validation.data?.state === "error" ? validation.data.error : null;
-  const error = realError ?? shownError;
+  useEffect(() => {
+    if (!shown.data) return;
+    setName(shown.data.name);
+    if (!restored) setDraft(shown.data.strategy);
+    // Load once per opened version.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown.data]);
+
+  const settled = useDebounced(draft, DEBOUNCE_MS);
+  const request: Request<"strategy_validate"> = { strategy: settled };
+  const keep = { placeholderData: <T,>(prev: T | undefined) => prev };
+  const validation = useCall("strategy_validate", request, keep);
+  const summary = useCall("strategy_summary", request, keep);
+  // A result belongs to the request it answered; while the draft moved on it is shown as outdated, never as current.
+  const current = JSON.stringify(settled) === JSON.stringify(draft) && !validation.isPlaceholderData;
+  const usage = validation.error instanceof ApiError && validation.error.status === 422 ? validation.error.body : null;
+  const error: ErrorBody | null = current ? usage : null;
   const details = error?.detail ?? [];
-  const command = `echo '${JSON.stringify(draft)}' | wequant strategy validate --strategy - --json`;
+  const check = current && !validation.error ? (validation.data ?? null) : null;
+
+  const save = useCallMutation("strategy_save", ["strategy_list", "strategy_versions", "strategy_validate"]);
+  const archive = useCallMutation("strategy_archive", ["strategy_list", "strategy_versions"]);
+  const saveRequest: Request<"strategy_save"> = { strategy: draft, id: id, name: name.trim() || null };
+  const doSave = () =>
+    save.mutate(saveRequest, {
+      onSuccess: (v) => {
+        if (v.id !== id || v.n !== n) location.hash = href.strategy(v.id, v.n);
+      },
+    });
 
   const locate = (loc: (string | number)[]) => {
     const target = strategyLoc(loc);
-    // The control registered at the longest prefix of the error's path.
-    for (let n = target.length; n >= 0; n--) {
-      const el = document.querySelector(`[data-loc="${CSS.escape(locAttr(target.slice(0, n)))}"]`);
+    for (let k = target.length; k >= 0; k--) {
+      const el = document.querySelector(`[data-loc="${CSS.escape(locAttr(target.slice(0, k)))}"]`);
       if (el) {
         el.scrollIntoView({ block: "center", behavior: "smooth" });
         return;
@@ -47,30 +77,44 @@ export function StrategyPage() {
         <h1>{s.title}</h1>
         <div className="card-meta">
           <input className="name-input" aria-label={s.name} placeholder={s.namePlaceholder} value={name} onChange={(e) => setName(e.target.value)} />
-          <span className="badge warn">{s.unsaved}</span>
-          <button type="button" className="cmd" disabled title={s.saveWhy}>
-            {s.save}
+          {id && <span className="badge">{s.opened(id, shown.data?.n ?? n)}</span>}
+          <button type="button" className="btn small" onClick={doSave} disabled={save.isPending || !!usage}>
+            {save.isPending ? s.saving : s.save}
           </button>
-          <button type="button" className="cmd" disabled title={s.saveWhy}>
+          <button type="button" className="cmd" disabled={!id} onClick={() => setShowVersions(!showVersions)} aria-pressed={showVersions}>
             {s.versions}
           </button>
+          <OpenSaved current={id} />
           <button type="button" className="cmd" disabled title={s.templateWhy}>
             {s.template}
           </button>
           <Seg label={s.code} value={view} options={[["visual", s.visual], ["code", s.code]]} onChange={setView} />
-          <button type="button" className="cmd" onClick={() => setDraft({})}>
-            {s.clear}
+          <button
+            type="button"
+            className="cmd"
+            onClick={() => {
+              setDraft({});
+              location.hash = href.strategy();
+            }}
+          >
+            {s.newStrategy}
           </button>
         </div>
       </div>
-      <p className="note">
-        {s.versionRule} · {s.saveWhy} · {backendNote("strategy_save", "wequant strategy save / list / versions")}
-      </p>
+      <p className="note">{s.versionRule}</p>
+      {save.data && (
+        <p className="lead" role="status">
+          {save.data.created ? s.savedAs(save.data.id, save.data.n) : s.unchanged(save.data.id, save.data.n)}
+        </p>
+      )}
+      {save.error && !(save.error instanceof ApiError && save.error.status === 422) && <Problem error={save.error} />}
+      {shown.error && <Problem error={shown.error} />}
+      {showVersions && id && <Versions id={id} onArchived={() => (location.hash = href.strategy())} archive={archive} />}
 
-      <Card title={s.summaryTitle}>
-        {summary.data?.state === "ok" ? (
-          <p className="summary">
-            {summarySegments(summary.data.data.text, summary.data.data.parts).map(({ text, part }, i) =>
+      <Card title={s.summaryTitle} command={commandOf("strategy_summary", request)}>
+        {summary.data && !summary.error ? (
+          <p className={current ? "summary" : "summary pending"} data-testid="summary">
+            {summarySegments(summary.data.text, summary.data.parts).map(({ text, part }, i) =>
               part?.loc[0] ? (
                 <button key={i} type="button" className="summary-part" onClick={() => locate(["strategy", ...part.loc[0]!])}>
                   {text}
@@ -80,18 +124,17 @@ export function StrategyPage() {
               ),
             )}
           </p>
+        ) : summary.error && !(summary.error instanceof ApiError && summary.error.status === 422) ? (
+          <Problem error={summary.error} />
         ) : (
-          <span className="note">
-            {backendNote("strategy_summary", "wequant strategy summary")} · {s.summaryWhy}
-          </span>
+          <span className="note">{summary.isFetching || !current ? s.checking : s.summaryNone}</span>
         )}
       </Card>
 
       {error && (
-        <Card title={s.errorsTitle} extra={<span className="badge warn">{realError ? s.fixtureBadge : t.synthetic.badge}</span>}>
-          <span className="note">{realError ? s.fixtureNote : s.demoNote}</span>
+        <Card title={s.errorsTitle}>
           {error.complete === false && <p className="approx-note">{s.incomplete}</p>}
-          <ul className="serrors">
+          <ul className="serrors" data-testid="errors">
             {details.map((d, i) => (
               <li key={i}>
                 <strong>{s.codes[d.code] ?? d.code}</strong> <span className="mono">{d.code}</span> · {s.where(strategyLoc(d.loc ?? []).join("."))}
@@ -104,6 +147,7 @@ export function StrategyPage() {
           </ul>
         </Card>
       )}
+      {validation.error && !usage && <Problem error={validation.error} />}
 
       <div className="row2 strategy-row">
         <ErrorsContext.Provider value={details}>
@@ -114,44 +158,91 @@ export function StrategyPage() {
             <dl className="day">
               <div>
                 <dt>{s.validation}</dt>
-                <dd>{check ? "OK" : realError ? s.invalid : backendNote("strategy_validate", "wequant strategy validate")}</dd>
+                <dd data-testid="validation">{!current ? s.checking : check ? "OK" : error ? s.invalid : t.common.none}</dd>
               </div>
               <div>
                 <dt>{s.hash}</dt>
-                <dd className="mono">{check ? check.strategy_hash : realError ? s.noHash : backendNote("strategy_validate", "wequant strategy validate")}</dd>
+                <dd className="mono">{check ? check.strategy_hash : error ? s.noHash : t.common.none}</dd>
               </div>
               <div>
                 <dt>{s.dirty}</dt>
-                <dd>{check ? s.dirtyStates[dirtyState(check, null)] : realError ? s.noHash : backendNote("strategy_validate", "wequant strategy validate")}</dd>
+                <dd data-testid="dirty">{check ? s.dirtyStates[dirtyState(check, origin)] : error ? s.noHash : t.common.none}</dd>
               </div>
             </dl>
             <span className="note">{s.dirtyWhy}</span>
-            {examples.length > 0 && (
-              <>
-                <span className="stat-l">{s.examples}</span>
-                <div className="cond-row">
-                  {examples.map((ex) => (
-                    <button key={ex.name} type="button" className="cmd" onClick={() => setDraft(ex.strategy)}>
-                      {s.exampleNames[ex.name] ?? ex.name}
-                    </button>
-                  ))}
-                </div>
-                <span className="note">{s.examplesNote}</span>
-              </>
-            )}
-            {examples.length === 0 && (
-              <button type="button" className="cmd" onClick={() => setShownError(shownError ? null : exampleError)}>
-                {shownError ? s.hideError : s.demoError}
-              </button>
-            )}
           </Card>
           <Card title={s.commandTitle}>
             <span className="note">{s.commandNote}</span>
-            <Command command={command} />
+            <Command command={commandOf("strategy_validate", request)} />
           </Card>
         </aside>
       </div>
     </main>
+  );
+}
+
+/** Open a saved strategy (strategy list). */
+function OpenSaved({ current }: { current: string | null }) {
+  const s = t.strategy;
+  const list = useCall("strategy_list", {});
+  return (
+    <select
+      aria-label={s.open}
+      className="name-input"
+      value={current ?? ""}
+      onChange={(e) => (location.hash = e.target.value ? href.strategy(e.target.value) : href.strategy())}
+    >
+      <option value="">{list.data?.rows.length ? s.open : s.noSaved}</option>
+      {(list.data?.rows ?? []).map((r) => (
+        <option key={r.id} value={r.id}>
+          {r.name} · v{r.current_n}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** strategy versions: every version of the opened strategy; restoring opens that version as the draft. */
+function Versions({ id, onArchived, archive }: { id: string; onArchived: () => void; archive: ReturnType<typeof useCallMutation<"strategy_archive">> }) {
+  const s = t.strategy;
+  const versions = useCall("strategy_versions", { id });
+  return (
+    <Card title={s.versionsTitle(versions.data?.name ?? id)} command={commandOf("strategy_versions", { id })}>
+      {versions.error && <Problem error={versions.error} />}
+      <table className="tbl" data-testid="versions">
+        <thead>
+          <tr>
+            <th>{s.versionCol}</th>
+            <th>{s.hash}</th>
+            <th>{s.savedAt}</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {(versions.data?.rows ?? []).map((v) => (
+            <tr key={v.n}>
+              <td className="num">
+                v{v.n} {v.current && <span className="badge acc">{s.currentVersion}</span>}
+              </td>
+              <td className="mono">{v.strategy_hash}</td>
+              <td className="num">{localTime(v.saved_at)}</td>
+              <td>
+                <a className="link" href={href.strategy(id, v.n)}>
+                  {s.restore}
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <span className="note">{s.restoreNote}</span>
+      <div className="cond-row">
+        <button type="button" className="cmd" disabled={archive.isPending} onClick={() => archive.mutate({ id }, { onSuccess: onArchived })}>
+          {s.archive}
+        </button>
+        {archive.error && <Problem error={archive.error} />}
+      </div>
+    </Card>
   );
 }
 

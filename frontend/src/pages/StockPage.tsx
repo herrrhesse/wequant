@@ -1,41 +1,119 @@
 import { useCallback, useMemo, useState } from "react";
-import { ServiceError } from "../api/errors";
-import { MA_WINDOWS, type PriceMode, type StockData } from "../api/client";
-import { useStock, useStockCodes } from "../api/queries";
-import type { EvalResult, Row } from "../api/types.gen";
+import { BAR_FIELDS, commandOf, MA_WINDOWS, useCall, type PriceMode, type Request } from "../api/client";
+import { ApiError } from "../api/http";
+import type { Bars, EvalResult, IssueRow, Row } from "../api/types.gen";
 import { Card } from "../components/Card";
 import { Coded } from "../components/Coded";
 import { Command } from "../components/Command";
 import { KChart, MA_COLORS } from "../components/KChart";
+import { Problem } from "../components/Problem";
 import { show } from "../format";
 import { t } from "../i18n";
-import type { Conv, Theme } from "../prefs";
-import { href } from "../router";
+import { href, type Route } from "../router";
 
-/** The stock page: daily K-line in raw or back-adjusted prices, backend moving averages, limits, halts, ST and issues. */
-export function StockPage({ code, date, theme, conv }: { code: string; date: string | null; theme: Theme; conv: Conv }) {
-  const stock = useStock(code);
-  const codes = useStockCodes().data ?? [];
-  if (stock.isPending) return <main className="page">{t.app.loading}</main>;
-  if (stock.isError) {
-    const missing = stock.error instanceof ServiceError && stock.error.exit === 3;
-    return (
-      <main className="page">
-        <h1>{code}</h1>
-        <Card title={missing ? t.stock.notInFixtures(code) : t.app.error}>
-          <span className="note">
-            {t.stock.available}
-            {codes.map((c) => (
-              <a key={c} className="link" href={href.stock(c)} style={{ marginLeft: 10 }}>
-                {c}
-              </a>
-            ))}
-          </span>
+type StockRoute = Extract<Route, { page: "stock" }>;
+
+/** ISO date `years` before `iso` (the requested range only; never applied to results). */
+function yearsBefore(iso: string, years: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() - years);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The stock page: daily K-line in raw or back-adjusted prices, backend moving averages, limits, halts, ST, issues,
+ * and optionally a run's orders of this code. The range is the two years up to the focus day or the last trading day. */
+export function StockPage({ route, look }: { route: StockRoute; look: string }) {
+  const status = useCall("data_status", {}, { staleTime: 0 });
+  const last = status.data?.last_trade_date ?? null;
+  // A focus day sits a year before the range end when the data allows.
+  const ahead = route.date ? yearsBefore(route.date, -1) : null;
+  const end = last && ahead && ahead < last ? ahead : last;
+  const start = end ? yearsBefore(end, 2) : null;
+  const [mode, setMode] = useState<PriceMode>("raw");
+  const barsReq: Request<"data_bars"> | null = end ? { codes: [route.code], start, end, fields: [...BAR_FIELDS] } : null;
+  const bars = useCall("data_bars", barsReq);
+  const field = mode === "raw" ? "close" : "adj_close";
+  const maReqs = MA_WINDOWS.map((n): Request<"expr_eval"> | null => (end ? { form: JSON.stringify(["MA", field, n]), codes: [route.code], start, end } : null));
+  const ma0 = useCall("expr_eval", maReqs[0]!);
+  const ma1 = useCall("expr_eval", maReqs[1]!);
+  const ma2 = useCall("expr_eval", maReqs[2]!);
+  const ma3 = useCall("expr_eval", maReqs[3]!);
+  const issuesReq: Request<"data_issues"> | null = end ? { codes: [route.code], start, end, limit: 500 } : null;
+  const issues = useCall("data_issues", issuesReq);
+  const ordersReq: Request<"runs_orders"> | null = route.run ? { id: route.run, code: route.code, limit: 500 } : null;
+  const orders = useCall("runs_orders", ordersReq);
+  const mas = [ma0, ma1, ma2, ma3];
+  const ma = useMemo(
+    () => (mas.every((m) => m.data) ? mas.map((m, i) => ({ n: MA_WINDOWS[i] ?? 0, result: m.data! })) : null),
+    [ma0.data, ma1.data, ma2.data, ma3.data],
+  );
+
+  const error = status.error ?? bars.error;
+  return (
+    <main className="page">
+      <StockSearch code={route.code} />
+      {route.from && (
+        <span className="note">
+          {t.stock.from(t.stock.fromNames[route.from] ?? route.from)} ·{" "}
+          <a className="link" href="#" onClick={(e) => (e.preventDefault(), history.back())}>
+            {t.stock.back}
+          </a>
+        </span>
+      )}
+      {error ? (
+        <Card title={route.code}>
+          {error instanceof ApiError && error.status === 404 ? <p className="problem">{t.stock.notFound(route.code)}</p> : <Problem error={error} />}
         </Card>
-      </main>
-    );
-  }
-  return <StockView data={stock.data} focus={date} look={`${theme}/${conv}`} />;
+      ) : !bars.data || !ma || !issues.data ? (
+        <p className="note">{t.app.loading}</p>
+      ) : bars.data.rows.length === 0 ? (
+        <Card title={route.code}>
+          <span className="note">{t.stock.noBars}</span>
+        </Card>
+      ) : (
+        <StockView
+          code={route.code}
+          bars={bars.data}
+          barsCmd={commandOf("data_bars", barsReq)}
+          ma={ma}
+          maCmds={maReqs.map((r) => commandOf("expr_eval", r))}
+          issues={issues.data.rows}
+          issuesCmd={commandOf("data_issues", issuesReq)}
+          issuesVersion={issues.data.data_version}
+          trades={orders.data?.rows ?? []}
+          run={route.run}
+          mode={mode}
+          setMode={setMode}
+          focus={route.date}
+          look={look}
+        />
+      )}
+    </main>
+  );
+}
+
+/** Open any code (name search waits for S2.3, F-27). */
+function StockSearch({ code }: { code: string }) {
+  const [value, setValue] = useState(code);
+  return (
+    <form
+      className="filters"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const c = value.trim().toUpperCase();
+        if (c) location.hash = href.stock(c);
+      }}
+    >
+      <label className="field">
+        {t.stock.search}
+        <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="600000.SH" />
+      </label>
+      <button type="submit" className="cmd">
+        {t.nav.jumpGo}
+      </button>
+      <span className="note">{t.stock.searchNote}</span>
+    </form>
+  );
 }
 
 const STATUS: Record<Row["status"], string> = {
@@ -45,26 +123,38 @@ const STATUS: Record<Row["status"], string> = {
   not_listed: t.stock.day.notListed,
 };
 
-function StockView({ data, focus, look }: { data: StockData; focus: string | null; look: string }) {
-  const [mode, setMode] = useState<PriceMode>("raw");
-  const rows = data.bars.data.rows;
+interface ViewProps {
+  code: string;
+  bars: Bars;
+  barsCmd: string;
+  ma: { n: number; result: EvalResult }[];
+  maCmds: string[];
+  issues: IssueRow[];
+  issuesCmd: string;
+  issuesVersion: number;
+  trades: { date: string; side: "buy" | "sell"; status: string }[];
+  run: string | null;
+  mode: PriceMode;
+  setMode: (m: PriceMode) => void;
+  focus: string | null;
+  look: string;
+}
+
+function StockView({ code, bars, barsCmd, ma, maCmds, issues, issuesCmd, issuesVersion, trades, run, mode, setMode, focus, look }: ViewProps) {
+  const rows = bars.rows;
   const focusIndex = focus ? rows.findIndex((r) => r.date === focus) : -1;
   const [hovered, setHovered] = useState(focusIndex >= 0 ? focusIndex : rows.length - 1);
   const [renderMs, setRenderMs] = useState<{ chart: number; page: number } | null>(null);
-  const version = data.bars.data.data_version;
-  const ma = useMemo(() => data.ma[mode].map((m, i) => ({ n: MA_WINDOWS[i] ?? 0, result: m.data })), [data, mode]);
-  const issues = data.issues.data.rows;
+  const version = bars.data_version;
   const last = rows[rows.length - 1];
   const day = rows[Math.min(Math.max(hovered, 0), rows.length - 1)];
-  // chart: init to first frame; page: navigation start to first frame (includes loading the data). Read by tests.
   const onRendered = useCallback((ms: number) => setRenderMs({ chart: Math.round(ms), page: Math.round(performance.now()) }), []);
-  const onIssue = useCallback((date: string) => (location.hash = href.data(data.code, date)), [data.code]);
-
-  // Which notes apply, from the backend's flags; nothing is counted.
+  const onIssue = useCallback((date: string) => (location.hash = href.data(code, date)), [code]);
   const suspended = rows.some((r) => r.status === "suspended");
   const limitUnknown = rows.some((r) => r.status === "traded" && r.values.limit_known === 0);
   const stDays = rows.some((r) => r.values.st === 1);
   const stUnknown = rows.some((r) => r.status === "traded" && r.values.st_known === 0);
+  const data = { code };
 
   return (
     <main className="page" data-render-ms={renderMs?.chart} data-page-ms={renderMs?.page}>
@@ -76,7 +166,7 @@ function StockView({ data, focus, look }: { data: StockData; focus: string | nul
         <Card
           title={t.stock.chart}
           version={version}
-          command={data.bars.command}
+          command={barsCmd}
           extra={
             <div className="seg" role="group" aria-label={t.stock.chart}>
               {(["raw", "adj"] as const).map((k) => (
@@ -106,18 +196,20 @@ function StockView({ data, focus, look }: { data: StockData; focus: string | nul
             onHover={setHovered}
             onIssue={onIssue}
             onRendered={onRendered}
+            trades={trades}
           />
+          {run && <span className="note">{t.stock.runTrades(run, trades.length)}</span>}
           <span className="note">{t.stock.exNote}</span>
           <details className="sources">
             <summary>{t.stock.sources}</summary>
-            {data.ma[mode].map((m) => (
-              <Command key={m.command} command={m.command} />
+            {maCmds.map((c) => (
+              <Command key={c} command={c} />
             ))}
           </details>
         </Card>
         <div className="side">
           {day && <DayPanel row={day} version={version} />}
-          <Card title={t.stock.issues} version={data.issues.data.data_version} command={data.issues.command}>
+          <Card title={t.stock.issues} version={issuesVersion} command={issuesCmd}>
             {issues.length === 0 && <span className="note">{t.stock.noIssues}</span>}
             {issues.map((is) => (
               <div key={`${is.table}/${is.date}/${is.kind}`} className="issue-item">

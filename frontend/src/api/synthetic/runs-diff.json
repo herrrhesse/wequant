@@ -1,1 +1,0 @@
-{"a":"aaaa000000000001","b":"aaaa000000000002","inputs":["description.strategy.top_n: 2 → 3"],"metrics":[{"name":"total_return","unit":"fraction","a":0.03,"b":-0.01},{"name":"sharpe","unit":"ratio","a":1.2,"b":null}]}
