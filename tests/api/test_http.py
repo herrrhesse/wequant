@@ -228,3 +228,10 @@ def test_the_frontend_build_is_served_at_the_root_and_the_api_stays_apart(home, 
 def test_without_a_build_the_root_says_how_to_build_it(home, tmp_path):
     response = TestClient(create_app(Context(home), static=tmp_path / "none")).get("/")
     assert response.status_code == 200 and "npm run build" in response.text
+
+
+def test_the_openapi_document_is_served_without_a_page_that_needs_the_internet(home):
+    client = TestClient(create_app(Context(home), static=home / "no-build"))
+    assert client.get("/api/openapi.json").status_code == 200
+    assert [client.get(path).status_code for path in ("/api/docs", "/api/redoc")] == [404, 404]
+    assert client.get("/redoc").text == client.get("/").text  # the frontend's page, not FastAPI's ReDoc

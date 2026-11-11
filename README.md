@@ -216,8 +216,9 @@ uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl
   panels come from the on-disk panel cache (`--cache`). Each request runs in a worker thread, so a backtest does not hold up others. A client that
   disconnects cancels its backtest, which then archives nothing. Writes take the same locks as the CLI (409 when busy).
 - **Local only:** `--host` defaults to 127.0.0.1 and any other address prints a warning; there is no CORS. During
-  frontend development Vite proxies `/api` to the server. `--port` defaults to 8731; `/api/docs` shows the generated
-  OpenAPI document.
+  frontend development Vite proxies `/api` to the server. `--port` defaults to 8731.
+- **OpenAPI:** the generated document is at `/api/openapi.json`; there is no Swagger or ReDoc page, since those load
+  their scripts from a CDN and stay blank offline. The schema snapshot remains the frontend's source of types.
 - **The frontend at `/`:** the build in `--static DIR`, else `$WEQUANT_STATIC`, else the repository's `frontend/dist`.
   A file of the build is served as is and any other path outside `/api` gets its `index.html`. Without a build, `/`
   is a page saying how to build it; the API works either way. An unknown `/api/...` path is a 404 ErrorBody.

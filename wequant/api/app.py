@@ -53,7 +53,9 @@ def static_dir(given: Path | None = None) -> Path:
 def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, static: Path | None = None) -> FastAPI:
     """The app serving operations (default: all of them) with context, which a resident process keeps between calls,
     and the frontend build at / (static_dir(static)), or a page saying how to build it."""
-    app = FastAPI(title="WeQuant", version=code_version(), docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app = FastAPI(  # no Swagger or ReDoc page: they load scripts from a CDN and are blank offline
+        title="WeQuant", version=code_version(), docs_url=None, redoc_url=None, openapi_url="/api/openapi.json"
+    )
     for operation in operations:
         method, path = route(operation.__name__)
         hints = get_type_hints(operation)
