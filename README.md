@@ -200,27 +200,47 @@ systemd-inhibit --what=sleep --why="baostock backfill" uv run --extra baostock p
 
 ## Merging BaoStock into the store
 
-`tools/baostock_merge.py` merges the raw days into the store as one version. Two kinds of conflict need your decision:
-a bar whose open, high, low or close differ from the store's (`price_mismatch`), and a traded bar whose amount / volume
-lies outside [low, high] of the bar as its price entry leaves it (`average_price`). Each needs an approved entry in
-`wequant/data/merge/resolutions.toml`; while one lacks it, the merge writes nothing and its report lists the conflicts
-awaiting a decision, those without any entry first.
+`tools/baostock_merge.py` merges the raw days into the store as one version. These conflicts need your decision, each
+an approved entry in `$WEQUANT_HOME/resolutions/baostock.toml` (its header explains the format); while one lacks it, the
+merge writes nothing and its report lists the conflicts awaiting a decision, those without any entry first:
+
+- `price_mismatch`: open, high, low or close differ from the store's bar; `preclose_odd`: BaoStock's exchange preclose
+  is not whole fen.
+- `stale_volume`: a suspended row (tradestatus 0 and amount 0; tradestatus 0 alone is not enough) carries a volume.
+- `volume_truncated`: on a day whose snapshot looks cut (at least 3% and 10 of an exchange's traded rows short of the
+  seed's volume by over 0.1%), a volume short of the seed's.
+- `amount_carried`: the amount repeats the code's previous bar to the fen while the volume differs, unless the seed's
+  amount agrees.
+- `average_price`: amount / volume outside [low, high] of the bar as its price entry leaves it.
+
+Each bar gets at most one of the last four, in that order. Volumes and amounts count auction trading only, as BaoStock
+and the data vendors do: block and after-hours trades are excluded, so an exchange's all-trades total can be slightly
+higher.
 
 ```bash
 uv run python -m tools.baostock_merge propose        # add a proposed entry for each conflict; reads only
-# review the entries and set status = "approved" on those you accept
+uv run wequant data resolve list                      # review, then approve or reject with a note
+uv run wequant data resolve approve --category GROUP --note "who decided, and on what basis"
 uv run python -m tools.baostock_merge run            # dry run with the approved entries applied
 uv run python -m tools.baostock_merge run --commit   # one version, its report in $WEQUANT_HOME/reports/
 ```
 
 - **Proposals:** a price mismatch takes the prices of the source whose close the next trading day's exchange preclose
-  repeats (BaoStock's, with the cell flagged, when neither does or an adj_factor step lies between); it gets no proposal
-  until that day's snapshot is fetched. An average-price conflict takes the store's amount, or its volume and amount,
-  when the store's bar passes the check, and otherwise a null amount. After changing a price entry's take, run
-  `propose` again: the amount is checked on the prices the entry takes.
-- **Record:** each applied entry is one `data_issues` row (`resolved_baostock`, `resolved_seed` or `resolved_null`) whose
-  detail holds the fields, the store's values before the cell's first resolution, BaoStock's values, the values after
-  and the evidence. The report also lists approved entries that met no conflict.
+  repeats; it is `undetermined` (outside evidence needed, never approved) when the closes are equal, neither repeats,
+  the preclose is missing or an adj_factor step lies between, and gets no proposal until that day's snapshot is fetched.
+  A stale volume builds no bar; a truncated volume takes the seed's volume and amount; a carried amount takes the seed's
+  when its bar has the same volume and passes the check. An average-price conflict takes the store's amount, or its
+  volume and amount, when the store's bar passes the check, and otherwise a null amount. A preclose off the fen is
+  `undetermined`. After changing a price entry, run `propose` again: amounts are checked on the prices it takes.
+- **Record:** each applied entry is one `data_issues` row (`resolved_baostock`, `_seed`, `_null`, `_no_bar` or
+  `_corrected`, the last with values from verification records) whose detail holds the fields, the store's values before
+  the cell's first resolution, BaoStock's values, the values after, the category, level, verification ids and evidence.
+  Its kind follows the level: the conflict kind for an error (contradicted the exchange, corrected), `price_noted` /
+  `volume_noted` for a notice, `price_unverified` / `volume_unverified` for a suspicious one. The report also lists
+  approved entries that met no conflict.
+- **Flags:** every merge recomputes, over all bars, `close_preclose_off` (a close the next bar's exchange preclose does
+  not repeat with no factor step between; suspicious) and `snapshot_truncated` (every bar of an exchange-day where at
+  least 5% and 20 of such closes are off: the source's snapshot looks cut and no second source decides).
 - **Null amount:** unknown, never 0. The panel shows NaN and operators and expressions skip it.
 - **turn:** BaoStock's turnover in percent, kept on its bars; seed and BJ bars have none.
 - **Memory:** a merge whose bars gain a column rewrites every year of bars; on the full store its commit peaks near 8 GB.

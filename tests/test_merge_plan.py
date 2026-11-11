@@ -267,8 +267,9 @@ def test_partitions_and_migration(tmp_path):
     assert {"bars/2023", "adj_factor/adj_factor", "index_bars/index_bars", "index_members/index_members"} <= parts(
         last.files_kept
     )
-    assert set(plan.issues["kind"]) == {"event_missing", "event_step_off"}
+    assert set(plan.issues["kind"]) == {"event_missing", "event_step_off", "close_preclose_off"}
     assert issue_keys(plan.issues, "event_missing") == {("600010.SH", D4, "flagged")}
+    assert issue_keys(plan.issues, "close_preclose_off") == {("600010.SH", D3, "flagged")}  # the same gap, close side
     assert rows_of(store, "securities", "600010.SH", ["last_date"]) == [(D4,)]
     assert store.read_table("calendar")["date"].to_list() == [*CALENDAR, D4]
     assert store.manifest()["last_trade_date"] == D4.isoformat()

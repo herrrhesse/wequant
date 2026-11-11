@@ -65,7 +65,6 @@ def test_conflicts_without_an_entry_stop_the_merge_before_anything_is_written(wo
     assert keys(plan.unresolved) == CONFLICTS and set(plan.unresolved["entry"]) == {"missing"}
     assert plan.stats["resolutions"] == {
         "applied": {},
-        "flagged": 0,
         "unresolved": {"missing": 5, "unfetched": 0, "proposed": 0, "rejected": 0, "unpriced": 0},
         "idle": [],
     }
@@ -142,16 +141,6 @@ def test_approved_entries_are_applied_each_with_one_data_issues_row(world, tmp_p
         "after": {"amount": None},
     }
 
-    flagged = store.read_table("data_issues").filter(pl.col("kind") == "close_unconfirmed")
-    assert flagged.select("code", "date", "action").rows() == [("600004.SH", D1, "flagged")]
-    assert json.loads(flagged["detail"].item()) == {
-        "close": 10210,
-        "baostock_close": 10210,
-        "seed_close": 10200,
-        "next_date": "2024-01-03",
-        "next_preclose": 10220,
-        "ex_event": False,
-    }
     assert plan.stats["resolutions"] == {
         "applied": {
             "price_unverified resolved_baostock": 1,
@@ -159,7 +148,6 @@ def test_approved_entries_are_applied_each_with_one_data_issues_row(world, tmp_p
             "volume_unverified resolved_null": 1,
             "volume_unverified resolved_seed": 2,
         },
-        "flagged": 1,
         "unresolved": {"missing": 0, "unfetched": 0, "proposed": 0, "rejected": 0, "unpriced": 0},
         "idle": [],
     }
@@ -179,7 +167,8 @@ def test_propose_after_a_merge_finds_the_decided_conflicts_and_adds_nothing(worl
 def test_a_merged_null_amount_keeps_its_first_record(tmp_path):
     w = World()
     w.stock("600005.SH", STEADY)
-    raw_row(w, "600005.SH", D2, high="10.4000", amount="0.0000")  # another high, and no amount
+    raw_row(w, "600005.SH", D2, close="10.4000", high="10.4000", amount="0.0000")  # another close, and no amount
+    raw_row(w, "600005.SH", D3, preclose="10.4000")  # D3's exchange preclose repeats BaoStock's close
     store, raw = w.write(tmp_path / "home")
     path = resolutions(store, raw, tmp_path / "r.toml", status="approved")
     assert [(p["kind"], p["take"]) for p in propose(store, raw)] == [

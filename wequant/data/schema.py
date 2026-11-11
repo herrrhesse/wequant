@@ -75,6 +75,7 @@ CALENDAR = Table(
     date_column="date",
 )
 
+AUCTION = "auction trading only, as BaoStock and the data vendors count it: block and after-hours trades excluded"
 BARS = Table(
     "bars",
     (
@@ -84,8 +85,13 @@ BARS = Table(
         _price("high"),
         _price("low"),
         _price("close"),
-        Column("volume", pl.Int64, doc="shares (股)"),
-        Column("amount", pl.Float64, nullable=True, doc="yuan (元); null: unknown (a resolution voided it), never 0"),
+        Column("volume", pl.Int64, doc=f"shares (股); {AUCTION}"),
+        Column(
+            "amount",
+            pl.Float64,
+            nullable=True,
+            doc=f"yuan (元); {AUCTION}; null: unknown (a resolution voided it), never 0",
+        ),
         Column(
             "turn", pl.Float64, nullable=True, doc="turnover in percent of tradable shares, BaoStock's; null elsewhere"
         ),
@@ -289,13 +295,11 @@ ISSUE_KINDS: dict[str, IssueKind] = {
     "snapshot_truncated": _kind(
         "bars",
         "flagged",
-        "the source's snapshot of the day looks cut before the close: many volumes below the other source's or their "
-        "own recent level",
+        "the source's snapshot of the day looks cut before the close: many of its closes are not the next day's "
+        "exchange preclose, so its volumes and amounts may fall short",
         "volume",
         "suspicious",
-    ),
-    "close_unconfirmed": _kind(
-        "bars", "flagged", "the kept close is not the next day's exchange preclose", "price", "suspicious"
+        True,
     ),
     "volume_mismatch": _kind(
         "bars", "value_replaced", "the sources' volumes differ; BaoStock's kept", "volume", "suspicious"

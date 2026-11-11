@@ -10,6 +10,7 @@ import polars as pl
 from wequant.data import codes as codemod
 from wequant.data.issues import issue_rows
 from wequant.data.merge.audit import FLAGGED
+from wequant.data.merge.detect import FLAGS
 from wequant.data.merge.reconcile import BEFORE_FIRST_BAR
 from wequant.data.schema import TABLES, Table
 from wequant.data.store import Store
@@ -17,6 +18,7 @@ from wequant.data.store import Store
 KEY = ["code", "date"]
 AFTER = ["code", "date", "close", "preclose", "preclose_derived"]
 BJ = pl.col("code").str.ends_with(".BJ")
+STATE = (*FLAGGED, *FLAGS)  # flagged kinds every merge recomputes over all bars
 
 
 def read_years(store: Store, manifest: dict, table: str, years: Iterable[int]) -> pl.DataFrame:
@@ -69,6 +71,17 @@ def bars_after(store: Store, manifest: dict, parts: pl.DataFrame, years: set[int
     return frame.filter(~BJ).sort("code", "date").collect(engine="streaming")
 
 
+def previous_bars(store: Store, manifest: dict, day: dt.date) -> pl.DataFrame:
+    """code, date, volume, amount of each SH/SZ code's last stored bar before day."""
+    rows = store.scan("bars", columns=[*KEY, "volume", "amount"], end=day - dt.timedelta(days=1), manifest=manifest)
+    return last_bars(rows.filter(~BJ).collect(engine="streaming"))
+
+
+def last_bars(bars: pl.DataFrame) -> pl.DataFrame:
+    """code, date, volume, amount of each code's last bar."""
+    return bars.sort(KEY).group_by("code").agg(pl.col("date", "volume", "amount").last()).sort("code")
+
+
 def securities_table(old: pl.DataFrame, spans: pl.DataFrame, source: str) -> tuple[pl.DataFrame, pl.DataFrame]:
     """SH/SZ rows with first/last_date from spans, new codes added, codes without bars removed: (table, no_bars issues)."""
     shsz = old.filter(~BJ)
@@ -102,9 +115,10 @@ def adj_factor_table(old: pl.DataFrame, new: pl.DataFrame, codes: Collection[str
 
 
 def data_issues_table(old: pl.DataFrame, record: pl.DataFrame, flagged: pl.DataFrame) -> pl.DataFrame:
-    """old rows without the FLAGGED kinds, record rows replacing rows with their key, plus flagged."""
+    """old rows without the kinds every merge recomputes (STATE), record rows replacing rows with their key, plus
+    flagged."""
     key = list(TABLES["data_issues"].key)
-    kept = old.filter(~pl.col("kind").is_in(FLAGGED)).join(record.select(key), on=key, how="anti")
+    kept = old.filter(~pl.col("kind").is_in(STATE)).join(record.select(key), on=key, how="anti")
     return pl.concat([kept, record, flagged]).sort(key)
 
 

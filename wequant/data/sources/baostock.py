@@ -53,7 +53,8 @@ def parse_daily(
     return frame.select(
         code=_code("code"),
         date=_text("date").str.to_date(),
-        **{f: _li(f, decimals) for f in ("open", "high", "low", "close", "preclose")},
+        **{f: _li(f, decimals) for f in ("open", "high", "low", "close")},
+        preclose=_li("preclose", 3),  # 厘: an exchange preclose after an event need not be whole fen
         volume=_text("volume").cast(pl.Int64),
         amount=_text("amount").cast(pl.Float64),
         tradestatus=_text("tradestatus").cast(pl.Int8),
