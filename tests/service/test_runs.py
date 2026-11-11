@@ -27,6 +27,7 @@ from wequant.service.runs import (
     runs_diff,
     runs_list,
     runs_orders,
+    runs_report,
     runs_rerun,
     runs_show,
 )
@@ -74,6 +75,13 @@ def test_show_gives_what_was_run_and_daily_rows_that_agree_with_the_metrics(arch
     assert (shown.daily[0].date, shown.daily[0].nav, shown.daily[-1].date) == (b.start, 1.0, b.end)
     assert shown.daily[-1].nav - 1 == pytest.approx(total) and shown.periods.year[0].return_ == pytest.approx(total)
     assert "stamp-2023" in [fee.id for fee in shown.fees]
+
+
+def test_an_archived_run_s_report_is_the_one_backtest_attached(market_home):
+    """F-28: the report comes back from the archive alone, word for word."""
+    context = Context(market_home)
+    run = backtest(BacktestRequest(strategy=DAILY, report=True), context)
+    assert runs_report(RunRequest(id=run.run_id), context).report == run.report
 
 
 def test_a_rerun_matches_the_archive_until_its_store_version_is_gone(archived):

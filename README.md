@@ -60,6 +60,8 @@ uv run wequant --help
 
 ```text
 wequant data status [--data-version N]
+wequant data calendar [--start D] [--end D] [--data-version N]
+wequant data securities [--query Q] [--limit N] [--data-version N]
 wequant data bars --codes C... [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--fields F...] [--data-version N]
 wequant data issues [--table T] [--kind K] [--codes C...] [--start D] [--end D] [--limit N] [--data-version N]
 wequant data check [--commit]
@@ -88,7 +90,7 @@ wequant backtest --strategy S [--start D] [--end D] [--cash X] [--benchmark CODE
                  [--data-version N] [--no-save] [--report]
 wequant explain (--strategy S | --run ID) --code C --date D [--data-version N] [--anomalies MODE]
 wequant runs list [--strategy-hash H] [--limit N] [--offset N]
-wequant runs show ID | rerun ID | diff A B | day ID DATE
+wequant runs show ID | report ID | rerun ID | diff A B | day ID DATE
 wequant runs orders ID [--code C] [--status S] [--side S] [--start D] [--end D] [--limit N] [--offset N]
 wequant runs anomalies ID [--channel C] [--code C] [--limit N] [--offset N]
 wequant schema
@@ -129,8 +131,12 @@ name.
 - **`backtest`** archives the run under `$WEQUANT_HOME/runs/<id>/` unless `--no-save`; `--report` adds a Markdown
   report. The execution options are flat (`--price`, `--slippage-bps`, ...); only those given override the defaults.
   `runs` reads the archive: `show` adds daily rows (nav, benchmark, excess, drawdown, exposure) and returns by year and
-  month, `rerun` repeats a run on its store version and compares the bytes, `day` shows one day's holdings, decisions
-  and fills. A full exit's `requested` is null (the whole holding).
+  month, `report` gives the Markdown report `--report` would have attached, `rerun` repeats a run on its store version
+  and compares the bytes, `day` shows one day's holdings, decisions and fills. A full exit's `requested` is null (the
+  whole holding).
+- **`data calendar`** lists a store version's trading days in a range, with its first and last; **`data securities`**
+  finds codes by a code prefix in any case (`600`, `600000.sh`) or part of a name, in code order, `--limit` of them
+  (20 by default, at most 100) with the total.
 - **Anomalous data:** `--anomalies flag` (the default) uses every value and reports what the result read
   (`data_anomaly`, `runs anomalies`). `exclude_day` reads error-level anomalous days as missing, and suspicious ones too
   with `--exclude-suspicious`. Excluding is a robustness check of whether a result rests on disputed data, not a

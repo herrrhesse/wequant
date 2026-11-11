@@ -88,6 +88,22 @@ def status(
 
 
 @data.command
+def calendar(
+    *, request: Annotated[service.CalendarRequest, FLAT] = service.CalendarRequest(), common: Common = COMMON
+) -> int:
+    """The trading days of a store version, with its first and last."""
+    return run(service.data_calendar, request, common)
+
+
+@data.command
+def securities(
+    *, request: Annotated[service.SecuritiesRequest, FLAT] = service.SecuritiesRequest(), common: Common = COMMON
+) -> int:
+    """Codes starting with --query, or whose name contains it."""
+    return run(service.data_securities, request, common)
+
+
+@data.command
 def bars(*, request: Annotated[service.BarsRequest, FLAT], common: Common = COMMON) -> int:
     """Panel fields of a few codes over a date range, with each day's status."""
     return run(service.data_bars, request, common)
@@ -460,6 +476,23 @@ def runs_show(id: str, /, *, common: Common = COMMON) -> int:
         A run id.
     """
     return run(service.runs_show, lambda: validated(service.RunRequest, {"id": id}), common, human=_run_detail)
+
+
+@runs.command(name="report")
+def runs_report(id: str, /, *, common: Common = COMMON) -> int:
+    """An archived run's Markdown report, as backtest --report attaches it.
+
+    Parameters
+    ----------
+    id
+        A run id.
+    """
+    return run(
+        service.runs_report,
+        lambda: validated(service.RunRequest, {"id": id}),
+        common,
+        human=lambda r: r.report.rstrip("\n"),
+    )
 
 
 @runs.command(name="rerun")
