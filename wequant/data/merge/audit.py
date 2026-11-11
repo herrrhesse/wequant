@@ -7,6 +7,7 @@ import polars as pl
 from wequant.data.issues import issue_rows
 
 VOLUME_RTOL = 1e-6  # the seed's volumes carry float32 rounding below this
+VOLUME_ATOL = 100  # shares: one lot; sources round volumes to it, so a smaller gap is agreement
 AMOUNT_RTOL = 1e-5
 STEP_RTOL = 1e-3  # the seed's ratios come from adjclose rounded to 0.01 元
 PRICE_ATOL = 10  # 厘: the exchange rounds preclose to the fen
@@ -126,7 +127,9 @@ def _mismatches(compared: pl.DataFrame, source: str) -> list[pl.DataFrame]:
     found = [
         (
             "volume_mismatch",
-            compared.filter(pl.col("volume_rel") > VOLUME_RTOL),
+            compared.filter(
+                (pl.col("volume_rel") > VOLUME_RTOL) & (pl.col("volume") - pl.col("store_volume")).abs().gt(VOLUME_ATOL)
+            ),
             ["volume", "store_volume", "volume_rel"],
         ),
         (

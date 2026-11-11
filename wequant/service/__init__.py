@@ -18,6 +18,17 @@ from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest
 from wequant.service.index_check import CountSpan, IndexCheck, IndexCheckRequest, IndexCoverage, data_index_check
 from wequant.service.issues import IssueCount, IssueRow, Issues, IssuesRequest, data_issues
 from wequant.service.profile import ProfileReport, Stage
+from wequant.service.resolutions import (
+    Decision,
+    DecisionRequest,
+    Resolution,
+    ResolveListRequest,
+    ResolvePage,
+    StatusCount,
+    data_resolve_approve,
+    data_resolve_list,
+    data_resolve_reject,
+)
 from wequant.service.rows import Row
 from wequant.service.runs import (
     AnomaliesPage,
@@ -83,6 +94,15 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "Decision",
+    "DecisionRequest",
+    "Resolution",
+    "ResolveListRequest",
+    "ResolvePage",
+    "StatusCount",
+    "data_resolve_approve",
+    "data_resolve_list",
+    "data_resolve_reject",
     "SourceRef",
     "VerificationIn",
     "VerificationOut",

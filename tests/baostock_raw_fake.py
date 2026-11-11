@@ -189,10 +189,10 @@ def conflict_world() -> World:
     for code in ("600000.SH", "600001.SH", "600002.SH", "600004.SH"):
         w.stock(code, STEADY)
     w.stock("600003.SH", {D1: 5000, D2: 5100, D3: 5200}, seed=())
-    # BaoStock's D1 close is 10.21; D2's exchange preclose repeats the seed's 10.20, or for 600004.SH neither (10.22)
+    # BaoStock's D1 close is 10.21; D2's exchange preclose repeats the seed's 10.20, or for 600004.SH BaoStock's
     for code in ("600000.SH", "600004.SH"):
         raw_row(w, code, D1, close="10.2100", high="10.2100", amount="10200.0000")
-    raw_row(w, "600004.SH", D2, preclose="10.2200")
+    raw_row(w, "600004.SH", D2, preclose="10.2100")
     raw_row(w, "600001.SH", D2, amount="0.0000")  # the seed bar is the same and its amount 10300 passes
     raw_row(w, "600002.SH", D2, volume="1100")  # 10300 yuan for 1100 shares is 9.36 a share, below low 10.30
     raw_row(w, "600003.SH", D3, amount="0.0000")  # no seed bar

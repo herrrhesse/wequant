@@ -45,6 +45,9 @@ strategies = app.command(App(name="strategy", help="Strategies and their saved v
 verify = data.command(
     App(name="verify", help="Verification records: what each source says about a cell, and who checked.")
 )
+resolve = data.command(
+    App(name="resolve", help="Decisions on merge conflicts in the data root's resolutions file; never the store.")
+)
 runs = app.command(App(name="runs", help="The run archive: list, show, rerun, diff, orders, a day, anomalous data."))
 StrategyArg = Annotated[
     str, Parameter(name="--strategy", allow_leading_hyphen=True, help="A JSON file, - for JSON on stdin, or ID[@N].")
@@ -154,6 +157,26 @@ def verify_list(
 ) -> int:
     """Stored verification records, filtered and paged."""
     return run(service.data_verify_list, request, common)
+
+
+@resolve.command(name="list")
+def resolve_list(
+    *, request: Annotated[service.ResolveListRequest, FLAT] = service.ResolveListRequest(), common: Common = COMMON
+) -> int:
+    """Entries of the resolutions file, filtered and paged, with counts by category and status."""
+    return run(service.data_resolve_list, request, common)
+
+
+@resolve.command(name="approve")
+def resolve_approve(*, request: Annotated[service.DecisionRequest, FLAT], common: Common = COMMON) -> int:
+    """Approve the selected entries with a note; refused when one of them takes undetermined."""
+    return run(service.data_resolve_approve, request, common)
+
+
+@resolve.command(name="reject")
+def resolve_reject(*, request: Annotated[service.DecisionRequest, FLAT], common: Common = COMMON) -> int:
+    """Reject the selected entries with a note."""
+    return run(service.data_resolve_reject, request, common)
 
 
 @expr.command(name="check")
