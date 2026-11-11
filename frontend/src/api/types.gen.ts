@@ -100,6 +100,7 @@ export interface ServiceModels {
   SellReason?: SellReason;
   ServiceSchema?: ServiceSchema;
   ShowRequest?: ShowRequest;
+  SourceRef?: SourceRef;
   Stage?: Stage;
   StatusRequest?: StatusRequest;
   StepCheck?: StepCheck;
@@ -116,6 +117,14 @@ export interface ServiceModels {
   StrategyVersions?: StrategyVersions;
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
+  VerificationIn?: VerificationIn;
+  VerificationOut?: VerificationOut;
+  VerifiedCell?: VerifiedCell;
+  Verifier?: Verifier;
+  VerifyListRequest?: VerifyListRequest;
+  VerifyPage?: VerifyPage;
+  VerifySubmitRequest?: VerifySubmitRequest;
+  VerifySubmitResult?: VerifySubmitResult;
   VersionInfo?: VersionInfo;
   VersionsRequest?: VersionsRequest;
   Warning?: Warning;
@@ -2266,6 +2275,27 @@ export interface ShowRequest {
   n?: number | null;
 }
 /**
+ * Where values came from.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SourceRef".
+ */
+export interface SourceRef {
+  /**
+   * The label its values carry in values, e.g. sse, eastmoney, cninfo.
+   */
+  name: string;
+  type: "exchange" | "vendor" | "announcement" | "rule";
+  /**
+   * null: none to give (e.g. a rule).
+   */
+  url: string | null;
+  /**
+   * ISO 8601.
+   */
+  fetched_at: string;
+}
+/**
  * One store version to describe.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2473,6 +2503,181 @@ export interface VersionInfo {
   strategy_version: number | null;
   note: string | null;
   current: boolean;
+}
+/**
+ * One checked cell, as submitted.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerificationIn".
+ */
+export interface VerificationIn {
+  object: VerifiedCell;
+  /**
+   * By label (baostock, seed or a source's name): field -> value.
+   */
+  values: {
+    [k: string]: {
+      [k: string]: number | string | null;
+    };
+  };
+  /**
+   * @minItems 1
+   */
+  sources: [SourceRef, ...SourceRef[]];
+  verifier: Verifier;
+  method: string;
+  conclusion: string;
+  /**
+   * The verified values; empty when the record decides nothing.
+   */
+  correct: {
+    [k: string]: number | string | null;
+  };
+  level: "error" | "suspicious" | "notice";
+}
+/**
+ * The cell a record checks.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifiedCell".
+ */
+export interface VerifiedCell {
+  table:
+    "securities" | "calendar" | "bars" | "daily_status" | "adj_factor" | "index_bars" | "index_members" | "data_issues";
+  code: string;
+  date: string;
+  /**
+   * Columns of the table.
+   *
+   * @minItems 1
+   */
+  fields: [string, ...string[]];
+}
+/**
+ * Who checked.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Verifier".
+ */
+export interface Verifier {
+  kind: "human" | "agent";
+  name: string;
+  /**
+   * The model's name for an agent; null for a person.
+   */
+  model: string | null;
+}
+/**
+ * A stored record.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerificationOut".
+ */
+export interface VerificationOut {
+  object: VerifiedCell;
+  /**
+   * By label (baostock, seed or a source's name): field -> value.
+   */
+  values: {
+    [k: string]: {
+      [k: string]: number | string | null;
+    };
+  };
+  /**
+   * @minItems 1
+   */
+  sources: [SourceRef, ...SourceRef[]];
+  verifier: Verifier;
+  method: string;
+  conclusion: string;
+  /**
+   * The verified values; empty when the record decides nothing.
+   */
+  correct: {
+    [k: string]: number | string | null;
+  };
+  level: "error" | "suspicious" | "notice";
+  /**
+   * 'v-' and the digest of its content: the same record always gets the same id.
+   */
+  id: string;
+  submitted_at: string;
+}
+/**
+ * Stored records, filtered; null filters match all.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifyListRequest".
+ */
+export interface VerifyListRequest {
+  limit?: number;
+  offset?: number;
+  id?: string | null;
+  table?:
+    | (
+        | "securities"
+        | "calendar"
+        | "bars"
+        | "daily_status"
+        | "adj_factor"
+        | "index_bars"
+        | "index_members"
+        | "data_issues"
+      )
+    | null;
+  code?: string | null;
+  start?: string | null;
+  end?: string | null;
+  source_type?: ("exchange" | "vendor" | "announcement" | "rule") | null;
+  /**
+   * A source name.
+   */
+  source?: string | null;
+  /**
+   * A verifier's name.
+   */
+  verifier?: string | null;
+}
+/**
+ * Records by submission, then line.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifyPage".
+ */
+export interface VerifyPage {
+  total: number;
+  offset: number;
+  limit: number;
+  rows: VerificationOut[];
+}
+/**
+ * Records to add.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifySubmitRequest".
+ */
+export interface VerifySubmitRequest {
+  /**
+   * @minItems 1
+   */
+  records: [VerificationIn, ...VerificationIn[]];
+}
+/**
+ * What the submission added.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VerifySubmitResult".
+ */
+export interface VerifySubmitResult {
+  added: number;
+  /**
+   * Records already stored with the same content.
+   */
+  existing: number;
+  /**
+   * In submission order.
+   */
+  ids: string[];
 }
 /**
  * The versions of one strategy.
