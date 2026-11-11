@@ -30,6 +30,8 @@ export interface ServiceModels {
   DataAnomaly?: DataAnomaly;
   DataSpec?: DataSpec1;
   DataStatus?: DataStatus;
+  Decision?: Decision;
+  DecisionRequest?: DecisionRequest;
   DecisionRow?: DecisionRow;
   DelistedRow?: DelistedRow;
   DelistingCounts?: DelistingCounts;
@@ -77,6 +79,9 @@ export interface ServiceModels {
   PositionRow?: PositionRow;
   ProfileReport?: ProfileReport;
   Reject?: Reject;
+  Resolution?: Resolution;
+  ResolveListRequest?: ResolveListRequest;
+  ResolvePage?: ResolvePage;
   Row?: Row;
   RunComparison?: RunComparison;
   RunDay?: RunDay;
@@ -102,6 +107,7 @@ export interface ServiceModels {
   ShowRequest?: ShowRequest;
   SourceRef?: SourceRef;
   Stage?: Stage;
+  StatusCount?: StatusCount;
   StatusRequest?: StatusRequest;
   StepCheck?: StepCheck;
   StrategyCheck?: StrategyCheck;
@@ -941,6 +947,50 @@ export interface TableStatus {
   name: string;
   files: number;
   rows: number;
+}
+/**
+ * What a decision changed.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Decision".
+ */
+export interface Decision {
+  status: "proposed" | "approved" | "rejected";
+  matched: number;
+  /**
+   * Entries whose status or note changed; the others already had them.
+   */
+  changed: number;
+}
+/**
+ * A decision on the selected entries.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "DecisionRequest".
+ */
+export interface DecisionRequest {
+  code?: string | null;
+  date?: string | null;
+  /**
+   * A conflict kind, e.g. price_mismatch.
+   */
+  kind?: string | null;
+  /**
+   * A group, e.g. D11-B.
+   */
+  category?: string | null;
+  /**
+   * First date of a range.
+   */
+  start?: string | null;
+  /**
+   * Last date of a range.
+   */
+  end?: string | null;
+  /**
+   * Who decides and on what basis, e.g. "user 2026-11-10: class B approved per D11".
+   */
+  note: string;
 }
 /**
  * A target, backup or held stock on a decision day.
@@ -1883,6 +1933,84 @@ export interface Reject {
    * At scored: the first factor without a value, or formula.
    */
   missing: string | null;
+}
+/**
+ * One entry of the resolutions file.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Resolution".
+ */
+export interface Resolution {
+  code: string;
+  date: string;
+  kind: string;
+  fields: string[];
+  take: string;
+  /**
+   * take corrected: field -> value in store units (prices in 厘).
+   */
+  values: {
+    [k: string]: number | null;
+  };
+  category: string;
+  level: "error" | "suspicious" | "notice";
+  verifications: string[];
+  evidence: string;
+  status: "proposed" | "approved" | "rejected";
+  approval: string;
+}
+/**
+ * Entries, filtered and paged.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ResolveListRequest".
+ */
+export interface ResolveListRequest {
+  limit?: number;
+  offset?: number;
+  code?: string | null;
+  date?: string | null;
+  /**
+   * A conflict kind, e.g. price_mismatch.
+   */
+  kind?: string | null;
+  /**
+   * A group, e.g. D11-B.
+   */
+  category?: string | null;
+  /**
+   * First date of a range.
+   */
+  start?: string | null;
+  /**
+   * Last date of a range.
+   */
+  end?: string | null;
+  status?: ("proposed" | "approved" | "rejected") | null;
+}
+/**
+ * Entries in file order (date, code, kind), and the counts of all that match.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ResolvePage".
+ */
+export interface ResolvePage {
+  total: number;
+  offset: number;
+  limit: number;
+  counts: StatusCount[];
+  rows: Resolution[];
+}
+/**
+ * Entries of one category in one status.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "StatusCount".
+ */
+export interface StatusCount {
+  category: string;
+  status: string;
+  entries: number;
 }
 /**
  * A re-run compared byte for byte with the archive.
