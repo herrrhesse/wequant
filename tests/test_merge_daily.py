@@ -39,6 +39,13 @@ def test_parse_daily_golden():
     assert with_turn.columns == [*DAILY, "turn"] and with_turn["turn"].item() == 1.25
 
 
+def test_an_exchange_preclose_keeps_its_li():
+    """D11: an exchange preclose after an event may be whole 厘 (5.968); prices are whole fen."""
+    row = day_row("000010.SZ", D1, 7000, volume=100) | {"preclose": "5.9680", "open": "7.0040"}
+    daily = parse_daily(pl.DataFrame([row])).row(0, named=True)
+    assert (daily["preclose"], daily["open"]) == (5968, 7000)
+
+
 def test_parse_daily_empty_fields_are_null():
     halted = parse_daily(pl.DataFrame([day_row("600000.SH", D1, 10030, volume="", amount="", tradestatus="0")]))
     assert halted.row(0, named=True)["volume"] is None and halted.row(0, named=True)["amount"] is None
@@ -67,6 +74,7 @@ def test_split_suspended_traded_while_suspended_and_no_volume():
 
 BROKEN = [
     ("price", lambda rows: rows[0].update(close="9.9150")),
+    ("preclose", lambda rows: rows[0].update(preclose="9.9155")),
     ("tradestatus", lambda rows: rows[0].update(tradestatus="2")),
     ("isST", lambda rows: rows[0].update(isST="")),
     ("unique", lambda rows: rows.append(dict(rows[0]))),

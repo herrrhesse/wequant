@@ -16,6 +16,7 @@ PRICES = ("open", "high", "low", "close", "preclose")
 COLUMNS = ("date", "code", *PRICES, "volume", "amount", "turn", "tradestatus", "isST", "_baostock_version")
 SAMPLES = 20
 PRICE_TEXT = r"^([0-9]+[.][0-9]{2}(00)?)?$"  # whole fen, as BaoStock prints prices
+PRECLOSE_TEXT = r"^([0-9]+[.][0-9]{2}([0-9]0?)?)?$"  # whole 厘: an exchange preclose after an event may not be fen
 AVERAGE_RTOL = 1e-3  # a clean row's amount / volume strays less than 1e-4 beyond [low, high]
 AMOUNT_ATOL = 1.0  # yuan: some amounts are cut to the whole yuan
 
@@ -24,7 +25,8 @@ TEXT_CHECKS = {
     "date": pl.col("date") == pl.col("file"),
     "tradestatus": pl.col("tradestatus").is_in(["0", "1"]),
     "isST": pl.col("isST").is_in(["0", "1"]),
-    "price": pl.all_horizontal(pl.col(p).str.contains(PRICE_TEXT) for p in PRICES),
+    "price": pl.all_horizontal(pl.col(p).str.contains(PRICE_TEXT) for p in PRICES[:4]),
+    "preclose": pl.col("preclose").str.contains(PRECLOSE_TEXT),
     "volume": pl.col("volume").str.contains(r"^[0-9]*$"),
     "amount": pl.col("amount").str.contains(r"^([0-9]+([.][0-9]+)?)?$"),
     "turn": pl.col("turn").str.contains(r"^([0-9]+([.][0-9]+)?)?$"),

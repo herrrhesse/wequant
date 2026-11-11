@@ -22,6 +22,7 @@ from wequant.data.merge import MergePlan, apply_merge, plan_merge
 from wequant.data.merge.assemble import BJ, read_years, status_to_restore
 from wequant.data.merge.audit import FLAGGED, status_disagreements
 from wequant.data.merge.conflicts import SEEDED
+from wequant.data.merge.detect import FLAGS
 from wequant.data.merge.plan import LATE_EVENT_DAYS
 from wequant.data.merge.propose import propose
 from wequant.data.merge.resolutions import add, default_path, load
@@ -339,9 +340,9 @@ def _header(plan: MergePlan, commit: CommitResult | None, resolutions: Path) -> 
         "",
         *_stop_line(counts),
         f"- **Store:** {version}",
-        f"- **Resolutions:** {resolutions}: {sum(counts['applied'].values()):,} applied, {counts['flagged']:,} closes "
-        f"flagged, {sum(counts['unresolved'].values()):,} conflicts awaiting a decision, {len(counts['idle']):,} "
-        "approved entries met no conflict",
+        f"- **Resolutions:** {resolutions}: {sum(counts['applied'].values()):,} applied, "
+        f"{sum(counts['unresolved'].values()):,} conflicts awaiting a decision, {len(counts['idle']):,} approved "
+        "entries met no conflict",
         f"- **code_version:** {code_version()}",
         f"- **Days:** {plan.days[0]}..{plan.days[-1]} ({len(plan.days):,} raw days); factor files: {len(plan.factor_codes):,}",
         f"- **Meta after the merge:** {json.dumps(plan.meta, sort_keys=True)}",
@@ -364,7 +365,8 @@ def _stop_line(counts: dict) -> list[str]:
     return [
         f"- **Stop:** {sum(waiting.values()):,} conflicts lack an approved resolution ({waiting['missing']:,} without an "
         f"entry, {waiting['unfetched']:,} waiting for their reference day, {waiting['proposed']:,} with a proposed "
-        f"entry awaiting approval, {waiting['unpriced']:,} amount conflicts waiting for their cell's price entry); "
+        f"entry awaiting approval, {waiting['rejected']:,} with a rejected entry, {waiting['unpriced']:,} amount "
+        "conflicts waiting for their cell's price entry); "
         "nothing is committed until each has one (section 5).",
     ]
 
@@ -469,25 +471,28 @@ def _resolutions_section(plan: MergePlan) -> list[str]:
         (code, day, kind, action, ", ".join(d["fields"]), *(_ordered(d, x) for x in DETAIL_VALUES), d["evidence"])
         for (code, day, kind, action), d in zip(resolved.select("code", "date", "kind", "action").rows(), details)
     ]
-    flagged = plan.issues.filter(pl.col("kind") == "close_unconfirmed").sort("date", "code")
-    columns = ["close", "baostock_close", "seed_close", "next_date", "next_preclose", "ex_event"]
-    closes = [(c, day, *(json.loads(d)[x] for x in columns)) for c, day, d in flagged.select(*KEY, "detail").rows()]
     header = ["code", "date", "kind", "action", "fields", "store before", "BaoStock", "after", "evidence"]
-    return [
-        "## 4. Resolutions applied",
+    return ["## 4. Resolutions applied", "", *(table(header, rows) if rows else ["None.", ""]), *_detections(plan)]
+
+
+def _detections(plan: MergePlan) -> list[str]:
+    """The days whose snapshot looks cut against the seed, the rows each detection marked, and the close flags."""
+    found = plan.stats["detections"]
+    days = [(d["date"], d["exchange"], d["rows"], d["short"], d["share"]) for d in found["truncated_days"]]
+    lines = [
+        f"**Detections:** {found['stale']:,} suspended rows with a stale volume, {found['carried']:,} amounts "
+        f"repeating the previous bar, {found['truncated']:,} volumes short of the seed's on {len(days)} cut "
+        "exchange-days; each is a conflict unless the seed agrees (amounts).",
         "",
-        *(table(header, rows) if rows else ["None.", ""]),
-        *(
-            [
-                f"**close_unconfirmed:** {len(closes)} kept closes the next day's exchange preclose does not confirm (it "
-                "differs, is missing, or an adj_factor step lies between); flagged.",
-                "",
-                *table(["code", "date", *columns], closes),
-            ]
-            if closes
-            else []
-        ),
+        *(table(["date", "exchange", "rows with a seed bar", "short", "share"], days) if days else []),
     ]
+    for kind in FLAGS:
+        rows = plan.issues.filter(pl.col("kind") == kind).sort("date", "code")
+        shown = [(c, day, d) for c, day, d in rows.head(LISTED_ROWS).select(*KEY, "detail").rows()]
+        more = f", the first {LISTED_ROWS} listed" if rows.height > LISTED_ROWS else ""
+        lines += [f"**{kind}:** {rows.height:,} rows flagged{more}.", ""]
+        lines += table(["code", "date", "detail"], shown) if shown else []
+    return lines
 
 
 def _awaiting_section(plan: MergePlan) -> list[str]:
@@ -499,6 +504,7 @@ def _awaiting_section(plan: MergePlan) -> list[str]:
             "missing": UNDECIDED_ROWS,
             "unfetched": UNDECIDED_ROWS,
             "proposed": LISTED_ROWS,
+            "rejected": LISTED_ROWS,
             "unpriced": LISTED_ROWS,
         }
         shown = pl.concat(rows.filter(pl.col("entry") == state).head(cap) for state, cap in caps.items())

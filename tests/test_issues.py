@@ -37,7 +37,7 @@ def test_detail_columns_become_one_json_object_per_row():
 def test_nan_details_raise():
     """A detail is valid JSON: NaN raises instead of being written."""
     with pytest.raises(ValueError):
-        issue_rows(ROWS.with_columns(b=pl.lit(float("nan"))), "bars", "close_unconfirmed", "flagged", ["b"], "s")
+        issue_rows(ROWS.with_columns(b=pl.lit(float("nan"))), "bars", "close_preclose_off", "flagged", ["b"], "s")
 
 
 def test_issue_rows_checks_its_kind_against_issue_kinds():
