@@ -124,6 +124,11 @@ class Context:
     cancel: Callable[[], bool] | None = None  # asked whether to stop a long run
     mark: Callable[[str], None] | None = None  # told as each stage of the call ends (--profile)
 
+    @classmethod
+    def resident(cls, home: Path | None = None, cache: Path | None = None, cache_bytes: int = 8 << 30) -> Context:
+        """The context of a long-lived process: expression results stay in memory between calls, up to cache_bytes."""
+        return cls(home, cache, expr_cache=Cache(cache_bytes))
+
     def store(self) -> Store:
         return Store(self.home)
 
