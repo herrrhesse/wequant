@@ -10,6 +10,7 @@ import datetime as dt
 import json
 import re
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -70,17 +71,24 @@ class Entry:
         )
 
 
+READ_TEXTS = {  # the English text of each read warning, filled from its params
+    "strategy_version_changed": lambda p: (
+        f"saved under STRATEGY_VERSION {p['saved']}, read under {p['current']}: its meaning may differ"
+    ),
+    "meta_rebuilt": lambda p: (
+        f"meta.json disagreed with the version files on {p['versions']} versions; the files were read instead"
+    ),
+}
+
+
 def read_warnings(entry: Entry, version: Version) -> dict[str, tuple[str, dict]]:
     """code -> (text, params) of what reading this version cannot vouch for."""
     found = {}
     if version.strategy_version not in (None, STRATEGY_VERSION):
-        params = {"saved": version.strategy_version, "current": STRATEGY_VERSION}
-        text = f"saved under STRATEGY_VERSION {params['saved']}, read under {params['current']}: its meaning may differ"
-        found["strategy_version_changed"] = (text, params)
+        found["strategy_version_changed"] = {"saved": version.strategy_version, "current": STRATEGY_VERSION}
     if entry.rebuilt:
-        text = f"meta.json disagreed with the version files on {entry.rebuilt} versions; the files were read instead"
-        found["meta_rebuilt"] = (text, {"versions": entry.rebuilt})
-    return found
+        found["meta_rebuilt"] = {"versions": entry.rebuilt}
+    return {code: (READ_TEXTS[code](params), params) for code, params in found.items()}
 
 
 def strategy_hash(strategy: Strategy) -> str:
@@ -100,8 +108,10 @@ def check_id(id: str) -> str:
 class Library:
     """The saved strategies under root ($WEQUANT_HOME/strategies)."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, clock: Callable[[], str] | None = None) -> None:
+        """clock stamps what save writes (tests, the demo home)."""
         self.root = Path(root)
+        self.clock = clock or utc_now
 
     def entries(self) -> list[Entry]:
         """Every saved strategy, archived ones included, by id."""
@@ -139,7 +149,7 @@ class Library:
         id = check_id(id) if id is not None else self._new_id()
         (self.root / id).mkdir(parents=True, exist_ok=True)
         with exclusive(self.root / id / ".lock"):
-            entry = self._read(id) or Entry(id, id, _now(), False, ())
+            entry = self._read(id) or Entry(id, id, self.clock(), False, ())
             created = not entry.versions or entry.current.strategy_hash != strategy_hash(strategy)
             if created:
                 n = entry.current.n + 1 if entry.versions else 1
@@ -147,7 +157,7 @@ class Library:
                 if path.exists():
                     raise FileExistsError(f"{path} exists: something wrote it without holding {id}/.lock")
                 atomic_write(path, strategy.key.encode() + b"\n")
-                version = Version(n, strategy_hash(strategy), _now(), STRATEGY_VERSION, note)
+                version = Version(n, strategy_hash(strategy), self.clock(), STRATEGY_VERSION, note)
                 entry = replace(entry, versions=(*entry.versions, version))
             entry = replace(entry, name=name or entry.name, rebuilt=0)
             self._write(entry)
@@ -203,7 +213,3 @@ def _rebuilt(n: int, path: Path) -> Version:
     """The index entry of a version file meta.json does not list: saved_at its mtime, version and note unknown."""
     mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.UTC).isoformat(timespec="seconds")
     return Version(n, digest(json.loads(path.read_text("utf-8"))), mtime, None, None)
-
-
-def _now() -> str:
-    return utc_now()

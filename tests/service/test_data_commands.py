@@ -91,8 +91,10 @@ def test_index_check_reports_each_run_of_days_off_the_nominal_size(tmp_path):
 
 def test_index_check_without_members_is_ok(tmp_path):
     store = build_store(tmp_path / "home", DAYS, MARKET)
+    day = store.manifest()["created_at"][:10].replace("-", "")  # no last trade date: its creation day
     assert data_index_check(IndexCheckRequest(), Context(store.home)).model_dump() == {
         "ok": True,
         "data_version": 1,
+        "data_version_name": f"{day}.1",
         "indexes": [],
     }

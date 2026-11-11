@@ -48,8 +48,10 @@ def test_exact_json(context):
     fields = ["close", "adj_close", "factor", "limit_up_price", "limit_known", "st"]
     request = BarsRequest(codes=[A], start="2024-01-04", end="2024-01-08", fields=fields)
     nulls = ",".join(f'"{f}":null' for f in fields)
+    day = Store(context.home).manifest()["created_at"][:10].replace("-", "")  # no last trade date: its creation day
     assert data_bars(request, context).model_dump_json() == (
-        '{"data_version":1,"fields":["close","adj_close","factor","limit_up_price","limit_known","st"],"rows":['
+        f'{{"data_version":1,"data_version_name":"{day}.1",'
+        '"fields":["close","adj_close","factor","limit_up_price","limit_known","st"],"rows":['
         f'{{"date":"2024-01-04","code":"600000.SH","status":"missing","values":{{{nulls}}}}},'
         f'{{"date":"2024-01-05","code":"600000.SH","status":"suspended","values":{{{nulls}}}}},'
         '{"date":"2024-01-08","code":"600000.SH","status":"traded","values":{"close":5.1,"adj_close":10.2,'

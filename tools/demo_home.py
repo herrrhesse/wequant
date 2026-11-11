@@ -13,9 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import tempfile
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -28,7 +26,7 @@ from wequant.data.store import Store
 from wequant.expr.vocab import STORED_AS
 
 SEED = 7
-EPOCH = 1767225600  # 2026-01-01T00:00:00Z: every timestamp the store and the library write
+STAMP = "2026-01-01T00:00:00+00:00"  # the time the demo home says it was written
 ALL_DAYS = pl.date_range(dt.date(2023, 1, 2), dt.date(2025, 12, 31), eager=True)
 DAYS = ALL_DAYS.filter(ALL_DAYS.dt.weekday() <= 5)  # weekdays: the synthetic trading calendar
 CODES = (
@@ -74,15 +72,19 @@ def build(out: Path, seed: int = SEED) -> dict:
         bars[code], events = _bars(rng, code, days)
         factors += events
     tables = _tables(days, bars, factors)
-    with _fixed_clock():
-        store = Store(out)
-        meta = {"source": "demo", "seed": seed, "last_trade_date": days[-1].isoformat()}
-        store.commit(meta, replace=tables)
-        with tempfile.TemporaryDirectory() as cache:  # panel caches stay out of the demo home
-            service.data_check(service.CheckRequest(commit=True), service.Context(out, Path(cache)))
+    meta = {"source": "demo", "seed": seed, "last_trade_date": days[-1].isoformat()}
+    Store(out, clock=_stamp).commit(meta, replace=tables, reason="demo")
+    with tempfile.TemporaryDirectory() as cache:  # panel caches stay out of the demo home
+        context = service.Context(out, Path(cache), clock=_stamp)
+        service.data_check(service.CheckRequest(commit=True), context)
         for id, (name, form) in STRATEGIES.items():
-            service.strategy_save(service.SaveRequest(strategy=form, id=id, name=name), service.Context(out))
+            service.strategy_save(service.SaveRequest(strategy=form, id=id, name=name), context)
     return {name: frame.height for name, frame in tables.items()}
+
+
+def _stamp() -> str:
+    """Every timestamp the demo home's store and library write, so the same seed writes the same bytes."""
+    return STAMP
 
 
 def _bars(rng: np.random.Generator, code: str, days: list[dt.date]) -> tuple[list[dict], list[dict]]:
@@ -268,20 +270,6 @@ def _typed(name: str, frame: pl.DataFrame) -> pl.DataFrame:
     frame = frame.sort(list(table.key)) if table.key else frame
     table.validate(frame)
     return frame
-
-
-@contextmanager
-def _fixed_clock():
-    """Timestamps written meanwhile are EPOCH, so the same seed writes the same bytes."""
-    before = os.environ.get("SOURCE_DATE_EPOCH")
-    os.environ["SOURCE_DATE_EPOCH"] = str(EPOCH)
-    try:
-        yield
-    finally:
-        if before is None:
-            del os.environ["SOURCE_DATE_EPOCH"]
-        else:
-            os.environ["SOURCE_DATE_EPOCH"] = before
 
 
 def main(argv: list[str] | None = None) -> int:

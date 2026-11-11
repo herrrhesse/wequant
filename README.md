@@ -94,6 +94,7 @@ wequant runs show ID | report ID | rerun ID | diff A B | day ID DATE
 wequant runs orders ID [--code C] [--status S] [--side S] [--start D] [--end D] [--limit N] [--offset N]
 wequant runs anomalies ID [--channel C] [--code C] [--limit N] [--offset N]
 wequant schema
+wequant labels
 ```
 
 ```bash
@@ -134,6 +135,19 @@ name.
   month, `report` gives the Markdown report `--report` would have attached, `rerun` repeats a run on its store version
   and compares the bytes, `day` shows one day's holdings, decisions and fills. A full exit's `requested` is null (the
   whole holding).
+- **Version names:** each store version is named `YYYYMMDD.N` when it is made: its last trade date, then which version
+  of that day (`20261111.2` is the second version whose data end on 2026-11-11), with a reason (a code with params, and
+  its Chinese sentence: `每日更新`, `合并 BaoStock …`, `提交涨跌停检查`). The name never changes, whatever cleanup
+  removes; a version written before names (store v1 to v3) reads as its day and its own number with the reason `早期版本`.
+  `data status` keeps `versions` (the ids, oldest first) and lists them in `version_list`, newest first, as {id, name,
+  reason, last trade date, created at, pinned};
+  every result that reports a `data_version` also gives `data_version_name` (runs: null once their version is gone).
+  Requests still take the integer `data_version`.
+- **`labels`** gives the Chinese name and one sentence of every code the operations return: warnings (a template whose
+  `{param}`, `{param:.1%}` or `{param:,.2f}` placeholders are the warning's params, with optional clauses), data_issues
+  kinds and actions, metrics, metric reasons and units, funnel kinds, order statuses and reasons, sell reasons,
+  delisting treatments and kinds, anomaly classes and levels, error codes, exit codes and version reasons. English
+  stays in the `text` fields for logs; a test keeps the tables and the code base's codes one to one.
 - **`data calendar`** lists a store version's trading days in a range, with its first and last; **`data securities`**
   finds codes by a code prefix in any case (`600`, `600000.sh`) or part of a name, in code order, `--limit` of them
   (20 by default, at most 100) with the total.
@@ -216,8 +230,9 @@ uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl
   panels come from the on-disk panel cache (`--cache`). Each request runs in a worker thread, so a backtest does not hold up others. A client that
   disconnects cancels its backtest, which then archives nothing. Writes take the same locks as the CLI (409 when busy).
 - **Local only:** `--host` defaults to 127.0.0.1 and any other address prints a warning; there is no CORS. During
-  frontend development Vite proxies `/api` to the server. `--port` defaults to 8731; `/api/docs` shows the generated
-  OpenAPI document.
+  frontend development Vite proxies `/api` to the server. `--port` defaults to 8731.
+- **OpenAPI:** the generated document is at `/api/openapi.json`; there is no Swagger or ReDoc page, since those load
+  their scripts from a CDN and stay blank offline. The schema snapshot remains the frontend's source of types.
 - **The frontend at `/`:** the build in `--static DIR`, else `$WEQUANT_STATIC`, else the repository's `frontend/dist`.
   A file of the build is served as is and any other path outside `/api` gets its `index.html`. Without a build, `/`
   is a page saying how to build it; the API works either way. An unknown `/api/...` path is a 404 ErrorBody.

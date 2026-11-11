@@ -10,7 +10,7 @@ import pytest
 
 from wequant.data import store as store_module
 from wequant.data.schema import TABLES
-from wequant.data.store import Store, StoreLocked, tables_digest
+from wequant.data.store import Store, StoreLocked, tables_digest, version_name, version_reason
 
 META = {"last_trade_date": "2003-12-31", "source": "test", "release_tag": "t1"}
 
@@ -318,3 +318,52 @@ def test_lock_is_reentrant_within_one_store(store):
     with store.lock():
         assert store.commit(META, replace={"bars": four_years()}).changed
         store.cleanup(dry_run=False)
+
+
+def test_a_commit_is_stamped_by_the_store_s_clock(tmp_path):
+    """The demo home and tests fix the clock; a store reads no environment variable for it."""
+    store = Store(tmp_path, clock=lambda: "2026-01-01T00:00:00+00:00")
+    store.commit(META, replace={"bars": four_years()})
+    assert store.manifest()["created_at"] == "2026-01-01T00:00:00+00:00"
+
+
+# ---------------------------------------------------------------- version names (F-29)
+
+
+def dated(store, day, tag, **why):
+    """A version whose last trade date is day; tag makes its meta new."""
+    return store.commit({"last_trade_date": day, "release_tag": tag}, replace={"bars": four_years()}, **why)
+
+
+def names(store):
+    return [version_name(store.manifest(v)) for v in store.versions()]
+
+
+def test_a_version_is_named_by_its_last_trade_date_and_numbered_within_that_day(store):
+    dated(store, "2024-01-05", "a", reason="seed_import")
+    dated(store, "2024-01-05", "b", reason="limit_check")
+    dated(store, "2024-01-08", "c", reason="daily_update", reason_params={"days": 1})
+    assert names(store) == ["20240105.1", "20240105.2", "20240108.1"]
+    assert version_reason(store.manifest(3)) == {"code": "daily_update", "params": {"days": 1}}
+
+
+def test_a_name_stays_when_other_versions_go_and_is_not_given_again_while_kept(store):
+    dated(store, "2024-01-05", "a")
+    dated(store, "2024-01-05", "b")
+    (store.home / "manifests" / "manifest.v1.json").unlink()  # as a cleanup removes version 1
+    dated(store, "2024-01-05", "c")
+    assert names(store) == ["20240105.2", "20240105.3"]
+
+
+def test_a_version_written_before_names_is_named_by_its_day_and_own_number(store):
+    dated(store, "2024-01-05", "a")
+    dated(store, "2024-01-05", "b")
+    path = store.home / "manifests" / "manifest.v2.json"
+    legacy = {k: v for k, v in json.loads(path.read_text()).items() if k not in ("name", "reason")}
+    path.write_text(json.dumps(legacy))
+    assert (version_name(store.manifest(2)), version_reason(store.manifest(2))["code"]) == ("20240105.2", "legacy")
+
+
+def test_a_commit_names_its_reason_from_the_known_ones(store):
+    with pytest.raises(ValueError, match="reason"):
+        dated(store, "2024-01-05", "a", reason="because")

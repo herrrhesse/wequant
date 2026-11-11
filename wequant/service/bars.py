@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from wequant.expr import FIELDS
-from wequant.service.base import Context, Distinct, Model, PanelRequest, open_panel
+from wequant.service.base import Context, Distinct, Model, PanelRequest, named, open_panel
 from wequant.service.rows import Row, rows
 
 BarField = Literal[tuple(FIELDS)]
@@ -36,6 +36,8 @@ class Bars(Model):
     """Each cell's values: prices and amount in yuan, volume in shares, adj_* back-adjusted, masks 1.0/0.0."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     fields: list[BarField]
     rows: list[Row]
 
@@ -44,4 +46,4 @@ def data_bars(request: BarsRequest, context: Context = Context()) -> Bars:
     """The panel's values for the request's codes and days, as an expression reads them."""
     panel = open_panel(request, context)
     grids = {name: FIELDS[name].load(panel) for name in request.fields}
-    return Bars.model_validate({"data_version": panel.version, "fields": request.fields, "rows": rows(panel, grids)})
+    return Bars.model_validate({**named(panel.manifest), "fields": request.fields, "rows": rows(panel, grids)})

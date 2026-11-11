@@ -9,7 +9,7 @@ from typing import Literal
 from wequant.account.delisting import TREATMENTS, delisting_plan
 from wequant.data.delistings import KINDS, SOURCES, overrides_text
 from wequant.panel import load_panel
-from wequant.service.base import Context, DataRequest, Model, manifest
+from wequant.service.base import Context, DataRequest, Model, manifest, named
 from wequant.service.details import to_execution
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.specs import ExecutionSpec
@@ -63,6 +63,8 @@ class Delistings(Model):
     """Every delisted code of the store version, with its basis and treatment, and the counts a page leads with."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     overrides: bool
     """An overrides file exists in the data root."""
     counts: DelistingCounts
@@ -82,7 +84,7 @@ def data_delistings(request: DelistingsRequest, context: Context = Context()) ->
         raise ServiceError(Exit.USAGE, str(error)) from None
     rows = [DelistingRow(**row) for row in plan.iter_rows(named=True)]
     overrides = overrides_text(store.home) is not None
-    return Delistings(data_version=panel.version, overrides=overrides, counts=counts(rows), rows=rows)
+    return Delistings(**named(panel.manifest), overrides=overrides, counts=counts(rows), rows=rows)
 
 
 def counts(rows: list[DelistingRow]) -> DelistingCounts:

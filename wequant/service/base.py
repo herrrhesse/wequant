@@ -13,7 +13,7 @@ from pydantic_core import PydanticCustomError
 
 from wequant.backtest.progress import Progress
 from wequant.data.codes import split as split_code
-from wequant.data.store import Store
+from wequant.data.store import Store, version_name
 from wequant.expr import Cache
 from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.errors import Exit, ServiceError
@@ -123,6 +123,7 @@ class Context:
     progress: Callable[[Progress], None] | None = None  # told where a long run is
     cancel: Callable[[], bool] | None = None  # asked whether to stop a long run
     mark: Callable[[str], None] | None = None  # told as each stage of the call ends (--profile)
+    clock: Callable[[], str] | None = None  # stamps what the call writes; None: now (the demo home fixes it)
 
     @classmethod
     def resident(cls, home: Path | None = None, cache: Path | None = None, cache_bytes: int = 8 << 30) -> Context:
@@ -130,7 +131,7 @@ class Context:
         return cls(home, cache, expr_cache=Cache(cache_bytes))
 
     def store(self) -> Store:
-        return Store(self.home)
+        return Store(self.home, self.clock)
 
     def stage(self, name: str) -> None:
         """Stage name has ended."""
@@ -139,7 +140,7 @@ class Context:
 
     def library(self) -> Library:
         """The saved strategies of the data root."""
-        return Library(self.store().home / "strategies")
+        return Library(self.store().home / "strategies", self.clock)
 
 
 def manifest(store: Store, version: int | None = None) -> dict:
@@ -151,6 +152,17 @@ def manifest(store: Store, version: int | None = None) -> dict:
     if not kept:
         raise not_found("no_store", f"no store at {store.home}")
     raise not_found("version_not_kept", f"store version {version} is not kept; kept: {kept}", ["data_version"])
+
+
+def named(found: dict) -> dict:
+    """data_version and data_version_name of a manifest, for a result's fields."""
+    return {"data_version": found["version"], "data_version_name": version_name(found)}
+
+
+def name_of(store: Store, version: int) -> str | None:
+    """The display name of a version the store keeps; None once it is gone."""
+    found = store.manifest(version)
+    return None if found is None else version_name(found)
 
 
 def open_panel(request: PanelRequest, context: Context, history: bool = False) -> Panel:

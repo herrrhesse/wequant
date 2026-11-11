@@ -80,7 +80,8 @@ def check_store(store: Store, commit: bool = False, book: RuleBook | None = None
         result = CheckResult(manifest["version"], book.digest, frame, issues, missing, stale, None)
         if commit:
             table = pl.concat([data_issues.filter(pl.col("kind") != KIND), issues])
-            done = store.commit({"limit_check": _block(manifest, book)}, replace={"data_issues": table})
+            block = {"limit_check": _block(manifest, book)}
+            done = store.commit(block, replace={"data_issues": table}, reason="limit_check")
             result.committed = done.version if done.changed else None
     return result
 

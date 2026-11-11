@@ -1,3 +1,4 @@
+from wequant.data.store import Store
 from wequant.service import CheckRequest, Context, IssuesRequest, data_check, data_issues
 
 
@@ -26,14 +27,19 @@ OFF_GRID = issue("bars", "600002.SH", "2024-01-04", "off_scale", "row_dropped")
 B_02 = issue("daily_status", "300001.SZ", "2024-01-02", "before_first_bar", "status_dropped")
 
 
-def issues_json(total: int, counts: list[str], rows: list[str]) -> str:
-    return f'{{"data_version":1,"total":{total},"counts":[{",".join(counts)}],"rows":[{",".join(rows)}]}}'
+def issues_json(name: str, total: int, counts: list[str], rows: list[str]) -> str:
+    head = f'{{"data_version":1,"data_version_name":"{name}","total":{total}'
+    return f'{head},"counts":[{",".join(counts)}],"rows":[{",".join(rows)}]}}'
 
 
 def test_exact_json(context):
     """The wire format of data issues: total and counts over every matching row, the rows in store order."""
+    day = Store(context.home).manifest()["created_at"][:10].replace("-", "")  # no last trade date: its creation day
     expected = issues_json(
-        7, [UNCONFIRMED, DUPLICATE, BREACH, OFF_SCALE, BEFORE], [D_10, B_10, B_11, A_04, A_05, OFF_GRID, B_02]
+        f"{day}.1",
+        7,
+        [UNCONFIRMED, DUPLICATE, BREACH, OFF_SCALE, BEFORE],
+        [D_10, B_10, B_11, A_04, A_05, OFF_GRID, B_02],
     )
     assert data_issues(IssuesRequest(), context).model_dump_json() == expected
 

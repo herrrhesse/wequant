@@ -38,11 +38,11 @@ def run_import(tag: str = "latest", home: Path | None = None, check_idempotency:
         tables, stats = convert(raw_dir / "extracted", tag)
         step("convert")
         meta = {"last_trade_date": stats["last_trade_date"], "source": "investment_data", "release_tag": tag}
-        run["commit"] = store.commit(meta, replace=tables)
+        run["commit"] = store.commit(meta, replace=tables, reason="seed_import")
         step("commit")
         if check_idempotency:
             del tables
-            again = store.commit(meta, replace=convert(raw_dir / "extracted", tag)[0])
+            again = store.commit(meta, replace=convert(raw_dir / "extracted", tag)[0], reason="seed_import")
             run["repeat"] = {
                 "same_hashes": again.hashes == run["commit"].hashes,
                 "changed": again.changed,
