@@ -9,7 +9,7 @@ import importlib, pkgutil, sys
 import wequant
 
 for info in pkgutil.iter_modules(wequant.__path__):
-    if info.name in ("service", "cli"):
+    if info.name in ("service", "cli", "api"):
         continue
     module = importlib.import_module(f"wequant.{info.name}")
     if info.ispkg:
@@ -34,12 +34,16 @@ def run(script: str, forbidden: tuple[str, ...]) -> str:
     return done.stdout
 
 
-def test_the_core_never_imports_the_service_or_the_cli():
-    loaded = run(CORE, ("pydantic", "cyclopts", "wequant.service", "wequant.cli"))
+INTERFACES = ("service", "cli", "api")
+WEB = ("fastapi", "starlette", "uvicorn", "wequant.api")
+
+
+def test_the_core_never_imports_the_service_the_cli_or_the_api():
+    loaded = run(CORE, ("pydantic", "cyclopts", "wequant.service", "wequant.cli", *WEB))
     root = Path(wequant.__file__).parent
     files = [p.relative_to(root).parts for p in root.rglob("*.py")]
-    assert int(loaded) == sum(parts[0] not in ("service", "cli", "__init__.py") for parts in files)
+    assert int(loaded) == sum(parts[0] not in (*INTERFACES, "__init__.py") for parts in files)
 
 
-def test_the_service_never_imports_the_cli():
-    run(SERVICE, ("cyclopts", "wequant.cli"))
+def test_the_service_never_imports_the_cli_or_the_api():
+    run(SERVICE, ("cyclopts", "wequant.cli", *WEB))

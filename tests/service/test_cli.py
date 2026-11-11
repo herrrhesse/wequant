@@ -179,13 +179,14 @@ def test_runs_json_is_exactly_the_result_model(cli, market_home, argv, name, fie
     assert (code, type(expected).model_validate_json(out)) == (0, expected)
 
 
-SERVICE_SIDE = ("wequant.service", "wequant.cli", "wequant.version")
+SERVICE_SIDE = ("wequant.service", "wequant.cli", "wequant.api", "wequant.version")
 
 
-def test_the_cli_calls_no_core_code_but_through_the_service():
-    """The CLI only calls the service layer: from the core packages it may import constants (upper-case names) and
-    types it names only in annotations, never something it calls."""
-    for path in Path(commands.__file__).parent.glob("*.py"):
+@pytest.mark.parametrize("package", ["cli", "api"])
+def test_the_interfaces_call_no_core_code_but_through_the_service(package):
+    """The CLI and the HTTP API only call the service layer: from the core packages they may import constants
+    (upper-case names) and types named only in annotations, never something they call."""
+    for path in (Path(commands.__file__).parent.parent / package).glob("*.py"):
         tree = ast.parse(path.read_text("utf-8"))
         annotated = {id(name) for node in ast.walk(tree) for part in _annotations(node) for name in ast.walk(part)}
         used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and id(n) not in annotated}

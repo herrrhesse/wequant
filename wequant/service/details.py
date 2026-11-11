@@ -27,13 +27,18 @@ OWN = ("requires", "duplicate_value", "not_a_form", "out_of_range", "wrong_type"
 
 def pydantic_details(error: ValidationError, loc: Loc = ()) -> list[ErrorDetail]:
     """One detail per pydantic error; a type without a code of its own is wrong_type."""
+    return error_details(error.errors(), loc)
+
+
+def error_details(errors: Sequence[Mapping], loc: Loc = ()) -> list[ErrorDetail]:
+    """One detail per error in pydantic's errors() form (a validation error a framework reports, too)."""
     return [
         ErrorDetail(
             code=PYDANTIC.get(e["type"], e["type"] if e["type"] in OWN else "wrong_type"),
             message=e["msg"].removeprefix("Value error, "),
             loc=[*loc, *e["loc"]],
         )
-        for e in error.errors()
+        for e in errors
     ]
 
 
