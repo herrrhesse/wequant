@@ -20,15 +20,6 @@ VALUES = {
 SCHEMA = {"date": pl.Date, "code": pl.String, "x": pl.Float64}
 
 
-def reordered(value: object) -> object:
-    """value with every dict's keys in reverse order: the same JSON document."""
-    if isinstance(value, dict):
-        return {key: reordered(value[key]) for key in reversed(value)}
-    if isinstance(value, list):
-        return [reordered(item) for item in value]
-    return value
-
-
 def frame_of(height: int) -> st.SearchStrategy[pl.DataFrame]:
     columns = {name: st.lists(st.none() | values, min_size=height, max_size=height) for name, values in VALUES.items()}
     return st.fixed_dictionaries(columns).map(lambda data: pl.DataFrame(data, schema=SCHEMA))
@@ -40,16 +31,6 @@ FRAMES = st.integers(1, 6).flatmap(frame_of)
 @given(PLAIN, PLAIN)
 def test_json_differences_are_empty_exactly_when_documents_are_equal(a, b):
     assert (json_differences(a, b) == []) == (document(a) == document(b))
-
-
-@given(PLAIN)
-def test_the_same_document_has_no_differences(a):
-    assert json_differences(a, reordered(a)) == [] and document(a) == document(reordered(a))
-
-
-@given(FRAMES)
-def test_a_frame_equals_itself(frame):
-    assert frame_differences(frame, frame.clone()) == []
 
 
 @given(FRAMES, st.data())

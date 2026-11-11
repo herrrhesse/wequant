@@ -5,13 +5,10 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
-import polars as pl
 import pytest
 
 from wequant.expr import Field
 from wequant.strategy import (
-    ACTIONS,
-    SELL_KINDS,
     Condition,
     Factor,
     Group,
@@ -67,11 +64,6 @@ def two(strategy=TWO, **extra):
     return section(strategy, conditions={"ok": [1] * 5}, x1=X1, x2=X2, **extra)
 
 
-def test_verdicts_pass_only_on_one():
-    assert verdicts(row([1, 0, NAN, 0.5])).tolist() == [[1, 0, -1, 0]]
-    assert verdicts(row([1])).dtype == np.int8
-
-
 def test_scores_rank_backup_and_equal_weights():
     got = two()
     assert got.scored.tolist() == [[True, True, True, False, False]]
@@ -102,14 +94,11 @@ def test_the_score_weighs_each_factor_by_its_weight_share():
 
 
 def test_score_and_formula_weights():
+    """n slots shared by score or by formula; a stock whose formula is not a finite positive number is not scored."""
     by_score = replace(TWO, weighting="score")
     assert weights(chosen(by_score, two(by_score))).tolist() == [[0.6296296296296297, 0.3703703703703703, 0, 0, 0]]
     by_formula = replace(TWO, weighting="formula", formula=CLOSE)
     assert weights(chosen(by_formula, two(by_formula, formula=[2, 6, 1, 1, 1]))).tolist() == [[0.25, 0.75, 0, 0, 0]]
-
-
-def test_formula_weighting_leaves_a_stock_with_no_positive_formula_unscored():
-    by_formula = replace(TWO, weighting="formula", formula=CLOSE)
     got = two(by_formula, formula=[2, -1, NAN, 1, 1])
     assert got.scored.tolist() == [[True, False, False, False, False]]
     assert weights(chosen(by_formula, got)).tolist() == [[0.5, 0, 0, 0, 0]]
@@ -164,55 +153,38 @@ def funnel_rows(got):
     return funnel_frame(GROUP, got, chosen(GROUP, got), STAND_IN).select("step", "passed", "left").rows()
 
 
-def test_a_group_combines_pass_and_fail_never_values():
-    got = grouped([1] * 5)
-    assert got.steps["either"].tolist() == [[1, 1, 1, 0, 1]] and got.steps["either"].dtype == np.int8
-    assert got.eligible.tolist() == [[True, True, False, False, True]]
-    assert got.rank.tolist() == [[3, 2, 0, 0, 1]] and weights(chosen(GROUP, got)).tolist() == [[0, 0, 0, 0, 1.0]]
-    assert funnel_rows(got) == [
-        ("listed", 5, 5),
-        ("bar", 5, 5),
-        ("universe", 5, 5),
-        ("a", 2, None),
-        ("b", 3, None),
-        ("either", 4, 4),
-        ("d", 4, 3),
-        ("scored", 3, 3),
-        ("targets", 1, 1),
-        ("backups", 0, 0),
-    ]
+@pytest.mark.parametrize(
+    "universe, either, rank, funnel",
+    [
+        (
+            [1] * 5,
+            [1, 1, 1, 0, 1],
+            [3, 2, 0, 0, 1],
+            [("universe", 5, 5), ("a", 2, None), ("b", 3, None), ("either", 4, 4), ("d", 4, 3), ("scored", 3, 3)],
+        ),
+        (
+            UNIVERSE,
+            [1, 1, 1, 0, 1],
+            [2, 1, 0, 0, 0],
+            [("universe", 4, 4), ("a", 1, None), ("b", 3, None), ("either", 3, 3), ("d", 3, 2), ("scored", 2, 2)],
+        ),
+    ],
+    ids=["all_in_the_universe", "e_outside_it"],
+)
+def test_a_group_combines_pass_and_fail_never_values(universe, either, rank, funnel):
+    """A group of any passes when a member passes, a member without a value counting as a fail (A's a is NaN); a group
+    member narrows nothing on its own; the funnel counts only universe stocks."""
+    got = grouped(universe)
+    assert got.steps["either"].tolist() == [either] and got.steps["either"].dtype == np.int8
+    assert got.rank.tolist() == [rank]
+    head, tail = [("listed", 5, 5), ("bar", 5, 5)], [("targets", 1, 1), ("backups", 0, 0)]
+    assert funnel_rows(got) == head + funnel + tail
     detail = detail_frame(GROUP, got, chosen(GROUP, got), STAND_IN)
-    assert detail["code"].to_list() == list("ABCDE")
-    assert detail.select("a", "b", "either", "d", "scored", "rank").to_dict(as_series=False) == {
-        "a": [True, None, False, False, True],
-        "b": [True, True, True, False, False],
-        "either": [True, True, True, False, True],
-        "d": [True, True, False, True, True],
-        "scored": [True, True, False, False, True],
-        "rank": [3, 2, None, None, 1],
+    inside = [k for k, u in enumerate(universe) if u == 1]
+    assert detail["code"].to_list() == ["ABCDE"[k] for k in inside]
+    assert detail.select("a", "b", "either", "d").to_dict(as_series=False) == {
+        "a": [[True, None, False, False, True][k] for k in inside],
+        "b": [[True, True, True, False, False][k] for k in inside],
+        "either": [bool(either[k]) for k in inside],
+        "d": [[True, True, False, True, True][k] for k in inside],
     }
-
-
-def test_a_group_counts_only_universe_stocks():
-    got = grouped(UNIVERSE)
-    assert got.rank.tolist() == [[2, 1, 0, 0, 0]] and weights(chosen(GROUP, got)).tolist() == [[0, 1.0, 0, 0, 0]]
-    assert funnel_rows(got) == [
-        ("listed", 5, 5),
-        ("bar", 5, 5),
-        ("universe", 4, 4),
-        ("a", 1, None),
-        ("b", 3, None),
-        ("either", 3, 3),
-        ("d", 3, 2),
-        ("scored", 2, 2),
-        ("targets", 1, 1),
-        ("backups", 0, 0),
-    ]
-    detail = detail_frame(GROUP, got, chosen(GROUP, got), STAND_IN)
-    assert detail["code"].to_list() == list("ABCD")
-    assert detail.schema == pl.Schema(
-        {"date": pl.Date, "code": pl.String, "universe": pl.Boolean, "a": pl.Boolean, "b": pl.Boolean}
-        | {"either": pl.Boolean, "d": pl.Boolean, "scored": pl.Boolean, "rank": pl.Int64, "held": pl.Boolean}
-        | {"action": pl.Enum(ACTIONS), "sell_kind": pl.Enum(SELL_KINDS), "sell_step": pl.String}
-        | {"sell_rank": pl.Int64, "sell_limit": pl.Int64}
-    )

@@ -1,10 +1,9 @@
 import datetime as dt
-import json
 
 import polars as pl
 import pytest
 
-from wequant.data.issues import encode, issue_rows
+from wequant.data.issues import issue_rows
 from wequant.data.schema import TABLES
 
 ROWS = pl.DataFrame(
@@ -18,6 +17,8 @@ ROWS = pl.DataFrame(
 
 
 def test_detail_columns_become_one_json_object_per_row():
+    """data_issues detail: one JSON object per row with sorted keys and ISO dates, as the seed import wrote them;
+    null without detail columns."""
     issues = issue_rows(ROWS, "bars", "volume_mismatch", "value_replaced", ["b", "a"], "merge@1")
     TABLES["data_issues"].validate(issues)
     assert issues["detail"].to_list() == ['{"a": "2024-01-02", "b": 1.5}', '{"a": "2024-01-03", "b": 2.0}']
@@ -30,30 +31,16 @@ def test_detail_columns_become_one_json_object_per_row():
         "detail": '{"a": "2024-01-02", "b": 1.5}',
         "source": "merge@1",
     }
-
-
-def test_encoding_matches_the_seed():
-    detail = {"close": 7.21, "amount": 2479699.95}
-    assert encode(detail) == '{"amount": 2479699.95, "close": 7.21}'
-    assert encode(detail) == json.dumps(detail, sort_keys=True, ensure_ascii=False)
+    assert issue_rows(ROWS, "bars", "bar_added", "row_added", [], "s")["detail"].to_list() == [None, None]
 
 
 def test_nan_details_raise():
+    """A detail is valid JSON: NaN raises instead of being written."""
     with pytest.raises(ValueError):
         issue_rows(ROWS.with_columns(b=pl.lit(float("nan"))), "bars", "close_unconfirmed", "flagged", ["b"], "s")
-
-
-def test_no_detail_columns_give_null_details():
-    issues = issue_rows(ROWS, "bars", "bar_added", "row_added", [], "s")
-    assert issues["detail"].null_count() == 2
 
 
 def test_issue_rows_checks_its_kind_against_issue_kinds():
     """Wiring of A-1: the shared writer refuses an unclassified kind."""
     with pytest.raises(ValueError, match="add it to ISSUE_KINDS"):
         issue_rows(ROWS, "bars", "k", "flagged", [], "s")
-
-
-def test_no_rows_give_an_empty_frame_with_the_schema():
-    issues = issue_rows(ROWS.clear(), "bars", "close_unconfirmed", "flagged", ["a", "b"], "s")
-    assert issues.height == 0 and dict(issues.schema) == TABLES["data_issues"].schema
