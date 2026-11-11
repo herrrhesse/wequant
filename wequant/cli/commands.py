@@ -31,6 +31,7 @@ FLAT = Parameter(name="*")  # a request model's fields become the command's opti
 DEFAULT_PORT = 8731  # wequant serve's port; README states it
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 SERVER_MODULES = ("fastapi", "uvicorn", "starlette", "anyio")  # what the server extra installs
+INTERRUPTED = ErrorBody(exit=Exit.INTERRUPTED, name=Exit.INTERRUPTED.name, message="interrupted by Ctrl-C")
 
 app = App(
     name="wequant",
@@ -84,6 +85,22 @@ def status(
 ) -> int:
     """Store versions, the tables of one version and whether its limit check is current."""
     return run(service.data_status, request, common)
+
+
+@data.command
+def calendar(
+    *, request: Annotated[service.CalendarRequest, FLAT] = service.CalendarRequest(), common: Common = COMMON
+) -> int:
+    """The trading days of a store version, with its first and last."""
+    return run(service.data_calendar, request, common)
+
+
+@data.command
+def securities(
+    *, request: Annotated[service.SecuritiesRequest, FLAT] = service.SecuritiesRequest(), common: Common = COMMON
+) -> int:
+    """Codes starting with --query, or whose name contains it."""
+    return run(service.data_securities, request, common)
 
 
 @data.command
@@ -461,6 +478,23 @@ def runs_show(id: str, /, *, common: Common = COMMON) -> int:
     return run(service.runs_show, lambda: validated(service.RunRequest, {"id": id}), common, human=_run_detail)
 
 
+@runs.command(name="report")
+def runs_report(id: str, /, *, common: Common = COMMON) -> int:
+    """An archived run's Markdown report, as backtest --report attaches it.
+
+    Parameters
+    ----------
+    id
+        A run id.
+    """
+    return run(
+        service.runs_report,
+        lambda: validated(service.RunRequest, {"id": id}),
+        common,
+        human=lambda r: r.report.rstrip("\n"),
+    )
+
+
 @runs.command(name="rerun")
 def runs_rerun(id: str, /, *, common: Common = COMMON) -> int:
     """Run an archived run again on its store version and compare it byte for byte.
@@ -649,6 +683,9 @@ def run(
             log.exception("internal error")
             message = f"{type(error).__name__}: {error}"
             return _failed(ErrorBody(exit=Exit.INTERNAL, name=Exit.INTERNAL.name, message=message), common)
+        except KeyboardInterrupt:  # caught here, before cyclopts would exit 130 without a body
+            log.error(INTERRUPTED.message)
+            return _failed(INTERRUPTED, common)
     _print(text)
     return Exit.PROBLEMS if isinstance(result, Check) and not result.ok else Exit.OK
 
@@ -662,6 +699,10 @@ def launch(argv: list[str] | None = None) -> None:
         if "--json" in tokens:
             _print(refused(error).model_dump_json())
         sys.exit(Exit.USAGE)
+    except KeyboardInterrupt:  # Ctrl-C while the command line is parsed
+        if "--json" in tokens:
+            _print(INTERRUPTED.model_dump_json())
+        sys.exit(Exit.INTERRUPTED)
 
 
 def strategy_fields(text: str) -> dict:

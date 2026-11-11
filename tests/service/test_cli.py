@@ -23,6 +23,13 @@ CASES = [
         "home",
     ),
     (["data", "issues"], "data_issues", service.IssuesRequest(), "home"),
+    (
+        ["data", "calendar", "--start", "2024-01-04"],
+        "data_calendar",
+        service.CalendarRequest(start="2024-01-04"),
+        "home",
+    ),
+    (["data", "securities", "--query", "6"], "data_securities", service.SecuritiesRequest(query="6"), "home"),
     (["data", "check"], "data_check", service.CheckRequest(), "limits_home"),
     (
         ["data", "delistings", "--delisting", "hold"],
@@ -158,6 +165,7 @@ def test_profile_times_the_stages_on_stderr_and_leaves_stdout_alone(cli, market_
 RUNS = [
     (["runs", "list", "--limit", "5"], "runs_list", {"limit": 5}),
     (["runs", "show", "{id}"], "runs_show", {"id": "{id}"}),
+    (["runs", "report", "{id}"], "runs_report", {"id": "{id}"}),
     (["runs", "rerun", "{id}"], "runs_rerun", {"id": "{id}"}),
     (["runs", "diff", "{id}", "{id}"], "runs_diff", {"a": "{id}", "b": "{id}"}),
     (["runs", "orders", "{id}", "--side", "buy"], "runs_orders", {"id": "{id}", "side": "buy"}),

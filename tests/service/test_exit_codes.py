@@ -43,21 +43,21 @@ class Unprintable:
 
 DETAIL = ErrorDetail(code="no_answer", message="no answer for 600000.SH", loc=["codes", 0])
 BUG = ErrorBody(exit=Exit.INTERNAL, name="INTERNAL", message="ZeroDivisionError: bug")
-OUTCOMES = [  # what the operation raises or returns, and the ErrorBody --json prints (None: none)
+OUTCOMES = [  # what the operation raises or returns, and the ErrorBody --json prints
     (
         ServiceError(Exit.UNREACHABLE, "source down", [DETAIL], complete=False),
         ErrorBody(exit=Exit.UNREACHABLE, name="UNREACHABLE", message="source down", detail=[DETAIL], complete=False),
     ),
     (ZeroDivisionError("bug"), BUG),
     (Unprintable(), BUG),  # b6c9a93: rendering runs inside the error handling
-    (KeyboardInterrupt(), None),
+    (KeyboardInterrupt(), ErrorBody(exit=Exit.INTERRUPTED, name="INTERRUPTED", message="interrupted by Ctrl-C")),
 ]
 
 
 @pytest.mark.parametrize("outcome, body", OUTCOMES, ids=["service error", "bug", "render bug", "ctrl-c"])
 def test_what_an_operation_raises_decides_the_exit(cli, monkeypatch, outcome, body):
     """A ServiceError exits with its code, any other exception or a failed render 70 with the traceback on stderr,
-    Ctrl-C 130; stdout stays empty, or under --json holds the failure's ErrorBody."""
+    Ctrl-C 130; stdout stays empty, or under --json holds the failure's ErrorBody (Ctrl-C's included)."""
 
     def operation(request, context):
         if isinstance(outcome, BaseException):
@@ -66,11 +66,10 @@ def test_what_an_operation_raises_decides_the_exit(cli, monkeypatch, outcome, bo
 
     monkeypatch.setattr("wequant.service.data_status", operation)
     exit, out, err = cli("data", "status")
-    assert (exit, out) == (body.exit if body else Exit.INTERRUPTED, "")
-    if body is not None:
-        assert body.message in err and ("Traceback" in err) == (body.exit == Exit.INTERNAL)
-        exit, out, _ = cli("data", "status", "--json")
-        assert exit == body.exit and ErrorBody.model_validate_json(out) == body
+    assert (exit, out) == (body.exit, "")
+    assert body.message in err and ("Traceback" in err) == (body.exit == Exit.INTERNAL)
+    exit, out, _ = cli("data", "status", "--json")
+    assert exit == body.exit and ErrorBody.model_validate_json(out) == body
 
 
 FAILURES = [  # (argv, the details' codes and locs, complete)

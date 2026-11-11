@@ -161,13 +161,14 @@ def order_counts(orders: pl.DataFrame) -> OrderCounts:
     )
 
 
-def report(result: BacktestResult, strategy: Strategy) -> str:
-    """Markdown: the run's identity and strategy, headline metrics, orders, delisted holdings and warnings."""
+def report(result: BacktestResult, strategy: Strategy, code: str | None = None) -> str:
+    """Markdown: the run's identity and strategy, headline metrics, orders, delisted holdings and warnings; code is the
+    code version that ran it (default: this one)."""
     saved = ", ".join(f"{ref.id}@{ref.n}" for ref in result.saved_as) or "unsaved"
     lines = [
         f"# Backtest {result.run_id}",
         "",
-        f"- Store v{result.data_version}, code {code_version()}, {result.start} to {result.end}"
+        f"- Store v{result.data_version}, code {code or code_version()}, {result.start} to {result.end}"
         f" ({result.run_days} run days, {result.decisions} decisions)",
         f"- Strategy {result.strategy_hash} ({saved}): {sentence(summary(strategy))}",
         "",

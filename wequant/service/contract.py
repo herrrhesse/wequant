@@ -11,6 +11,7 @@ from wequant.service import runs, strategies
 from wequant.service.backtest import backtest
 from wequant.service.bars import data_bars
 from wequant.service.base import Context, ErrorBody, Model
+from wequant.service.calendar import data_calendar
 from wequant.service.check import data_check
 from wequant.service.delistings import data_delistings
 from wequant.service.explain import explain
@@ -20,6 +21,7 @@ from wequant.service.issues import data_issues
 from wequant.service.profile import ProfileReport
 from wequant.service.resolutions import data_resolve_approve, data_resolve_list, data_resolve_reject
 from wequant.service.screen import screen
+from wequant.service.securities import data_securities
 from wequant.service.status import data_status
 from wequant.service.verify import data_verify_list, data_verify_submit
 
@@ -93,14 +95,16 @@ def schema(request: SchemaRequest, context: Context = Context()) -> ServiceSchem
 
 
 OPERATIONS = (
-    *(data_status, data_bars, data_issues, data_check, data_delistings, data_index_check),
+    *(data_status, data_calendar, data_securities, data_bars, data_issues, data_check, data_delistings),
+    data_index_check,
     *(data_verify_submit, data_verify_list, data_resolve_list, data_resolve_approve, data_resolve_reject),
     *(expr_check, expr_eval),
     *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),
     *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
     screen,
     backtest,
-    *(runs.runs_list, runs.runs_show, runs.runs_rerun, runs.runs_diff, runs.runs_orders, runs.runs_day),
+    *(runs.runs_list, runs.runs_show, runs.runs_report, runs.runs_rerun, runs.runs_diff, runs.runs_orders),
+    runs.runs_day,
     runs.runs_anomalies,
     explain,
     schema,
