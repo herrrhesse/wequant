@@ -18,7 +18,7 @@ from wequant.rules.book import Rate, default_book, fees_in_force
 from wequant.runs.archive import HEADLINE, RUNS, Archive
 from wequant.runs.compare import json_differences
 from wequant.runs.run import Run
-from wequant.service.backtest import metrics_out, order_counts
+from wequant.service.backtest import BacktestResult, metrics_out, order_counts, report
 from wequant.service.base import Context, Model, not_found
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.outputs import (
@@ -39,8 +39,8 @@ from wequant.service.outputs import (
     warnings_out,
 )
 from wequant.service.specs import DataSpec, ExecutionSpec, IsoDate, MetricSpecModel, Name, StrategySpec
-from wequant.service.strategies import Hash
-from wequant.strategy.library import Library
+from wequant.service.strategies import Hash, saved_as
+from wequant.strategy.library import Library, strategy_hash
 
 Limit = Field(100, ge=1, le=500)
 
@@ -344,6 +344,40 @@ def runs_show(request: RunRequest, context: Context = Context()) -> RunDetail:
         daily=[DailyRow(**r) for r in daily_view(run.ledger.daily, run.ledger.positions).iter_rows(named=True)],
         periods=Periods(**{p: _periods(run.ledger.daily, p) for p in ("year", "month")}),
     )
+
+
+class RunReport(Model):
+    """An archived run's Markdown report."""
+
+    id: str
+    report: str
+    """The text backtest attaches with report true, from the archive."""
+
+
+def runs_report(request: RunRequest, context: Context = Context()) -> RunReport:
+    """The Markdown report of an archived run, as backtest attaches it with report true (F-28)."""
+    archive, run = load_run(context, request.id)
+    row = archive.row(request.id)
+    spec = Backtest.from_form(run.description)
+    found = strategy_hash(spec.strategy)
+    result = BacktestResult(
+        run_id=run.id,
+        saved=True,
+        data_version=row["store_version"],
+        strategy_hash=found,
+        saved_as=saved_as(context.library(), found),
+        start=run.ledger.daily["date"][0],
+        end=run.ledger.daily["date"][-1],
+        run_days=run.ledger.daily.height - 1,
+        decisions=run.funnel["date"].n_unique(),
+        metrics=metrics_out(run.metrics),
+        orders=order_counts(run.ledger.orders),
+        delisted=[DelistedRow(**r) for r in run.ledger.delisted.iter_rows(named=True)],
+        anomalies=data_anomaly(run.anomalies, spec.data.excluded),
+        warnings=warnings_out(run.warnings),
+        report=None,
+    )
+    return RunReport(id=run.id, report=report(result, spec.strategy, row["code_version"]))
 
 
 def runs_rerun(request: RunRequest, context: Context = Context()) -> RunComparison:

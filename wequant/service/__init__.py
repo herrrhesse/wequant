@@ -3,6 +3,7 @@
 from wequant.service.backtest import BacktestRequest, BacktestResult, backtest
 from wequant.service.bars import Bars, BarsRequest, data_bars
 from wequant.service.base import Check, Context, ErrorBody, ErrorDetail
+from wequant.service.calendar import Calendar, CalendarRequest, data_calendar
 from wequant.service.check import CheckReport, CheckRequest, data_check
 from wequant.service.contract import OperationModels, SchemaRequest, ServiceSchema, schema
 from wequant.service.delistings import (
@@ -41,6 +42,7 @@ from wequant.service.runs import (
     RunDetail,
     RunDiff,
     RunDiffRequest,
+    RunReport,
     RunRequest,
     RunsListRequest,
     RunsPage,
@@ -49,10 +51,12 @@ from wequant.service.runs import (
     runs_diff,
     runs_list,
     runs_orders,
+    runs_report,
     runs_rerun,
     runs_show,
 )
 from wequant.service.screen import ScreenRequest, ScreenResult, screen
+from wequant.service.securities import Securities, SecuritiesRequest, SecurityRow, data_securities
 from wequant.service.status import DataStatus, StatusRequest, TableStatus, data_status
 from wequant.service.strategies import (
     ArchiveRequest,
@@ -94,6 +98,15 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "Calendar",
+    "CalendarRequest",
+    "data_calendar",
+    "Securities",
+    "SecuritiesRequest",
+    "SecurityRow",
+    "data_securities",
+    "RunReport",
+    "runs_report",
     "Decision",
     "DecisionRequest",
     "Resolution",
