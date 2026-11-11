@@ -13,7 +13,7 @@ import polars as pl
 from wequant.backtest import DataOptions, screen_warnings
 from wequant.backtest.anomalies import screen_uses
 from wequant.panel import NotInPanel, Panel, load_panel
-from wequant.service.base import Context, DataRequest, Model, manifest, not_found
+from wequant.service.base import Context, DataRequest, Model, manifest, named, not_found
 from wequant.service.details import Loc, spec_details, to_data, usage
 from wequant.service.outputs import DataAnomaly, Op, Role, SavedRef, Warning, data_anomaly, warnings_out
 from wequant.service.specs import DataSpec, IsoDate
@@ -128,6 +128,8 @@ class ScreenResult(Model):
     """One day's funnel, scored stocks and rejects; every listed stock appears once."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     date: dt.date
     next_day: dt.date | None
     """The fill day t+1; null: t is the store's last day."""
@@ -158,7 +160,7 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
     uses = screen_uses(strategy, panel, section, choice)
     found = strategy_hash(strategy)
     result = ScreenResult(
-        data_version=panel.version,
+        **named(panel.manifest),
         date=panel.dates[row].item(),
         next_day=panel.dates[row + 1].item() if row + 1 < len(panel.dates) else None,
         strategy_hash=found,

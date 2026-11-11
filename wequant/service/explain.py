@@ -14,7 +14,7 @@ from wequant.backtest import Backtest, screen_warnings
 from wequant.backtest.anomalies import screen_uses
 from wequant.panel import Panel
 from wequant.runs.run import Run
-from wequant.service.base import Code, Context, ErrorDetail, Model, not_found
+from wequant.service.base import Code, Context, ErrorDetail, Model, named, not_found
 from wequant.service.details import to_data, usage
 from wequant.service.outputs import (
     Action,
@@ -116,6 +116,8 @@ class Explain(Model):
     """Why a stock was or was not chosen on a day, and with a run what happened to it."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     date: dt.date
     next_day: dt.date | None
     code: str
@@ -160,7 +162,7 @@ def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
     weight, raw = target_weights(shot.choice, 0).get(col, (None, None))
     backup = bool(shot.choice.backup[0, col])
     return Explain(
-        data_version=panel.version,
+        **named(panel.manifest),
         date=panel.dates[row].item(),
         next_day=panel.dates[row + 1].item() if row + 1 < len(panel.dates) else None,
         code=request.code,
@@ -209,7 +211,7 @@ def _with_run(request: ExplainRequest, context: Context) -> Explain:
     orders = run.ledger.orders.filter((pl.col("date") == fill) & code) if fill else run.ledger.orders.clear()
     uses = run.anomalies.filter(code & pl.col("date").is_in([day, *([fill] if fill else [])]))
     return Explain(
-        data_version=panel.version,
+        **named(panel.manifest),
         date=day,
         next_day=fill,
         code=request.code,

@@ -9,7 +9,7 @@ import numpy as np
 
 from wequant.expr import Expr, ExprError, evaluate, from_form
 from wequant.panel import Panel
-from wequant.service.base import Context, ErrorDetail, Model, PanelRequest, not_found, open_panel
+from wequant.service.base import Context, ErrorDetail, Model, PanelRequest, named, not_found, open_panel
 from wequant.service.details import expr_detail, usage
 from wequant.service.rows import Row, rows
 
@@ -40,6 +40,8 @@ class EvalResult(Model):
     """The form's value in each cell, as values.value."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     key: str
     kind: Kind
     rows: list[Row]
@@ -56,7 +58,7 @@ def expr_eval(request: EvalRequest, context: Context = Context()) -> EvalResult:
     expr = parse(request.form)
     panel = open_panel(request, context, history=True)
     first = _first_row(panel, request)
-    result = {"data_version": panel.version, "key": expr.key, "kind": expr.kind}
+    result = {**named(panel.manifest), "key": expr.key, "kind": expr.kind}
     return EvalResult.model_validate({**result, "rows": rows(panel, {"value": evaluate(expr, panel)}, first)})
 
 

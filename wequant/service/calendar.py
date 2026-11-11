@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from wequant.service.base import Context, DataRequest, Model, manifest
+from wequant.service.base import Context, DataRequest, Model, manifest, named
 from wequant.service.specs import IsoDate
 
 
@@ -21,6 +21,8 @@ class Calendar(Model):
     """A store version's trading days."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     first: dt.date | None
     """The version's first trading day, whatever the range; null: an empty calendar."""
     last: dt.date | None
@@ -36,4 +38,4 @@ def data_calendar(request: CalendarRequest, context: Context = Context()) -> Cal
     days = store.read_table("calendar", manifest=found)["date"].sort()
     within = days.filter(days.is_between(request.start or dt.date.min, request.end or dt.date.max))
     first, last = (days.first(), days.last()) if days.len() else (None, None)
-    return Calendar(data_version=found["version"], first=first, last=last, dates=within.to_list())
+    return Calendar(**named(found), first=first, last=last, dates=within.to_list())

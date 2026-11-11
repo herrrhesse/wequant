@@ -6,10 +6,11 @@ import datetime as dt
 
 from pydantic import JsonValue
 
+from wequant.data.store import OWN_KEYS, version_name, version_reason
 from wequant.rules.tables import limit_check_current
 from wequant.service.base import Context, DataRequest, Model, manifest
-
-OWN_KEYS = ("version", "created_at", "last_trade_date", "tables")  # the manifest keys DataStatus has fields for
+from wequant.service.labels import reason_text
+from wequant.service.outputs import Params
 
 
 class StatusRequest(DataRequest):
@@ -24,13 +25,37 @@ class TableStatus(Model):
     rows: int
 
 
+class VersionInfo(Model):
+    """One version the store keeps."""
+
+    id: int
+    """The number requests take as data_version."""
+    name: str
+    """The display name, YYYYMMDD.N: the version's last trade date, then which version of that day; written when the
+    version was made and never changed (legacy versions: the day and their own number)."""
+    reason: str
+    """Why it was made, in Chinese, e.g. 每日更新."""
+    reason_code: str
+    """The reason's code (labels.version_reasons) and its params."""
+    reason_params: Params
+    last_trade_date: dt.date | None
+    created_at: str
+    pinned: bool
+    """Kept by every cleanup."""
+
+
 class DataStatus(Model):
-    """One store version: its tables and meta, next to the versions the store keeps."""
+    """One store version: its tables and meta, next to every version the store keeps."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N."""
     current_version: int
+    """The newest version."""
     versions: list[int]
-    """Versions the store keeps."""
+    """Versions the store keeps, oldest first."""
+    version_list: list[VersionInfo]
+    """The same versions with their names and reasons, newest first."""
     created_at: str
     last_trade_date: dt.date | None
     limit_check_current: bool
@@ -43,16 +68,34 @@ class DataStatus(Model):
 def data_status(request: StatusRequest, context: Context = Context()) -> DataStatus:
     """Describe one store version from the manifests alone."""
     store = context.store()
-    pinned, current = manifest(store, request.data_version), manifest(store)
+    shown, current = manifest(store, request.data_version), manifest(store)
+    kept = [found for v in reversed(store.versions()) if (found := store.manifest(v)) is not None]
     return DataStatus(
-        data_version=pinned["version"],
+        data_version=shown["version"],
+        data_version_name=version_name(shown),
         current_version=current["version"],
         versions=store.versions(),
-        created_at=pinned["created_at"],
-        last_trade_date=pinned.get("last_trade_date"),
-        limit_check_current=limit_check_current(pinned),
-        tables=[_table(name, entry) for name, entry in sorted(pinned["tables"].items())],
-        meta={key: value for key, value in pinned.items() if key not in OWN_KEYS},
+        version_list=[version_info(found) for found in kept],
+        created_at=shown["created_at"],
+        last_trade_date=shown.get("last_trade_date"),
+        limit_check_current=limit_check_current(shown),
+        tables=[_table(name, entry) for name, entry in sorted(shown["tables"].items())],
+        meta={key: value for key, value in shown.items() if key not in (*OWN_KEYS, "last_trade_date")},
+    )
+
+
+def version_info(found: dict) -> VersionInfo:
+    """The VersionInfo of a manifest."""
+    reason = version_reason(found)
+    return VersionInfo(
+        id=found["version"],
+        name=version_name(found),
+        reason=reason_text(reason),
+        reason_code=reason["code"],
+        reason_params=reason["params"],
+        last_trade_date=found.get("last_trade_date"),
+        created_at=found["created_at"],
+        pinned=False,
     )
 
 

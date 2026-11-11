@@ -16,7 +16,7 @@ from wequant.backtest import Backtest, Cancelled, panel_for
 from wequant.backtest import run as engine_run
 from wequant.panel import NotInPanel
 from wequant.runs.archive import RUNS, Archive
-from wequant.service.base import Context, DataRequest, ErrorDetail, Model, manifest, not_found
+from wequant.service.base import Context, DataRequest, ErrorDetail, Model, manifest, named, not_found
 from wequant.service.details import Loc, spec_details, usage
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.outputs import (
@@ -66,6 +66,8 @@ class BacktestResult(Model):
     saved: bool
     """Archived (also when an identical run was already)."""
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     strategy_hash: Hash
     saved_as: list[SavedRef]
     start: dt.date
@@ -110,7 +112,7 @@ def backtest(request: BacktestRequest, context: Context = Context()) -> Backtest
     result = BacktestResult(
         run_id=run.id,
         saved=request.save,
-        data_version=panel.version,
+        **named(panel.manifest),
         strategy_hash=found,
         saved_as=saved_as(library, found),
         start=run.ledger.daily["date"][0],
@@ -168,7 +170,7 @@ def report(result: BacktestResult, strategy: Strategy, code: str | None = None) 
     lines = [
         f"# Backtest {result.run_id}",
         "",
-        f"- Store v{result.data_version}, code {code or code_version()}, {result.start} to {result.end}"
+        f"- Store {result.data_version_name} (v{result.data_version}), code {code or code_version()}, {result.start} to {result.end}"
         f" ({result.run_days} run days, {result.decisions} decisions)",
         f"- Strategy {result.strategy_hash} ({saved}): {sentence(summary(strategy))}",
         "",

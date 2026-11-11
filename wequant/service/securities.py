@@ -8,7 +8,7 @@ import datetime as dt
 import polars as pl
 from pydantic import Field
 
-from wequant.service.base import Context, DataRequest, Model, manifest
+from wequant.service.base import Context, DataRequest, Model, manifest, named
 
 COLUMNS = ("code", "name", "exchange", "board", "first_date", "last_date")
 
@@ -37,6 +37,8 @@ class Securities(Model):
     """The first limit matches and how many there are."""
 
     data_version: int
+    data_version_name: str
+    """The version's display name, YYYYMMDD.N: its last trade date, then which version of that day."""
     total: int
     rows: list[SecurityRow]
 
@@ -49,4 +51,4 @@ def data_securities(request: SecuritiesRequest, context: Context = Context()) ->
     matches = pl.col("code").str.starts_with(query.upper()) | pl.col("name").str.contains(query, literal=True)
     rows = store.read_table("securities", manifest=found).filter(matches.fill_null(False)).sort("code")
     listed = [SecurityRow(**row) for row in rows.head(request.limit).select(COLUMNS).iter_rows(named=True)]
-    return Securities(data_version=found["version"], total=rows.height, rows=listed)
+    return Securities(**named(found), total=rows.height, rows=listed)

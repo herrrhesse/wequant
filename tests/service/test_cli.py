@@ -51,6 +51,7 @@ CASES = [
         "home",
     ),
     (["schema"], "schema", service.SchemaRequest(), "home"),
+    (["labels"], "labels", service.LabelsRequest(), "home"),
     (
         ["strategy", "validate", "--strategy", "s@1"],
         "strategy_validate",

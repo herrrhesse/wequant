@@ -14,12 +14,13 @@ from wequant.analytics import daily_view, period_view
 from wequant.backtest import Backtest, Cancelled, run_form
 from wequant.backtest.anomalies import CHANNELS
 from wequant.canonical import digest
+from wequant.data.store import Store
 from wequant.rules.book import Rate, default_book, fees_in_force
 from wequant.runs.archive import HEADLINE, RUNS, Archive
 from wequant.runs.compare import json_differences
 from wequant.runs.run import Run
 from wequant.service.backtest import BacktestResult, metrics_out, order_counts, report
-from wequant.service.base import Context, Model, not_found
+from wequant.service.base import Context, Model, name_of, not_found
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.outputs import (
     Action,
@@ -75,6 +76,8 @@ class RunRow(Model):
     created_at: str
     code_version: str
     store_version: int
+    data_version_name: str | None
+    """The store version's display name, YYYYMMDD.N; null once that version is no longer kept."""
     anchor: dt.date
     start: dt.date
     end: dt.date
@@ -310,8 +313,8 @@ def runs_list(request: RunsListRequest, context: Context = Context()) -> RunsPag
     """Archived runs, newest first, optionally of one strategy content."""
     store = context.store()
     index = Archive(store.home / RUNS).index().sort("created_at", "id", descending=[True, False])
-    refs, kept = saved_refs(context.library()), set(store.versions())
-    rows = [_run_row(row, refs, kept) for row in index.iter_rows(named=True)]
+    refs, names = saved_refs(context.library()), kept_names(store)
+    rows = [_run_row(row, refs, names) for row in index.iter_rows(named=True)]
     if request.strategy_hash is not None:
         rows = [row for row in rows if row.strategy_hash == request.strategy_hash]
     window = rows[request.offset : request.offset + request.limit]
@@ -323,7 +326,7 @@ def runs_show(request: RunRequest, context: Context = Context()) -> RunDetail:
     and periods."""
     archive, run = load_run(context, request.id)
     store = context.store()
-    row = _run_row(archive.row(request.id), saved_refs(context.library()), set(store.versions()))
+    row = _run_row(archive.row(request.id), saved_refs(context.library()), kept_names(store))
     spec = Backtest.from_form(run.description)
     start, end = run.ledger.daily["date"][0], run.ledger.daily["date"][-1]
     return RunDetail(
@@ -364,6 +367,7 @@ def runs_report(request: RunRequest, context: Context = Context()) -> RunReport:
         run_id=run.id,
         saved=True,
         data_version=row["store_version"],
+        data_version_name=name_of(context.store(), row["store_version"]) or f"v{row['store_version']}",
         strategy_hash=found,
         saved_as=saved_as(context.library(), found),
         start=run.ledger.daily["date"][0],
@@ -477,17 +481,23 @@ def load_run(context: Context, run_id: str, loc: list = ("id",)) -> tuple[Archiv
     return archive, archive.load(run_id)
 
 
-def _run_row(row: dict, refs: dict[str, list[SavedRef]], kept: set[int]) -> RunRow:
-    """The RunRow of an archive index row."""
+def kept_names(store: Store) -> dict[int, str]:
+    """version -> display name of every version the store keeps."""
+    return {v: name for v in store.versions() if (name := name_of(store, v)) is not None}
+
+
+def _run_row(row: dict, refs: dict[str, list[SavedRef]], names: dict[int, str]) -> RunRow:
+    """The RunRow of an archive index row; names are the kept versions' display names."""
     found = digest(json.loads(row["description"])["strategy"])
     headline = {name: row[name] for name in HEADLINE}
     fields = ("id", "engine", "created_at", "code_version", "store_version", "anchor", "start", "end")
     return RunRow(
         **{name: row[name] for name in fields},
         **headline,
+        data_version_name=names.get(row["store_version"]),
         strategy_hash=found,
         saved_as=refs.get(found, []),
-        rerunnable=row["store_version"] in kept,
+        rerunnable=row["store_version"] in names,
     )
 
 
