@@ -68,8 +68,32 @@ from wequant.service.strategies import (
     strategy_validate,
     strategy_versions,
 )
+from wequant.service.verify import (
+    SourceRef,
+    VerificationIn,
+    VerificationOut,
+    VerifiedCell,
+    Verifier,
+    VerifyListRequest,
+    VerifyPage,
+    VerifySubmitRequest,
+    VerifySubmitResult,
+    data_verify_list,
+    data_verify_submit,
+)
 
 __all__ = [
+    "SourceRef",
+    "VerificationIn",
+    "VerificationOut",
+    "VerifiedCell",
+    "Verifier",
+    "VerifyListRequest",
+    "VerifyPage",
+    "VerifySubmitRequest",
+    "VerifySubmitResult",
+    "data_verify_list",
+    "data_verify_submit",
     "DelistingCounts",
     "Explain",
     "ExplainRequest",
