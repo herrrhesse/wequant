@@ -264,3 +264,18 @@ def test_a_duplicate_with_an_amount_within_amount_rtol_is_dropped():
     # neither code in the store: the bar cannot be attributed, so both are kept
     kept, kept_status, issues = drop_duplicate_codes(new.head(2), status.head(2), new.head(0), SOURCE)
     assert kept.height == 2 and kept_status.height == 2 and issues.is_empty()
+
+
+@pytest.mark.parametrize("volume, flagged", [(1_000_100, False), (1_000_101, True)])
+def test_volumes_within_one_lot_agree(volume, flagged):
+    """Sources round volumes to the lot: up to 100 shares apart is agreement, not a volume_mismatch."""
+    new = bars([("600000.SH", D2, 10000, {"volume": volume})], False, SOURCE)
+    old = bars([("600000.SH", D2, 10000, {"volume": 1_000_000})], True, SEED)
+    status = table_frame(
+        "daily_status", [{"code": "600000.SH", "date": D2, "tradestatus": 1}], is_st=False, source=SOURCE
+    )
+    securities = table_frame(
+        "securities", [{"code": "600000.SH"}], exchange="SH", board="main", first_date=C1, last_date=D3, source=SEED
+    )
+    issues, _ = audit_bars(new, old, status, securities, SOURCE)
+    assert (("600000.SH", D2, "volume_mismatch") in keys(issues)) is flagged

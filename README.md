@@ -215,7 +215,8 @@ merge writes nothing and its report lists the conflicts awaiting a decision, tho
 
 Each bar gets at most one of the last four, in that order. Volumes and amounts count auction trading only, as BaoStock
 and the data vendors do: block and after-hours trades are excluded, so an exchange's all-trades total can be slightly
-higher.
+higher. On days the store already has, a BaoStock volume more than one lot (100 shares) away from the store's is
+recorded as `volume_mismatch` (BaoStock's kept); within a lot the sources agree, since they round to it.
 
 ```bash
 uv run python -m tools.baostock_merge propose        # add a proposed entry for each conflict; reads only
