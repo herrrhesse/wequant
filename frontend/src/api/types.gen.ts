@@ -1754,7 +1754,7 @@ export interface MetricSpecModel1 {
   tail_fraction?: number;
 }
 /**
- * One operation and the names of its request and result models.
+ * One operation, the names of its request and result models, and its HTTP route.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "OperationModels".
@@ -1770,6 +1770,14 @@ export interface OperationModels {
    * False: its models are fixed and its command is still to come.
    */
   available: boolean;
+  /**
+   * HTTP method of its route under wequant serve: always POST, the request model as the JSON body.
+   */
+  method: string;
+  /**
+   * Its route: /api/ and the operation's name, e.g. /api/data_bars.
+   */
+  path: string;
 }
 /**
  * Orders in archive order: date, batch, submission.
