@@ -179,7 +179,7 @@ export const zh = {
     notFound: (code: string) => `没有这只股票：${code}`,
     noBars: "这段时间没有行情",
     search: "代码",
-    searchNote: "输入完整代码打开；按名称搜索在第 2 轮（S2.3）",
+    searchNote: "输入代码或名称的一部分，从建议里选；真实库里的名称要等 S2.3",
     runTrades: (run: string, n: number) => `叠加运行 ${run} 的这只股票的 ${n} 笔订单（买在 K 线下方，卖在上方，被拒为灰色）`,
     notInFixtures: (code: string) => `示例数据不含该股票：${code}`,
     available: "示例数据包含：",

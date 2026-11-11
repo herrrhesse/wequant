@@ -9,6 +9,7 @@ import { KChart, MA_COLORS } from "../components/KChart";
 import { Problem } from "../components/Problem";
 import { show } from "../format";
 import { t } from "../i18n";
+import { useDebounced } from "../hooks";
 import { href, type Route } from "../router";
 
 type StockRoute = Extract<Route, { page: "stock" }>;
@@ -92,9 +93,11 @@ export function StockPage({ route, look }: { route: StockRoute; look: string }) 
   );
 }
 
-/** Open any code (name search waits for S2.3, F-27). */
+/** Open any code: suggestions from data securities (code prefix, or part of a name where the store has names). */
 function StockSearch({ code }: { code: string }) {
   const [value, setValue] = useState(code);
+  const query = useDebounced(value.trim(), 200);
+  const found = useCall("data_securities", query ? { query, limit: 20 } : null, { placeholderData: (prev) => prev });
   return (
     <form
       className="filters"
@@ -106,7 +109,14 @@ function StockSearch({ code }: { code: string }) {
     >
       <label className="field">
         {t.stock.search}
-        <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="600000.SH" />
+        <input value={value} list="stock-suggest" onChange={(e) => setValue(e.target.value)} placeholder="600000.SH" />
+        <datalist id="stock-suggest">
+          {(found.data?.rows ?? []).map((s) => (
+            <option key={s.code} value={s.code}>
+              {[s.name, s.board, `${s.first_date} ~ ${s.last_date}`].filter(Boolean).join(" · ")}
+            </option>
+          ))}
+        </datalist>
       </label>
       <button type="submit" className="cmd">
         {t.nav.jumpGo}

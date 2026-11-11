@@ -1,10 +1,9 @@
 // 回测 → 运行详情: runs show, orders, anomalies, a day, rerun and the report, each a backend request. Every number and
 // curve is a backend column (daily, periods, metrics); the page converts units and lays out, nothing more.
-import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation, type Request } from "../../api/client";
-import type { BacktestResult, DailyRow, OrderRow, RunDetail } from "../../api/types.gen";
+import type { DailyRow, OrderRow, RunDetail } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { Card } from "../../components/Card";
 import { Command } from "../../components/Command";
@@ -699,9 +698,8 @@ function Rerun({ id }: { id: string }) {
 function Report({ id }: { id: string }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  // Only the backtest that made this run returns a report (F-28); the settings form leaves it in the cache.
-  const result = useQueryClient().getQueryData<BacktestResult>(["backtest_report", id]);
-  const text = result?.report ?? null;
+  const report = useCall("runs_report", open ? { id } : null);
+  const text = report.data?.report ?? null;
   const copy = async () => {
     if (!text) return;
     try {
@@ -713,23 +711,20 @@ function Report({ id }: { id: string }) {
     }
   };
   return (
-    <Card title={r.report}>
-      {text ? (
-        <>
-          <span className="note">{r.reportNote}</span>
-          <div className="cond-row">
-            <button type="button" className="cmd" onClick={() => setOpen(!open)}>
-              {open ? r.reportHide : r.reportShow}
-            </button>
-            <button type="button" className="cmd" onClick={copy}>
-              {copied ? r.copied : r.copy}
-            </button>
-          </div>
-          {open && <pre className="code-pre report">{text}</pre>}
-        </>
-      ) : (
-        <span className="note">{r.noReport}</span>
-      )}
+    <Card title={r.report} command={commandOf("runs_report", { id })}>
+      <span className="note">{r.reportNote}</span>
+      <div className="cond-row">
+        <button type="button" className="cmd" onClick={() => setOpen(!open)}>
+          {open ? r.reportHide : r.reportShow}
+        </button>
+        {text && (
+          <button type="button" className="cmd" onClick={copy}>
+            {copied ? r.copied : r.copy}
+          </button>
+        )}
+      </div>
+      {report.error && <Problem error={report.error} />}
+      {open && (text ? <pre className="code-pre report">{text}</pre> : !report.error && <span className="note">{t.app.loading}</span>)}
     </Card>
   );
 }

@@ -1,5 +1,4 @@
 // 回测: the run settings form (backtest), the archived runs (runs list) and two runs compared (runs diff).
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { commandOf, modelDefaults, useCall, useCallMutation, type Request } from "../../api/client";
 import { ApiError } from "../../api/http";
@@ -72,7 +71,6 @@ export function RunsListPage({ cmp }: { cmp: string[] }) {
 function BacktestForm() {
   const defaults = modelDefaults("BacktestRequest");
   const list = useCall("strategy_list", {});
-  const client = useQueryClient();
   const [strategy, setStrategy] = useState<string>(storedDraft() ? "__draft" : "");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -84,7 +82,7 @@ function BacktestForm() {
   const seconds = useRunningSeconds(backtest.isPending);
   const subject = strategy === "__draft" ? { strategy: storedDraft() ?? {} } : strategy ? { saved: { id: strategy } } : null;
   const request: Request<"backtest"> | null = subject
-    ? { ...subject, start: start || null, end: end || null, cash: Number(cash), execution, data, benchmark: benchmark.trim() || null, save: true, report: true }
+    ? { ...subject, start: start || null, end: end || null, cash: Number(cash), execution, data, benchmark: benchmark.trim() || null, save: true }
     : null;
   const usage = backtest.error instanceof ApiError && backtest.error.status === 422 ? backtest.error.body : null;
   const bad = (field: string) => usage?.detail?.some((d) => (d.loc ?? []).includes(field)) ?? false;
@@ -92,8 +90,6 @@ function BacktestForm() {
     if (!request) return;
     backtest.mutate(request, {
       onSuccess: (result) => {
-        // The report comes with this result only (F-28); the run page reads it from here.
-        client.setQueryData(["backtest_report", result.run_id], result);
         location.hash = href.run(result.run_id);
       },
     });

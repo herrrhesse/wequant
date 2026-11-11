@@ -37,7 +37,9 @@ function subjectOf(route: PicksRoute): Subject | null {
 
 export function PicksPage({ route, look }: { route: PicksRoute; look: string }) {
   const status = useCall("data_status", {}, { staleTime: 0 });
-  const last = status.data?.last_trade_date ?? "";
+  // Trading days of the current store version (data calendar): the date picker's range and the non-trading-day hint.
+  const calendar = useCall("data_calendar", status.data ? { data_version: status.data.data_version } : null);
+  const last = calendar.data?.last ?? status.data?.last_trade_date ?? "";
   const subject = subjectOf(route);
   // The URL holds the submitted choice; the screen runs for it (back/forward restore it).
   const request: Request<"screen"> | null = subject ? { ...subject, date: route.date } : null;
@@ -49,7 +51,7 @@ export function PicksPage({ route, look }: { route: PicksRoute; look: string }) 
         <h1>{p.title}</h1>
         <span className="note">{p.lead}</span>
       </div>
-      <Chooser route={route} last={last} running={result.isFetching} elapsed={elapsed} command={commandOf("screen", request)} version={result.data?.data_version} />
+      <Chooser route={route} first={calendar.data?.first ?? ""} last={last} dates={calendar.data?.dates ?? null} running={result.isFetching} elapsed={elapsed} command={commandOf("screen", request)} version={result.data?.data_version} />
       {status.error && <Problem error={status.error} />}
       {result.error && <Problem error={result.error} />}
       {result.data && subject && (
@@ -72,7 +74,25 @@ export function PicksPage({ route, look }: { route: PicksRoute; look: string }) 
 }
 
 /** Strategy (saved + version, or the draft) and decision day; "选股" submits them to the URL. */
-function Chooser({ route, last, running, elapsed, command, version }: { route: PicksRoute; last: string; running: boolean; elapsed: number; command: string; version?: number }) {
+function Chooser({
+  route,
+  first,
+  last,
+  dates,
+  running,
+  elapsed,
+  command,
+  version,
+}: {
+  route: PicksRoute;
+  first: string;
+  last: string;
+  dates: string[] | null;
+  running: boolean;
+  elapsed: number;
+  command: string;
+  version?: number;
+}) {
   const list = useCall("strategy_list", {});
   const [id, setId] = useState(route.id ?? (route.draft ? "" : ""));
   const [useDraft, setUseDraft] = useState(route.draft || !route.id);
@@ -80,6 +100,8 @@ function Chooser({ route, last, running, elapsed, command, version }: { route: P
   const [date, setDate] = useState(route.date ?? "");
   const versions = useCall("strategy_versions", id && !useDraft ? { id } : null);
   const draftExists = storedDraft() !== null;
+  const trading = useMemo(() => (dates ? new Set(dates) : null), [dates]);
+  const nonTrading = !!date && !!trading && !trading.has(date);
   const submit = () => {
     location.hash = useDraft ? href.picks({ draft: true, date: date || null }) : href.picks({ id, n, date: date || null });
   };
@@ -123,9 +145,10 @@ function Chooser({ route, last, running, elapsed, command, version }: { route: P
         )}
         <label className="field">
           {p.date}
-          <input type="date" aria-label={p.date} value={date} max={last || undefined} onChange={(e) => setDate(e.target.value)} />
+          <input type="date" aria-label={p.date} value={date} min={first || undefined} max={last || undefined} onChange={(e) => setDate(e.target.value)} />
         </label>
-        <button type="button" className="btn" disabled={running || (!useDraft && !id) || (useDraft && !draftExists)} onClick={submit}>
+        {nonTrading && <span className="sfield-hint">{p.nonTrading}</span>}
+        <button type="button" className="btn" disabled={running || nonTrading || (!useDraft && !id) || (useDraft && !draftExists)} onClick={submit}>
           {running ? p.running(elapsed) : p.run}
         </button>
       </div>
