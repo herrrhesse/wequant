@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from wequant.data.merge.resolutions import HEADER, SCHEMA, add, load, render
+from wequant.data.merge.resolutions import HEADER, SCHEMA, add, frame, load, render
 
 OHLC = ["open", "high", "low", "close"]
 EARLY = {
@@ -12,11 +12,17 @@ EARLY = {
     "kind": "price_mismatch",
     "fields": OHLC,
     "take": "baostock",
+    "values": {},
+    "category": "test",
+    "level": "notice",
+    "verifications": ("v-0000000000000001",),
     "evidence": 'BaoStock close 9.71, seed close 9.70; the "2023-11-08" preclose repeats BaoStock\'s',
     "status": "approved",
+    "approval": "user, by rule",
 }
 LATE = EARLY | {"code": "000001.SZ", "date": dt.date(2024, 1, 2), "kind": "average_price", "fields": ["amount"]}
-LATE |= {"take": "null", "status": "proposed"}
+LATE |= {"take": "null", "status": "proposed", "approval": "", "verifications": ()}
+CORRECTED = EARLY | {"kind": "average_price", "fields": ["volume"], "take": "corrected", "values": {"volume": 19491483}}
 
 
 def write(path, *entries, header="# decisions\n"):
@@ -39,13 +45,23 @@ def test_the_synthetic_sample_loads():
 
 
 def test_entries_load_as_written(tmp_path):
-    entries = load(write(tmp_path / "r.toml", EARLY, LATE))  # load parses render's TOML
-    assert entries.to_dicts() == [EARLY, LATE]
+    entries = load(write(tmp_path / "r.toml", CORRECTED, EARLY, LATE))  # load parses render's TOML
+    assert entries.equals(frame([CORRECTED, EARLY, LATE]))
 
 
 MALFORMED = {
     "fields_not_allowed": {"take": "seed", "kind": "average_price", "fields": OHLC},  # FIELDS per (kind, take)
-    "status": {"status": "rejected"},
+    "status": {"status": "done"},
+    "values_beside_baostock": {"values": {"close": 9700}},
+    "corrected_without_evidence": {
+        "take": "corrected",
+        "values": {"close": 9700},
+        "fields": ["close"],
+        "verifications": (),
+    },
+    "corrected_values_beyond_fields": {"take": "corrected", "values": {"close": 9700, "open": 1}, "fields": ["close"]},
+    "undetermined_approved": {"take": "undetermined"},
+    "level": {"level": "warn"},
     "evidence": {"evidence": " "},
     "code": {"code": "600000"},
     "date": {"date": "2023-11-07"},

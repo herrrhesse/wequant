@@ -44,7 +44,8 @@ def proposal(row: dict) -> dict:
     """The entry the rules propose for one conflict row (CONFLICT columns, plus REFERENCE ones for a price)."""
     fields, take, evidence = (_price if row["kind"] == "price_mismatch" else _average)(row)
     entry = {"code": row["code"], "date": row["date"], "kind": row["kind"], "fields": fields, "take": take}
-    return entry | {"evidence": evidence, "status": "proposed"}
+    rule = {"values": {}, "category": "rule", "level": "suspicious", "verifications": ()}
+    return entry | rule | {"evidence": evidence, "status": "proposed", "approval": ""}
 
 
 def _bars(store: Store, manifest: dict, raw: BaoStockRaw, days: list[dt.date]) -> tuple[pl.DataFrame, pl.DataFrame]:

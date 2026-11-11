@@ -66,13 +66,13 @@ def test_conflicts_without_an_entry_stop_the_merge_before_anything_is_written(wo
     assert plan.stats["resolutions"] == {
         "applied": {},
         "flagged": 0,
-        "unresolved": {"missing": 5, "unfetched": 0, "proposed": 0, "unpriced": 0},
+        "unresolved": {"missing": 5, "unfetched": 0, "proposed": 0, "rejected": 0, "unpriced": 0},
         "idle": [],
     }
     with pytest.raises(UnresolvedConflicts) as stop:
         apply_merge(store, plan)
     assert str(stop.value).splitlines() == [
-        "5 conflicts lack an approved resolution (5 missing, 0 unfetched, 0 proposed, 0 unpriced):",
+        "5 conflicts lack an approved resolution (5 missing, 0 unfetched, 0 proposed, 0 rejected, 0 unpriced):",
         *(f"{code} {day} {kind}: no entry (run propose)" for code, day, kind in CONFLICTS),
     ]
     assert store.manifest()["version"] == 1
@@ -113,8 +113,9 @@ def test_approved_entries_are_applied_each_with_one_data_issues_row(world, tmp_p
     ]
 
     issues = store.read_table("data_issues").filter(pl.col("action").str.starts_with("resolved_"))
+    unverified = {"price_mismatch": "price_unverified", "average_price": "volume_unverified"}  # rule proposals
     assert issues.select("code", "date", "kind", "action").sort("date", "code").rows() == [
-        (code, day, kind, f"resolved_{take}")
+        (code, day, unverified[kind], f"resolved_{take}")
         for (code, day, kind), take in zip(CONFLICTS, ("seed", "baostock", "seed", "seed", "null"), strict=True)
     ]
     (detail,) = details(store, "600002.SH")
@@ -123,6 +124,9 @@ def test_approved_entries_are_applied_each_with_one_data_issues_row(world, tmp_p
         "before": {"volume": 1000, "amount": 10300.0},
         "baostock": {"volume": 1100, "amount": 10300.0},
         "after": {"volume": 1000, "amount": 10300.0},
+        "category": "rule",
+        "level": "suspicious",
+        "verifications": [],
     }
     assert detail["evidence"].endswith("the volumes differ and the seed bar passes")
     (detail,) = details(store, "600004.SH")  # the store's prices, which BaoStock's replace, stay on record
@@ -150,13 +154,13 @@ def test_approved_entries_are_applied_each_with_one_data_issues_row(world, tmp_p
     }
     assert plan.stats["resolutions"] == {
         "applied": {
-            "average_price resolved_null": 1,
-            "average_price resolved_seed": 2,
-            "price_mismatch resolved_baostock": 1,
-            "price_mismatch resolved_seed": 1,
+            "price_unverified resolved_baostock": 1,
+            "price_unverified resolved_seed": 1,
+            "volume_unverified resolved_null": 1,
+            "volume_unverified resolved_seed": 2,
         },
         "flagged": 1,
-        "unresolved": {"missing": 0, "unfetched": 0, "proposed": 0, "unpriced": 0},
+        "unresolved": {"missing": 0, "unfetched": 0, "proposed": 0, "rejected": 0, "unpriced": 0},
         "idle": [],
     }
     again = apply_merge(store, plan_merge(store, raw, resolutions=path))
@@ -184,9 +188,9 @@ def test_a_merged_null_amount_keeps_its_first_record(tmp_path):
     ]
     apply_merge(store, plan_merge(store, raw, resolutions=path))
     first = details(store, "600005.SH")
-    assert [d["before"] for d in first] == [
-        {"amount": 10300.0},
+    assert [d["before"] for d in first] == [  # by data_issues key: price_unverified, then volume_unverified
         {"open": 10300, "high": 10300, "low": 10300, "close": 10300},
+        {"amount": 10300.0},
     ]
 
     again = propose(store, raw, entries=load(path))  # the store's amount is null now
@@ -305,3 +309,34 @@ def test_an_approved_entry_without_a_conflict_is_listed(world, tmp_path):
     assert plan_merge(store, raw, resolutions=path).stats["resolutions"]["idle"] == [
         {"code": "600004.SH", "date": D1, "kind": "price_mismatch", "fields": OHLC, "take": "seed"}
     ]
+
+
+def test_a_corrected_entry_writes_its_verified_values_and_cites_its_records(world, tmp_path):
+    """D9/D11: an error-level entry corrected from verification records keeps its conflict kind; a notice-level one
+    is noted only (its own kind, so exclude_day never drops it); both cite their records."""
+    store, raw = world
+    proposals = propose(store, raw)
+    corrected = {"fields": ("close",), "take": "corrected", "values": {"close": 10150}, "level": "error"}
+    corrected |= {"verifications": ("v-00000000000000aa",), "status": "approved", "approval": "test"}
+    noted = {"level": "notice", "verifications": ("v-00000000000000bb",), "status": "approved", "approval": "test"}
+    add(path := tmp_path / "r.toml", [proposals[0] | corrected, proposals[1] | noted, *proposals[2:]])
+    text = path.read_text("utf-8").replace('status = "proposed"', 'status = "approved"')
+    path.write_text(text.replace('approval = ""', 'approval = "test"'), "utf-8")
+    apply_merge(store, plan_merge(store, raw, resolutions=path))
+    assert store.read_table("bars", codes=["600000.SH"]).filter(pl.col("date") == D1)["close"].item() == 10150
+    issues = store.read_table("data_issues").filter(pl.col("code").is_in(["600000.SH", "600004.SH"]))
+    written = issues.filter(pl.col("action").str.starts_with("resolved_"))
+    assert written.select("code", "kind", "action").sort("code").rows() == [
+        ("600000.SH", "price_mismatch", "resolved_corrected"),
+        ("600004.SH", "price_noted", "resolved_baostock"),
+    ]
+    cited = [json.loads(d)["verifications"] for d in written.sort("code")["detail"]]
+    assert cited == [["v-00000000000000aa"], ["v-00000000000000bb"]]
+
+
+def test_a_rejected_entry_stops_the_merge_as_rejected(world, tmp_path):
+    store, raw = world
+    path = resolutions(store, raw, tmp_path / "r.toml", status="approved")
+    path.write_text(path.read_text("utf-8").replace('status = "approved"', 'status = "rejected"', 1), "utf-8")
+    plan = plan_merge(store, raw, resolutions=path)
+    assert plan.unresolved.select("code", "entry").rows() == [("600000.SH", "rejected")]

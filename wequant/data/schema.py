@@ -224,17 +224,75 @@ ISSUE_KINDS: dict[str, IssueKind] = {
     "duplicate_code": _kind("bars", "duplicate_dropped", "a successor code's copy of another code's bars; dropped"),
     "price_mismatch": _kind(
         "bars",
-        "resolved_baostock resolved_seed",
-        "the sources' open, high, low or close disagree; an approved resolution chose",
+        "resolved_baostock resolved_seed resolved_corrected",
+        "the sources' open, high, low or close disagree; an approved, evidenced resolution corrected BaoStock's",
         "price",
         "error",
     ),
     "average_price": _kind(
         "bars",
-        "resolved_seed resolved_null",
-        "amount over volume outside the bar's range; an approved resolution took the seed's or voided the amount",
+        "resolved_seed resolved_null resolved_corrected",
+        "amount over volume outside the bar's range; an approved resolution took the seed's, voided or corrected it",
         "volume",
         "error",
+    ),
+    "amount_carried": _kind(
+        "bars",
+        "resolved_baostock resolved_seed resolved_null resolved_corrected",
+        "BaoStock's amount repeats the code's previous row while the volume differs; an approved resolution corrected it",
+        "volume",
+        "error",
+    ),
+    "stale_volume": _kind(
+        "bars",
+        "resolved_no_bar resolved_baostock resolved_corrected",
+        "a suspended row (tradestatus 0, amount 0) carried an old volume; an approved resolution built no bar",
+        "status",
+        "error",
+    ),
+    "volume_truncated": _kind(
+        "bars",
+        "resolved_baostock resolved_seed resolved_corrected",
+        "BaoStock's snapshot of the day was cut before the close; an approved resolution corrected volume and amount",
+        "volume",
+        "error",
+    ),
+    "preclose_odd": _kind(
+        "bars",
+        "resolved_baostock resolved_corrected",
+        "BaoStock's exchange preclose is not a whole fen; an approved resolution decided it",
+        "price",
+        "error",
+    ),
+    **{
+        f"{data}_{state}": _kind(
+            "bars",
+            "resolved_baostock resolved_seed resolved_null resolved_no_bar resolved_corrected",
+            f"an approved resolution decided {data} {doc}",
+            "price" if data == "price" else "volume",
+            level,
+        )
+        for data in ("price", "volume")
+        for state, doc, level in (
+            ("noted", "where the verified value is the one kept: noted only", "notice"),
+            ("unverified", "on internal evidence only, without an outside check", "suspicious"),
+        )
+    },
+    "close_preclose_off": _kind(
+        "bars",
+        "flagged",
+        "the close is not the next day's exchange preclose and no adjustment explains it",
+        "price",
+        "suspicious",
+        True,
+    ),
+    "snapshot_truncated": _kind(
+        "bars",
+        "flagged",
+        "the source's snapshot of the day looks cut before the close: many volumes below the other source's or their "
+        "own recent level",
+        "volume",
+        "suspicious",
     ),
     "close_unconfirmed": _kind(
         "bars", "flagged", "the kept close is not the next day's exchange preclose", "price", "suspicious"
@@ -297,9 +355,10 @@ ACTION_NOTES = {
     "daily_status reports it suspended",
     "flagged": "nothing changed; to review",
     "limits_voided": "limits unknown that day",
-    "resolved_null": "resolved_*: an approved resolution took BaoStock's values, the store's, or voided the amount; "
-    "detail has its fields, the store's values before the cell's first resolution (null without a store bar), "
-    "BaoStock's values, the values after and the evidence",
+    "resolved_null": "resolved_*: an approved resolution took BaoStock's values, the store's, values corrected from "
+    "verification records, voided the amount or built no bar; detail has its fields, the store's values before the "
+    "cell's first resolution (null without a store bar), BaoStock's values, the values after, the category, level, "
+    "verification ids and the evidence",
 }
 _ACTIONS = dict.fromkeys(action for kind in ISSUE_KINDS.values() for action in kind.actions)
 _STATE_KINDS = [name for name, kind in ISSUE_KINDS.items() if kind.state]

@@ -11,7 +11,7 @@ from wequant.data.sources.baostock import parse_daily
 
 KEY = ["code", "date"]
 SEEDED = (*OHLC, "volume", "amount")
-CONFLICT = (*KEY, "kind", *SEEDED, *(f"seed_{c}" for c in SEEDED), "seed_paid", "same_volume")
+CONFLICT = (*KEY, "kind", *SEEDED, "preclose", "turn", *(f"seed_{c}" for c in SEEDED), "seed_paid", "same_volume")
 REFERENCE = ("next_date", "fetched", "next_preclose", "ex_event")
 
 

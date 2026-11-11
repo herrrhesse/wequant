@@ -8,16 +8,22 @@ import json
 import polars as pl
 
 from wequant.data.issues import check_kind, encode
+from wequant.data.merge.audit import OHLC
 from wequant.data.merge.conflicts import KEY, REFERENCE, SEEDED, average_conflicts
 from wequant.data.merge.daily import paid
 from wequant.data.merge.resolutions import ENTRY_KEY
 from wequant.data.schema import DATA_ISSUES
 
 LISTED = 20  # conflicts an UnresolvedConflicts message names at most
+DECIDED = ("fields", "take", "values", "category", "level", "verifications", "evidence")
+UPDATED = (*SEEDED, "preclose", "turn")  # the bar columns an entry may set
+PRICES = (*OHLC, "preclose")
+KEYED = {"code": pl.String, "date": pl.Date}
 STATES = {  # why a conflict lacks an approved entry, in the order a stop lists them
     "missing": "no entry (run propose)",
     "unfetched": "no entry yet: propose waits for the next trading day's snapshot, its reference",
     "proposed": "a proposed entry awaits approval",
+    "rejected": "its entry was rejected; another decision is needed",
     "unpriced": "an amount conflict on BaoStock's prices; it waits for the approval of its cell's price entry",
 }
 ENTRY = pl.Enum(list(STATES))
@@ -53,18 +59,18 @@ def resolve(
 
 def settle(conflicts: pl.DataFrame, entries: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
     """(conflicts with their approved entry's fields, take and evidence; the others, with entry: a STATES key)."""
-    approved = entries.filter(pl.col("status") == "approved").select(*ENTRY_KEY, "fields", "take", "evidence")
-    proposed = entries.filter(pl.col("status") == "proposed").select(*ENTRY_KEY, proposed=pl.lit(True))
-    rest = conflicts.join(approved, on=ENTRY_KEY, how="anti").join(proposed, on=ENTRY_KEY, how="left")
-    unfetched = (pl.col("kind") == "price_mismatch") & ~pl.col("fetched")
+    approved = entries.filter(pl.col("status") == "approved").select(*ENTRY_KEY, *DECIDED)
+    pending = entries.filter(pl.col("status") != "approved").select(*ENTRY_KEY, pending="status")
+    rest = conflicts.join(approved, on=ENTRY_KEY, how="anti").join(pending, on=ENTRY_KEY, how="left")
+    unfetched = (pl.col("kind") == "price_mismatch") & ~pl.col("fetched").fill_null(True)
     entry = (
-        pl.when(pl.col("proposed"))
-        .then(pl.lit("proposed"))
+        pl.when(pl.col("pending").is_not_null())
+        .then(pl.col("pending"))
         .when(unfetched)
         .then(pl.lit("unfetched"))
         .otherwise(pl.lit("missing"))
     )
-    rest = rest.with_columns(entry=entry.cast(ENTRY)).drop("proposed")
+    rest = rest.with_columns(entry=entry.cast(ENTRY)).drop("pending")
     return conflicts.join(approved, on=ENTRY_KEY).sort(ENTRY_KEY), rest
 
 
@@ -73,10 +79,13 @@ def apply_resolutions(bars: pl.DataFrame, covered: pl.DataFrame, source: str) ->
     price_mismatch whose kept close is not the next day's exchange preclose."""
     rows = covered.to_dicts()
     issues = pl.DataFrame([issue for row in rows for issue in _issues(row, source)], schema=DATA_ISSUES.schema)
-    if not rows:
+    kept = [row for row in rows if row["take"] != "no_bar"]
+    dropped = pl.DataFrame([{c: row[c] for c in KEY} for row in rows if row["take"] == "no_bar"], schema=KEYED)
+    bars = bars.join(dropped, on=KEY, how="anti")
+    if not kept:
         return bars, issues
-    updates = [{c: row[c] for c in (*KEY, *SEEDED)} | _after(row) for row in rows]
-    updates = pl.DataFrame(updates, schema=bars.select(*KEY, *SEEDED).schema)
+    updates = [{c: row[c] for c in (*KEY, *UPDATED)} | _after(row) for row in kept]
+    updates = pl.DataFrame(updates, schema=bars.select(*KEY, *UPDATED).schema)
     _check_paid(updates.join(covered.filter(pl.col("fields").list.contains("amount")), on=KEY, how="semi"))
     return bars.update(updates, on=KEY, include_nulls=True), issues
 
@@ -97,9 +106,12 @@ def first_before(issues: pl.DataFrame, old: pl.DataFrame) -> pl.DataFrame:
 def idle_entries(entries: pl.DataFrame, issues: pl.DataFrame, days: list[dt.date]) -> pl.DataFrame:
     """Approved entries on these days taking other than BaoStock's values that met no conflict: the bars keep
     BaoStock's values there, not the entry's."""
-    applied = issues.filter(pl.col("action").str.starts_with("resolved_"))
+    applied = issues.filter(pl.col("action").str.starts_with("resolved_")).select(*KEY, written="kind")
     wanted = (pl.col("status") == "approved") & (pl.col("take") != "baostock") & pl.col("date").is_in(days)
-    idle = entries.filter(wanted).join(applied, on=ENTRY_KEY, how="anti")
+    chosen = entries.filter(wanted)
+    expected = [issue_kind(k, lv, f) for k, lv, f in chosen.select("kind", "level", "fields").rows()]
+    chosen = chosen.with_columns(written=pl.Series(expected, dtype=pl.String))
+    idle = chosen.join(applied, on=[*KEY, "written"], how="anti")
     return idle.select(*ENTRY_KEY, "fields", "take").sort("date", "code", "kind")
 
 
@@ -113,10 +125,11 @@ def _issues(row: dict, source: str) -> list[dict]:
     """The entry's data_issues row, plus close_unconfirmed when the next day's exchange preclose does not repeat the
     kept close."""
     fields, after = row["fields"], _after(row)
-    before = None if row["seed_close"] is None else {f: row[f"seed_{f}"] for f in fields}  # None: no store bar
+    before = None if row["seed_close"] is None else {f: row.get(f"seed_{f}") for f in fields}  # None: no store bar
     baostock = {f: row[f] for f in fields}
-    detail = {"fields": fields, "before": before, "baostock": baostock, "after": after, "evidence": row["evidence"]}
-    issues = [_issue(row, row["kind"], f"resolved_{row['take']}", detail, source)]
+    detail = {"fields": fields, "before": before, "baostock": baostock, "after": after}
+    detail |= {name: row[name] for name in ("category", "level", "verifications", "evidence")}
+    issues = [_issue(row, issue_kind(row["kind"], row["level"], fields), f"resolved_{row['take']}", detail, source)]
     if row["kind"] == "price_mismatch" and not _confirmed(row, after["close"]):
         issues.append(_issue(row, "close_unconfirmed", "flagged", _reference(row, after["close"]), source))
     return issues
@@ -138,10 +151,23 @@ def _check_paid(bars: pl.DataFrame) -> None:
         raise ValueError(f"approved entries leave amounts outside [low, high]; change them: {cells}")
 
 
+def issue_kind(kind: str, level: str, fields: list[str]) -> str:
+    """The data_issues kind of an applied entry: its conflict kind at error level, else price_ or volume_ noted
+    (notice) or unverified (suspicious), so an anomaly's level stays fixed per kind."""
+    if level == "error":
+        return kind
+    data = "price" if set(fields) & set(PRICES) or not fields else "volume"
+    return f"{data}_{'noted' if level == 'notice' else 'unverified'}"
+
+
 def _after(row: dict) -> dict:
     """The values of the entry's fields once its take is applied."""
     if row["take"] == "null":
         return {"amount": None}
+    if row["take"] == "no_bar":
+        return {}
+    if row["take"] == "corrected":
+        return json.loads(row["values"])
     if row["take"] == "baostock":
         return {f: row[f] for f in row["fields"]}
     missing = [f for f in row["fields"] if row[f"seed_{f}"] is None]
