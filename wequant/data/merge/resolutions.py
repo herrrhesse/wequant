@@ -33,7 +33,7 @@ FIELDS = {  # kind: {take: the field lists such an entry decides}; corrected may
     "preclose_odd": {"baostock": (("preclose",),), "undetermined": (("preclose",),)},
 }
 CORRECTED = {  # kind: the fields a corrected entry may set, from verification records
-    "price_mismatch": OHLC,
+    "price_mismatch": (*OHLC, *TRADED, "turn"),  # a whole bar the exchange contradicts
     "average_price": (*TRADED, "turn"),
     "amount_carried": ("amount",),
     "stale_volume": (*TRADED, "turn"),
