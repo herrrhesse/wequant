@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import io
 import os
 import secrets
@@ -10,6 +11,13 @@ from pathlib import Path
 import polars as pl
 
 ROW_GROUP_ROWS = 262_144
+
+
+def utc_now() -> str:
+    """Now in UTC to the second, ISO 8601; SOURCE_DATE_EPOCH, when set, stands for now (reproducible output)."""
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    now = dt.datetime.fromtimestamp(int(epoch), dt.UTC) if epoch else dt.datetime.now(dt.UTC)
+    return now.isoformat(timespec="seconds")
 
 
 def parquet_bytes(df: pl.DataFrame) -> bytes:
