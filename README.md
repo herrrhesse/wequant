@@ -51,6 +51,9 @@ wequant data index-check [--data-version N]
 wequant data verify submit FILE|-
 wequant data verify list [--id V] [--table T] [--code C] [--start D] [--end D] [--source-type T] [--source S]
                          [--verifier NAME] [--limit N] [--offset N]
+wequant data resolve list [--code C] [--date D] [--kind K] [--category G] [--start D] [--end D] [--status S]
+                          [--limit N] [--offset N]
+wequant data resolve approve|reject --note NOTE [--code C] [--date D] [--kind K] [--category G] [--start D] [--end D]
 wequant expr check --form JSON
 wequant expr eval --form JSON --codes C... [--start D] [--end D] [--data-version N]
 wequant strategy validate --strategy S
@@ -122,6 +125,11 @@ name.
   so a resubmitted record is not added again, and records are never changed or removed. Resolutions and `data_issues`
   cite them by id. This is the entry point for an agent that checks data; the checking itself (fetching from outside
   sources) stays out of the repository.
+- **`data resolve`** shows and records the user's decisions in `$WEQUANT_HOME/resolutions/baostock.toml`, the merge's
+  resolutions file: `list` filters entries and counts them by category and status; `approve` and `reject` set the status
+  of every entry all the given selectors match (at least one), with a note on who decided and on what basis. They change
+  only that file, rewriting just the chosen entries, never the store; the next merge applies the approved entries. An
+  entry that takes `undetermined` needs evidence first: approving a selection with one refuses the whole decision.
 - **`data delistings`** lists every delisted code with its kind, what classified it (the rule, or an entry of
   `$WEQUANT_HOME/overrides/delisting.toml` with its evidence and source) and how a holding is treated, with counts.
   **`data index-check`** compares each index's daily member count, as `member@` reads it, with its nominal size and
@@ -151,10 +159,10 @@ Exit codes (`wequant.service.Exit`):
 | --- | --- | --- |
 | 0 | `OK` | success |
 | 1 | `PROBLEMS` | a check found something to act on: `data check` found breaches the store does not record, recorded breaches that are gone, or no current limit check; `data index-check` found days off an index's nominal size |
-| 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day, an invalid verification record (none of the submission is added) |
-| 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, or run |
+| 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day, an invalid verification record (none of the submission is added), a malformed resolutions file, a decision without a selector or one that would approve an `undetermined` entry (nothing is changed) |
+| 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, run, or resolutions file to decide in |
 | 4 | `UNREACHABLE` | a data source cannot be reached |
-| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock or the verification records' lock; try again later |
+| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock, the verification records' lock or the resolutions file's lock; try again later |
 | 70 | `INTERNAL` | a bug (the traceback is on stderr), or the cli extra is not installed |
 | 130 | `INTERRUPTED` | Ctrl-C, or a cancelled run |
 

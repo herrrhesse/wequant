@@ -69,7 +69,7 @@ HEADER = """\
 #                  preclose_odd: BaoStock's exchange preclose is not a whole fen
 #   fields         the bars fields the entry decides
 #   take           baostock | seed (the store's values) | null (amount unknown, bar kept) | no_bar (none built)
-#                  | corrected (values from verification records) | undetermined (proposed only: needs evidence)
+#                  | corrected (values from verification records) | undetermined (never approved: needs evidence)
 #   values         corrected only: field = value in store units (prices in 厘, volume in shares, amount in yuan)
 #   category       the group it belongs to, e.g. "D11-B"
 #   level          error (contradicted the exchange, corrected) | suspicious (unverified) | notice (noted only)
@@ -184,7 +184,7 @@ def _checked(entry: dict) -> dict:
         "verifications are ids v-...": any(not str(v).startswith("v-") for v in entry["verifications"]),
         "level": entry["level"] not in LEVELS,
         "status": entry["status"] not in STATUSES,
-        "undetermined only proposed": take == "undetermined" and entry["status"] != "proposed",
+        "undetermined never approved": take == "undetermined" and entry["status"] == "approved",
         "category and evidence are text": not all(_text(entry[k]) for k in ("category", "evidence")),
         "approval is text": not isinstance(entry["approval"], str),
     }

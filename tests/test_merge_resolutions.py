@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from wequant.data.merge.resolutions import HEADER, SCHEMA, add, frame, load, render
+from wequant.data.merge.resolutions import HEADER, SCHEMA, add, decide, frame, load, render
 
 OHLC = ["open", "high", "low", "close"]
 EARLY = {
@@ -125,3 +125,23 @@ def test_an_entry_the_split_would_miss_is_refused(tmp_path, opening):
 def test_a_missing_file_holds_no_decisions(tmp_path):
     """D20: the decisions live in the data root; without its file every conflict stops the merge, as before."""
     assert load(tmp_path / "resolutions" / "baostock.toml").is_empty()
+
+
+def test_a_decision_rewrites_only_the_chosen_entries(tmp_path):
+    path = write(tmp_path / "r.toml", EARLY | {"status": "proposed", "approval": ""}, LATE)
+    edited = path.read_text("utf-8").replace('take = "null"', 'take = "null"  # kept')
+    path.write_text(edited, "utf-8")
+    changed = decide(path, lambda e: e["kind"] == "price_mismatch", "approved", "user: checked")
+    assert [(e["code"], e["status"], e["approval"]) for e in changed] == [("600000.SH", "approved", "user: checked")]
+    assert 'take = "null"  # kept' in path.read_text("utf-8")  # LATE was not chosen: its text is untouched
+    assert load(path).select("status", "approval").rows() == [("approved", "user: checked"), ("proposed", "")]
+    assert decide(path, lambda e: e["kind"] == "price_mismatch", "approved", "user: checked") == []
+
+
+def test_approving_an_undetermined_entry_refuses_the_whole_decision(tmp_path):
+    path = write(tmp_path / "r.toml", EARLY | {"status": "proposed"}, LATE | {"take": "undetermined"})
+    text = path.read_text("utf-8")
+    with pytest.raises(ValueError, match="undetermined"):
+        decide(path, lambda e: True, "approved", "user")
+    assert path.read_text("utf-8") == text
+    assert len(decide(path, lambda e: True, "rejected", "user: no evidence")) == 2
