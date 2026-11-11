@@ -86,7 +86,7 @@ def test_a_run_read_returns_the_bytes_the_cli_prints(cli, market_home, cache, ar
 
 @pytest.mark.parametrize("argv, name, fields, root", WRITES, ids=[case[1] for case in WRITES])
 def test_a_write_returns_the_bytes_the_cli_prints(cli, library_home, cache, tmp_path, monkeypatch, argv, name, fields, root):  # fmt: skip
-    monkeypatch.setattr("wequant.strategy.library._now", lambda: "2026-11-11T00:00:00+00:00")
+    monkeypatch.setattr("wequant.strategy.library.utc_now", lambda: "2026-11-11T00:00:00+00:00")
     origin = {"library": library_home, "verified": library_home, "resolutions": library_home}[root]
     if root == "verified":
         service.data_verify_submit(service.VerifySubmitRequest(records=[RECORD]), Context(origin))

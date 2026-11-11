@@ -10,6 +10,7 @@ import datetime as dt
 import json
 import re
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -100,8 +101,10 @@ def check_id(id: str) -> str:
 class Library:
     """The saved strategies under root ($WEQUANT_HOME/strategies)."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, clock: Callable[[], str] | None = None) -> None:
+        """clock stamps what save writes (tests, the demo home)."""
         self.root = Path(root)
+        self.clock = clock or utc_now
 
     def entries(self) -> list[Entry]:
         """Every saved strategy, archived ones included, by id."""
@@ -139,7 +142,7 @@ class Library:
         id = check_id(id) if id is not None else self._new_id()
         (self.root / id).mkdir(parents=True, exist_ok=True)
         with exclusive(self.root / id / ".lock"):
-            entry = self._read(id) or Entry(id, id, _now(), False, ())
+            entry = self._read(id) or Entry(id, id, self.clock(), False, ())
             created = not entry.versions or entry.current.strategy_hash != strategy_hash(strategy)
             if created:
                 n = entry.current.n + 1 if entry.versions else 1
@@ -147,7 +150,7 @@ class Library:
                 if path.exists():
                     raise FileExistsError(f"{path} exists: something wrote it without holding {id}/.lock")
                 atomic_write(path, strategy.key.encode() + b"\n")
-                version = Version(n, strategy_hash(strategy), _now(), STRATEGY_VERSION, note)
+                version = Version(n, strategy_hash(strategy), self.clock(), STRATEGY_VERSION, note)
                 entry = replace(entry, versions=(*entry.versions, version))
             entry = replace(entry, name=name or entry.name, rebuilt=0)
             self._write(entry)
@@ -203,7 +206,3 @@ def _rebuilt(n: int, path: Path) -> Version:
     """The index entry of a version file meta.json does not list: saved_at its mtime, version and note unknown."""
     mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.UTC).isoformat(timespec="seconds")
     return Version(n, digest(json.loads(path.read_text("utf-8"))), mtime, None, None)
-
-
-def _now() -> str:
-    return utc_now()

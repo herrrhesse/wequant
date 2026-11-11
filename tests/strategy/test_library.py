@@ -150,3 +150,10 @@ def test_reading_warns_of_another_strategy_version_and_of_a_rebuilt_index(librar
     assert list(found) == ["strategy_version_changed", "meta_rebuilt"]
     assert found["strategy_version_changed"][1] == {"saved": old.strategy_version, "current": old.strategy_version + 1}
     assert found["meta_rebuilt"][1] == {"versions": 2}
+
+
+def test_a_save_is_stamped_by_the_library_s_clock(tmp_path):
+    library = Library(tmp_path / "strategies", clock=lambda: "2026-01-01T00:00:00+00:00")
+    library.save(A, "a")
+    entry = library.entry("a")
+    assert (entry.created_at, entry.versions[0].saved_at) == ("2026-01-01T00:00:00+00:00",) * 2

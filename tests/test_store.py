@@ -318,3 +318,10 @@ def test_lock_is_reentrant_within_one_store(store):
     with store.lock():
         assert store.commit(META, replace={"bars": four_years()}).changed
         store.cleanup(dry_run=False)
+
+
+def test_a_commit_is_stamped_by_the_store_s_clock(tmp_path):
+    """The demo home and tests fix the clock; a store reads no environment variable for it."""
+    store = Store(tmp_path, clock=lambda: "2026-01-01T00:00:00+00:00")
+    store.commit(META, replace={"bars": four_years()})
+    assert store.manifest()["created_at"] == "2026-01-01T00:00:00+00:00"
