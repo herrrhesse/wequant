@@ -60,10 +60,14 @@ export interface ServiceModels {
   IndexCheckRequest?: IndexCheckRequest;
   IndexCoverage?: IndexCoverage;
   IssueCount?: IssueCount;
+  IssueKindLabel?: IssueKindLabel;
   IssueRow?: IssueRow;
   Issues?: Issues;
   IssuesRequest?: IssuesRequest;
   JsonValue?: JsonValue;
+  Label?: Label;
+  Labels?: Labels;
+  LabelsRequest?: LabelsRequest;
   LevelCounts?: LevelCounts;
   MemberResult?: MemberResult;
   MetricDiff?: MetricDiff;
@@ -129,6 +133,7 @@ export interface ServiceModels {
   StrategyVersions?: StrategyVersions;
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
+  TemplateLabel?: TemplateLabel;
   VerificationIn?: VerificationIn;
   VerificationOut?: VerificationOut;
   VerifiedCell?: VerifiedCell;
@@ -137,9 +142,11 @@ export interface ServiceModels {
   VerifyPage?: VerifyPage;
   VerifySubmitRequest?: VerifySubmitRequest;
   VerifySubmitResult?: VerifySubmitResult;
-  VersionInfo?: VersionInfo;
   VersionsRequest?: VersionsRequest;
   Warning?: Warning;
+  WarningLabel?: WarningLabel;
+  wequant__service__status__VersionInfo?: VersionInfo;
+  wequant__service__strategies__VersionInfo?: VersionInfo1;
 }
 /**
  * Uses in archive order (date, code, channel, anomaly_date, kind, seq).
@@ -462,6 +469,10 @@ export interface BacktestResult {
    */
   saved: boolean;
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   strategy_hash: string;
   saved_as: SavedRef[];
   start: string;
@@ -648,6 +659,10 @@ export interface Warning {
  */
 export interface Bars {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   fields: (
     | "open"
     | "high"
@@ -781,6 +796,10 @@ export interface BarsRequest {
 export interface Calendar {
   data_version: number;
   /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
+  /**
    * The version's first trading day, whatever the range; null: an empty calendar.
    */
   first: string | null;
@@ -828,6 +847,10 @@ export interface CheckReport {
    * Version checked.
    */
   data_version: number;
+  /**
+   * Its display name.
+   */
+  data_version_name: string;
   /**
    * New version, or null if none was made.
    */
@@ -958,18 +981,29 @@ export interface DataSpec1 {
   exclude_suspicious?: boolean;
 }
 /**
- * One store version: its tables and meta, next to the versions the store keeps.
+ * One store version: its tables and meta, next to every version the store keeps.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "DataStatus".
  */
 export interface DataStatus {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N.
+   */
+  data_version_name: string;
+  /**
+   * The newest version.
+   */
   current_version: number;
   /**
-   * Versions the store keeps.
+   * Versions the store keeps, oldest first.
    */
   versions: number[];
+  /**
+   * The same versions with their names and reasons, newest first.
+   */
+  version_list: VersionInfo[];
   created_at: string;
   last_trade_date: string | null;
   /**
@@ -983,6 +1017,40 @@ export interface DataStatus {
   meta: {
     [k: string]: JsonValue;
   };
+}
+/**
+ * One version the store keeps.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "wequant__service__status__VersionInfo".
+ */
+export interface VersionInfo {
+  /**
+   * The number requests take as data_version.
+   */
+  id: number;
+  /**
+   * The display name, YYYYMMDD.N: the version's last trade date, then which version of that day; written when the
+   * version was made and never changed (legacy versions: the day and their own number).
+   */
+  name: string;
+  /**
+   * Why it was made, in Chinese, e.g. 每日更新.
+   */
+  reason: string;
+  /**
+   * The reason's code (labels.version_reasons) and its params.
+   */
+  reason_code: string;
+  reason_params: {
+    [k: string]: number | string | null;
+  };
+  last_trade_date: string | null;
+  created_at: string;
+  /**
+   * Kept by every cleanup.
+   */
+  pinned: boolean;
 }
 /**
  * One table of the version.
@@ -1166,6 +1234,10 @@ export interface DelistingRow {
 export interface Delistings {
   data_version: number;
   /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
+  /**
    * An overrides file exists in the data root.
    */
   overrides: boolean;
@@ -1293,6 +1365,10 @@ export interface EvalRequest {
  */
 export interface EvalResult {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   key: string;
   kind: "num" | "bool";
   rows: Row[];
@@ -1334,6 +1410,10 @@ export interface ExecutionSpec2 {
  */
 export interface Explain {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   date: string;
   next_day: string | null;
   code: string;
@@ -1664,6 +1744,10 @@ export interface IndexCheck {
    */
   ok: boolean;
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   indexes: IndexCoverage[];
 }
 /**
@@ -1715,6 +1799,33 @@ export interface IssueCount {
   rows: number;
 }
 /**
+ * A data_issues kind, with what schema.py says of it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IssueKindLabel".
+ */
+export interface IssueKindLabel {
+  code: string;
+  /**
+   * Short, for tables and chips.
+   */
+  label: string;
+  /**
+   * One sentence, for tooltips.
+   */
+  help: string;
+  table: string;
+  /**
+   * True: every merge or check recomputes it (it describes the data as it is); false: a record of one action.
+   */
+  state: boolean;
+  /**
+   * Its anomaly class; null when it marks no cell a run reads.
+   */
+  anomaly: string | null;
+  level: string | null;
+}
+/**
  * One data_issues row; detail is its JSON text as stored.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -1737,6 +1848,10 @@ export interface IssueRow {
  */
 export interface Issues {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   total: number;
   counts: IssueCount[];
   rows: IssueRow[];
@@ -1777,6 +1892,95 @@ export interface IssuesRequest {
    */
   limit?: number;
 }
+/**
+ * One code's Chinese name and sentence.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Label".
+ */
+export interface Label {
+  code: string;
+  /**
+   * Short, for tables and chips.
+   */
+  label: string;
+  /**
+   * One sentence, for tooltips.
+   */
+  help: string;
+}
+/**
+ * The Chinese of every code: warnings, data issues, metrics, funnel, orders, delistings, anomalies, errors.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Labels".
+ */
+export interface Labels {
+  warnings: WarningLabel[];
+  issue_kinds: IssueKindLabel[];
+  issue_actions: Label[];
+  metrics: Label[];
+  metric_reasons: Label[];
+  units: Label[];
+  funnel_kinds: Label[];
+  order_statuses: Label[];
+  order_reasons: Label[];
+  sell_kinds: Label[];
+  delisting_treatments: Label[];
+  delisting_kinds: Label[];
+  anomaly_classes: Label[];
+  anomaly_levels: Label[];
+  error_codes: Label[];
+  exits: Label[];
+  version_reasons: TemplateLabel[];
+}
+/**
+ * A warning: template, plus optional clauses and repetition (fill shows how).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "WarningLabel".
+ */
+export interface WarningLabel {
+  code: string;
+  label: string;
+  template: string;
+  /**
+   * The keys template uses.
+   */
+  params: string[];
+  /**
+   * param -> clause appended when that param is not null.
+   */
+  optional: {
+    [k: string]: string;
+  };
+  /**
+   * Not null: params repeat per item with suffixes _2, _3, ...; the filled templates are joined by this.
+   */
+  repeat: string | null;
+}
+/**
+ * A code whose sentence is filled from params: {name}, {name:.1%} (a fraction as a percent) or {name:,.2f}.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TemplateLabel".
+ */
+export interface TemplateLabel {
+  code: string;
+  label: string;
+  template: string;
+  /**
+   * The keys template uses.
+   */
+  params: string[];
+}
+/**
+ * Every label table.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "LabelsRequest".
+ */
+export interface LabelsRequest {}
 /**
  * A metric that differs between two runs.
  *
@@ -2134,6 +2338,10 @@ export interface RunDetail {
   created_at: string;
   code_version: string;
   store_version: number;
+  /**
+   * The store version's display name, YYYYMMDD.N; null once that version is no longer kept.
+   */
+  data_version_name: string | null;
   anchor: string;
   start: string;
   end: string;
@@ -2226,6 +2434,10 @@ export interface RunRow {
   created_at: string;
   code_version: string;
   store_version: number;
+  /**
+   * The store version's display name, YYYYMMDD.N; null once that version is no longer kept.
+   */
+  data_version_name: string | null;
   anchor: string;
   start: string;
   end: string;
@@ -2377,6 +2589,10 @@ export interface DataSpec2 {
  */
 export interface ScreenResult {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   date: string;
   /**
    * The fill day t+1; null: t is the store's last day.
@@ -2444,6 +2660,10 @@ export interface ScreenRow {
  */
 export interface Securities {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   total: number;
   rows: SecurityRow[];
 }
@@ -2726,15 +2946,15 @@ export interface StrategyVersions {
   id: string;
   name: string;
   archived: boolean;
-  rows: VersionInfo[];
+  rows: VersionInfo1[];
 }
 /**
  * One saved version.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
- * via the `definition` "VersionInfo".
+ * via the `definition` "wequant__service__strategies__VersionInfo".
  */
-export interface VersionInfo {
+export interface VersionInfo1 {
   n: number;
   strategy_hash: string;
   saved_at: string;

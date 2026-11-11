@@ -37,6 +37,7 @@ export interface Operations {
   runs_day: { request: M.RunDayRequest; result: M.RunDay };
   runs_anomalies: { request: M.AnomaliesRequest; result: M.AnomaliesPage };
   explain: { request: M.ExplainRequest; result: M.Explain };
+  labels: { request: M.LabelsRequest; result: M.Labels };
   schema: { request: M.SchemaRequest; result: M.ServiceSchema };
 }
 
@@ -78,5 +79,6 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   runs_day: { method: "POST", path: "/api/runs_day" },
   runs_anomalies: { method: "POST", path: "/api/runs_anomalies" },
   explain: { method: "POST", path: "/api/explain" },
+  labels: { method: "POST", path: "/api/labels" },
   schema: { method: "POST", path: "/api/schema" },
 };
