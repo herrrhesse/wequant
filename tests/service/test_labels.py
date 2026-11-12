@@ -17,6 +17,7 @@ from wequant.backtest.messages import TEXTS
 from wequant.data.delistings import KINDS
 from wequant.data.schema import CLASSES, ISSUE_KINDS, LEVELS
 from wequant.data.store import REASONS as VERSION_REASONS
+from wequant.runs.causes import CAUSES, PARAMS
 from wequant.service import Context
 from wequant.service.details import PYDANTIC
 from wequant.service.errors import Exit
@@ -26,6 +27,7 @@ from wequant.service.labels import fill, job_text, update_params
 from wequant.service.queue import STAGES as QUEUE_STAGES
 from wequant.service.queue import STATES
 from wequant.service.running import STAGES as WORKER_STAGES
+from wequant.service.schedule import Source
 from wequant.service.screen import StepKind
 from wequant.service.update import Status as UpdateStatus
 from wequant.strategy import SELL_KINDS
@@ -76,6 +78,8 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "job_states": lambda: set(get_args(JobState)) | set(STATES),
     "job_stages": lambda: set(QUEUE_STAGES) | set(WORKER_STAGES),
     "update_statuses": lambda: set(get_args(UpdateStatus)),
+    "order_causes": lambda: set(CAUSES),
+    "day_sources": lambda: set(get_args(Source)),
 }
 STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's and JobInfo's own
     "queued": ["position"],
@@ -141,6 +145,10 @@ def test_a_job_stage_template_uses_exactly_the_params_that_stage_reports():
 def test_an_update_status_template_uses_only_the_params_an_update_result_gives():
     given = update_params({"days": [], "waiting": None, "proposed": 0, "unresolved": 0})
     assert all(set(label.params) <= set(given) for label in LABELS.update_statuses)
+
+
+def test_an_order_cause_template_uses_exactly_the_params_that_cause_names():
+    assert {label.code: set(label.params) for label in LABELS.order_causes} == {k: set(v) for k, v in PARAMS.items()}
 
 
 def test_an_optional_clause_appears_only_when_its_param_is_set():

@@ -12,6 +12,7 @@ import polars as pl
 from wequant.account.ledger import ORDER_REASONS
 from wequant.backtest.anomalies import CHANNELS, DECISIONS, anomaly_params
 from wequant.data.schema import CLASSES, LEVELS
+from wequant.runs.causes import CAUSES, PARAMS
 from wequant.service.base import Model
 
 Params = dict[str, int | float | str | None]
@@ -92,6 +93,11 @@ class OrderRow(Model):
     slippage: float
     reason: Literal[ORDER_REASONS] | None
     """Why rejected or partial, or delist_write_down / delist_exit; null: filled rebalance order."""
+    cause: Literal[CAUSES]
+    """Why the order was placed, from the run's decisions: a code of labels.order_causes; unrecorded when no decision
+    row explains it."""
+    cause_params: Params
+    """The params the cause's sentence reads: rank, limit, step, weight or drift."""
 
 
 class AnomalyUse(Model):
@@ -208,7 +214,8 @@ def anomaly_use(row: Mapping) -> AnomalyUse:
 
 
 def order_row(row: Mapping, names: Mapping[str, str | None]) -> OrderRow:
-    """The OrderRow of an archived orders row, its name from names; a full exit, archived as requested inf, asks for
-    null."""
+    """The OrderRow of a with_causes row, its name from names; a full exit, archived as requested inf, asks for null."""
     requested = None if math.isinf(row["requested"]) else row["requested"]
-    return OrderRow(**{**row, "requested": requested, "name": names.get(row["code"])})
+    fields = {key: value for key, value in row.items() if key in OrderRow.model_fields}
+    params = {key: row[key] for key in PARAMS[row["cause"]]}
+    return OrderRow(**fields | {"requested": requested, "name": names.get(row["code"]), "cause_params": params})

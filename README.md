@@ -74,6 +74,7 @@ wequant data export [--data-version N] [--path FILE]
 wequant data import FILE
 wequant data delistings [--delisting RULE] [--failure-recovery X] [--data-version N]
 wequant data index-check [--data-version N]
+wequant data index-bars --codes C... [--start D] [--end D] [--data-version N]
 wequant data verify submit FILE|-
 wequant data verify list [--id V] [--table T] [--code C] [--start D] [--end D] [--source-type T] [--source S]
                          [--verifier NAME] [--limit N] [--offset N]
@@ -102,6 +103,7 @@ wequant runs orders ID [--code C] [--status S] [--side S] [--start D] [--end D] 
 wequant runs anomalies ID [--channel C] [--code C] [--limit N] [--offset N]
 wequant runs pin ID [--unpin] | delete ID | export ID [--path FILE] | import FILE
 wequant strategy export ID [--history] [--path FILE] | import FILE
+wequant strategy schedule --strategy S [--count N] [--data-version N]
 wequant settings show | set [--runs-limit-gb X] [--keep-versions N]
 wequant storage usage | cleanup [--dry-run]
 wequant schema
@@ -300,6 +302,21 @@ uv run wequant data names [--commit]  # "补充股票名称", once, from raw/bao
   its data. Results that list stocks name them as the newest version does: screen rows and rejects, explain, a run's
   orders, holdings and decisions, and `data bars` (`names`); `data securities --query` matches names.
 
+## Index bars, rebalance days and order causes
+
+- **`data index-bars`** gives indices' daily bars from the `index_bars` table, prices in index points, with each day's
+  change from the index's previous stored close (the first day in the range included); codes without rows are listed
+  in `missing`.
+- **`strategy schedule`** gives a strategy's next rebalance days (default 3) on or after the store's last trading day,
+  counted as a backtest from its anchor (else the store's first day) counts them. Days come from the store's calendar
+  (`stored`), then BaoStock's published calendar in the raw layer (`calendar`, refreshed by each update), then
+  weekdays (`estimated`: 按工作日估算，节假日可能调整).
+- **Order causes:** every order of a run (`runs orders`, `runs day`, explain with a run) has a `cause` and its
+  `cause_params`, from the run's own decision of the day before: `enter` (rank), `backup` (rank), `rebalance` (weight,
+  drift), `exit_pool` / `exit_filter` / `exit_no_score` (step), `exit_rank` / `exit_slots` (rank, limit), `delisting`,
+  and `unrecorded` when no decision row explains it. They are read from the archive's decision frames, so runs archived
+  before round 2 have them too and the archive format is unchanged. `labels` gives each cause's Chinese template.
+
 ## Storage
 
 - **Settings** live in `<home>/settings.json` (`wequant settings show|set`): the run archive's size limit
@@ -322,6 +339,11 @@ uv run wequant data names [--commit]  # "补充股票名称", once, from raw/bao
   `strategy import` saves under a new name and id when its own are taken. Under `wequant serve`, `GET
   /api/exports/<name>` downloads an export and `PUT /api/imports/<name>` keeps an uploaded file for the import
   operations (its path comes back).
+- **A data root of links is read-only:** a commit, an import, a version cleanup, an update's raw fetch and deleting a
+  run first check that the folders they would write or delete in resolve inside the data root; a folder that links
+  elsewhere (a view built with symbolic links onto another store) refuses with USAGE `outside_data_root`, and
+  nothing elsewhere changes. Reads through the links work, and panels in a cache outside the data root are never
+  pruned.
 
 ## Fetching BaoStock raw data
 

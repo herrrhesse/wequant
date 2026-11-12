@@ -17,6 +17,7 @@ from wequant.canonical import digest
 from wequant.data.store import Store
 from wequant.rules.book import Rate, default_book, fees_in_force
 from wequant.runs.archive import HEADLINE, RUNS, Archive
+from wequant.runs.causes import with_causes
 from wequant.runs.compare import json_differences
 from wequant.runs.run import Run
 from wequant.service.backtest import BacktestResult, metrics_out, order_counts, report
@@ -426,7 +427,7 @@ def runs_diff(request: RunDiffRequest, context: Context = Context()) -> RunDiff:
 def runs_orders(request: OrdersRequest, context: Context = Context()) -> OrdersPage:
     """A run's orders in archive order, filtered and paged."""
     _, run = load_run(context, request.id)
-    orders = run.ledger.orders.filter(
+    orders = with_causes(run).filter(
         *[pl.col(name) == getattr(request, name) for name in ("code", "status", "side") if getattr(request, name)],
         *([pl.col("date") >= request.start] if request.start else []),
         *([pl.col("date") <= request.end] if request.end else []),
@@ -445,7 +446,7 @@ def runs_day(request: RunDayRequest, context: Context = Context()) -> RunDay:
         raise not_found("not_a_trading_day", f"{request.date} is not a day of run {request.id}", ["date"])
     equity = day["equity"].item()
     held = run.ledger.positions.filter(pl.col("date") == request.date).sort("value", "code", descending=[True, False])
-    orders = run.ledger.orders.filter(pl.col("date") == request.date)
+    orders = with_causes(run).filter(pl.col("date") == request.date)
     decided = run.detail.filter(pl.col("date") == request.date)["code"]
     names = names_of(context, [*held["code"], *orders["code"], *decided])
     positions = [

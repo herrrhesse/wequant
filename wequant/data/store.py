@@ -25,7 +25,7 @@ from pathlib import Path
 
 import polars as pl
 
-from wequant.data.files import atomic_write, parquet_bytes, utc_now
+from wequant.data.files import atomic_write, check_inside, parquet_bytes, utc_now
 from wequant.data.schema import TABLES, Table
 
 KEEP_VERSIONS = 5  # the user's default (round 2): the newest five versions, plus those the data root protects
@@ -232,6 +232,7 @@ class Store:
                     raise ValueError(f"{name} appears in more than one write mode")
                 writes[name] = (mode, df)
 
+        self._guard(writes)
         with self.lock(timeout):
             current = self.manifest()
             old_tables = current["tables"] if current else {}
@@ -264,6 +265,7 @@ class Store:
         leftover temp files; deleted (under the lock) only when dry_run is False."""
         if dry_run:
             return self._unneeded(keep, set(protect))
+        self._guard(TABLES)
         with self.lock(timeout):
             doomed = self._unneeded(keep, set(protect))
             for path in doomed:
@@ -274,6 +276,7 @@ class Store:
         """Add a version made elsewhere, as the next version number but not the current one: each of its files under
         this store's name for it (a kept file with the same content is reused), its manifest's own keys new. files
         maps the manifest's paths to their bytes. Returns the new version."""
+        self._guard(manifest["tables"])
         with self.lock():
             version = max([0, *self.versions()]) + 1
             known = {e["sha256"]: e["path"] for v in self.versions() for e in version_files(self.manifest(v))}
@@ -335,6 +338,13 @@ class Store:
         atomic_write(self.home / rel, data)
         result.files_written.append(rel)
         return {"part": part, "path": rel, "rows": rows.height, "sha256": digest}
+
+    def _guard(self, tables: Iterable[str]) -> None:
+        """OutsideRoot unless the manifests and these tables' folders resolve inside the data root: a data root whose
+        folders link to another store can be read, never written or cleaned."""
+        check_inside(
+            self.home, [self.home / "manifest.json", self.home / "manifests", *(self.home / t for t in tables)]
+        )
 
     def _next_version(self, current: dict | None) -> int:
         """One past the current version, past any added version there: a manifest an interrupted commit left is

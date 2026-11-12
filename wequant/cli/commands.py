@@ -162,6 +162,12 @@ def update(
     return run(service.data_update, request, common)
 
 
+@data.command(name="index-bars")
+def index_bars(*, request: Annotated[service.IndexBarsRequest, FLAT], common: Common = COMMON) -> int:
+    """Daily bars of indices (--codes 000300.SH ...) with each day's change."""
+    return run(service.data_index_bars, request, common)
+
+
 @data.command(name="index-check")
 def index_check(
     *, request: Annotated[service.IndexCheckRequest, FLAT] = service.IndexCheckRequest(), common: Common = COMMON
@@ -237,6 +243,23 @@ def strategy_summary(*, strategy: StrategyArg, common: Common = COMMON) -> int:
     """The strategy in one Chinese sentence."""
     request = lambda: validated(service.StrategyRequest, strategy_fields(strategy))  # noqa: E731 - built inside run
     return run(service.strategy_summary, request, common, human=lambda result: result.text)
+
+
+@strategies.command(name="schedule")
+def strategy_schedule(
+    *, strategy: StrategyArg, count: int = 3, data_version: int | None = None, common: Common = COMMON
+) -> int:
+    """The strategy's next rebalance days; days past BaoStock's published calendar are estimates.
+
+    Parameters
+    ----------
+    count
+        How many days.
+    data_version
+        Store version whose calendar to start from (default: the one in use).
+    """
+    fields = strategy_fields(strategy) | {"count": count, "data_version": data_version}
+    return run(service.strategy_schedule, lambda: validated(service.ScheduleRequest, fields), common)
 
 
 @strategies.command(name="schema")

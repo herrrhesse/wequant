@@ -67,14 +67,29 @@ def test_the_archive_over_its_limit_loses_its_oldest_unpinned_runs(market_home):
     assert sorted(archive.index()["id"]) == sorted([pinned, newest])
 
 
-def test_only_the_panels_of_the_version_in_use_stay(market_home, tmp_path):  # noqa: F811
-    store = Store(market_home)
-    versions(store, 2)
+def panels(cache, store: Store) -> list[str]:
+    """A panel folder in cache for each of the store's versions; their names."""
     keys = [cache_key(store.manifest(v)) for v in store.versions()]
     for key in keys:
-        (tmp_path / "panel" / key).mkdir(parents=True)
-    prune_panels(tmp_path, store, Settings(version_in_use=2))
-    assert [p.name for p in (tmp_path / "panel").iterdir()] == [keys[1]]
+        (cache / "panel" / key).mkdir(parents=True)
+    return keys
+
+
+def test_only_the_panels_of_the_version_in_use_stay(market_home):  # noqa: F811
+    store, cache = Store(market_home), market_home / "cache"
+    versions(store, 2)
+    keys = panels(cache, store)
+    prune_panels(cache, store, Settings(version_in_use=2))
+    assert [p.name for p in (cache / "panel").iterdir()] == [keys[1]]
+
+
+def test_panels_outside_the_data_root_are_never_pruned(market_home, tmp_path):  # noqa: F811
+    store, cache = Store(market_home), tmp_path / "elsewhere"  # another store's cache, given with --cache
+    versions(store, 2)
+    keys = panels(cache, store)
+    assert prune_panels(cache, store, Settings()) == [] and sorted(
+        p.name for p in (cache / "panel").iterdir()
+    ) == sorted(keys)
 
 
 def test_a_run_exported_and_imported_elsewhere_is_byte_for_byte_the_same(market_home, tmp_path):  # noqa: F811
