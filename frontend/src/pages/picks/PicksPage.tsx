@@ -15,8 +15,9 @@ import { href, type Route } from "../../router";
 import { tx } from "../../text";
 import { useUi } from "../../ui";
 import { stepName } from "../strategy/Preview";
-import { POOL_STEP_NAMES, st } from "../strategy/text";
+import { st } from "../strategy/text";
 import { MiniK } from "./MiniK";
+import { ChainView } from "../../components/ChainView";
 import { boxes, readCondition, UNIT_TEXT } from "../../strategy/model";
 import { toDisplay, type Unit } from "../../strategy/fields";
 
@@ -178,7 +179,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
           <section className="card picks-main" aria-label="结果">
             {step ? <Rejects r={r} step={step} back={() => setStep(null)} pick={setCode} units={unitsOf(spec)} /> : <Scored r={r} pick={setCode} />}
           </section>
-          {code && subject && <Side code={code} date={r.date} subject={subject} row={r.rows.find((x) => x.code === code) ?? null} close={() => setCode(null)} />}
+          {code && subject && <Side code={code} date={r.date} subject={subject} spec={spec} row={r.rows.find((x) => x.code === code) ?? null} close={() => setCode(null)} />}
         </div>
       )}
     </main>
@@ -334,13 +335,12 @@ function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string
   );
 }
 
-function Side({ code, date, subject, row, close }: { code: string; date: string; subject: object; row: ScreenRow | null; close: () => void }) {
+function Side({ code, date, subject, row, close, spec }: { code: string; date: string; subject: object; row: ScreenRow | null; close: () => void; spec: StrategySpec | null }) {
   const ui = useUi();
   const L = useLabels();
   const request = { ...subject, code, date };
   const ex = useCall("explain", request);
   const e = ex.data;
-  const mark = (ok: boolean | null) => (ok === null ? <span className="muted">·</span> : ok ? <span className="ok">✓</span> : <span className="bad">✗</span>);
   return (
     <aside className="card picks-side" aria-label={code}>
       <div className="row">
@@ -378,29 +378,7 @@ function Side({ code, date, subject, row, close }: { code: string; date: string;
         <span className="small b">判断链</span>
         {ex.isPending && <span className="note">{tx.app.loading}</span>}
         {ex.isError && <Problem error={ex.error} />}
-        {e?.pool.map((p) => (
-          <div key={p.name} className="chain-row">
-            {mark(p.passed)}
-            <span>{POOL_STEP_NAMES[p.name] ?? (L.of("funnel_kinds", p.name) || p.name)}</span>
-          </div>
-        ))}
-        {e?.steps.map((s) => (
-          <div key={s.name} className={`chain-row ${s.chain ? "" : "sub-row"}`}>
-            {mark(s.passed)}
-            <span>{s.name}</span>
-            {s.value !== null && <span className="muted small num">{Number(s.value.toPrecision(6))}</span>}
-          </div>
-        ))}
-        {e?.score && (
-          <span className="small b">
-            综合分 {(e.score.score * 100).toFixed(1)}，第 {e.score.rank} 名{e.weight !== null ? `，目标权重 ${pct(e.weight, 1)}` : ""}
-          </span>
-        )}
-        {e?.warnings.map((w, i) => (
-          <span key={i} className="note">
-            {L.warning(w)}
-          </span>
-        ))}
+        {e && <ChainView e={e} spec={spec} />}
       </div>
       {ui.dev && (
         <button type="button" className="dev-btn" onClick={() => void navigator.clipboard?.writeText(commandOf("explain", request as never))}>

@@ -1,6 +1,6 @@
 // The strategy editor's view of a StrategySpec: filter groups as the page shows them, metric choices, automatic
 // names and the funnel numbers each row shows. Only the user's choices are written; no stock data is computed here.
-import type { ConditionSpec, FactorSpec, FunnelStep, GroupSpec, StrategySpec } from "../api/types.gen";
+import type { ConditionSpec, FactorSpec, FunnelStep, GroupSpec, StepCheck, StrategySpec } from "../api/types.gen";
 import { conditionForm, metricForm, parseCondition, parseMetric, type Compare, type Form, type Metric } from "./expr.ts";
 import { metricUnit, toBackend, toDisplay, type Unit } from "./fields.ts";
 
@@ -225,3 +225,20 @@ export function factorMetric(f: FactorSpec): Metric | null {
 export function blank(): StrategySpec {
   return { universe: ["NOT", "exchange@BJ"], filters: [], factors: [], top_n: 10, backups: 0, period: "week", every: 1, weighting: "equal", pool: { index: null, boards: null, exclude_st: true, min_list_days: null } };
 }
+
+/** A condition's value as the user reads it: in the condition's unit, a rank for top-N conditions, a percentile for
+ * top-x% conditions; nothing for expressions the page cannot read (the raw number is not shown). */
+export function stepValue(spec: StrategySpec | null | undefined, s: Pick<StepCheck, "name" | "value">): string {
+  if (s.value === null || !spec) return "";
+  for (const b of boxes(spec))
+    for (const { c } of b.items) {
+      if (c.name !== s.name) continue;
+      const r = readCondition(c.expr);
+      if (r.custom) return "";
+      if (r.mode === "gt" || r.mode === "lt") return `${Number(toDisplay(s.value, r.unit).toPrecision(4))}${UNIT_TEXT[r.unit]}`;
+      if (r.mode === "topn") return `第 ${Math.round(s.value)} 名`;
+      return `百分位 ${(s.value * 100).toFixed(0)}`;
+    }
+  return "";
+}
+

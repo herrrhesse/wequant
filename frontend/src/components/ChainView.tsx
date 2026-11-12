@@ -1,12 +1,13 @@
 // The judgment chain of one stock on one decision day (explain): pool checks, conditions, score and role.
-import type { Explain } from "../api/types.gen";
+import type { Explain, StrategySpec } from "../api/types.gen";
+import { stepValue } from "../strategy/model";
 import { pct } from "../format";
 import { useLabels } from "../labels";
 import { POOL_STEP_NAMES } from "../pages/strategy/text";
 
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
 
-export function ChainView({ e }: { e: Explain }) {
+export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null }) {
   const L = useLabels();
   const mark = (ok: boolean | null) => (ok === null ? <span className="muted">·</span> : ok ? <span className="ok">✓</span> : <span className="bad">✗</span>);
   return (
@@ -21,7 +22,16 @@ export function ChainView({ e }: { e: Explain }) {
         <div key={s.name} className={`chain-row ${s.chain ? "" : "sub-row"}`}>
           {mark(s.passed)}
           <span>{s.name}</span>
-          {s.value !== null && <span className="muted small num">{Number(s.value.toPrecision(6))}</span>}
+          {stepValue(spec, s) && <span className="muted small num">{stepValue(spec, s)}</span>}
+        </div>
+      ))}
+      {e.score?.factors.map((f) => (
+        <div key={f.name} className="chain-row">
+          <span className="muted">·</span>
+          <span>
+            {f.name} 排名分 {(f.adjusted_pct * 100).toFixed(1)} × {Math.round(f.weight_share * 100)}%
+          </span>
+          <span className="muted small num">= {(f.contribution * 100).toFixed(1)}</span>
         </div>
       ))}
       {e.score && (

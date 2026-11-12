@@ -12,6 +12,7 @@ import { useLabels } from "../../labels";
 import { href } from "../../router";
 import { tx } from "../../text";
 import { POOL_STEP_NAMES, st } from "./text";
+import { ChainView } from "../../components/ChainView";
 
 const OPS: Record<string, string> = { gt: ">", ge: "≥", lt: "<", le: "≤", eq: "=", between: "介于" };
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
@@ -143,10 +144,8 @@ function Picks({ spec, screen, fading, blocked }: Props) {
 }
 
 function Chain({ spec, code, date, onClose }: { spec: StrategySpec; code: string; date: string; onClose: () => void }) {
-  const L = useLabels();
   const ex = useCall("explain", { strategy: spec, code, date });
   const e = ex.data;
-  const mark = (ok: boolean | null) => (ok === null ? <span className="muted">·</span> : ok ? <span className="ok">✓</span> : <span className="bad">✗</span>);
   return (
     <div className="inner chain">
       <div className="row">
@@ -156,37 +155,7 @@ function Chain({ spec, code, date, onClose }: { spec: StrategySpec; code: string
         </button>
       </div>
       {ex.isPending && <span className="note">{tx.app.loading}</span>}
-      {e && (
-        <>
-          {e.pool.map((p) => (
-            <div key={p.name} className="chain-row">
-              {mark(p.passed)}
-              <span>{POOL_STEP_NAMES[p.name] ?? (L.of("funnel_kinds", p.name) || p.name)}</span>
-            </div>
-          ))}
-          {e.steps.map((s) => (
-            <div key={s.name} className={`chain-row ${s.chain ? "" : "sub-row"}`}>
-              {mark(s.passed)}
-              <span>{s.name}</span>
-              {s.value !== null && <span className="muted small num">{Number(s.value.toPrecision(6))}</span>}
-            </div>
-          ))}
-          {e.score && (
-            <>
-              {e.score.factors.map((f) => (
-                <div key={f.name} className="chain-row">
-                  <span className="muted">·</span>
-                  <span>
-                    {f.name} 排名分 {(f.adjusted_pct * 100).toFixed(1)} × {Math.round(f.weight_share * 100)}%
-                  </span>
-                  <span className="muted small num">= {(f.contribution * 100).toFixed(1)}</span>
-                </div>
-              ))}
-              <span className="small b">{st.preview.total((e.score.score * 100).toFixed(1), e.score.rank, L.of("funnel_kinds", ROLE_STEP[e.role]), e.weight === null ? null : pct(e.weight, 1))}</span>
-            </>
-          )}
-        </>
-      )}
+      {e && <ChainView e={e} spec={spec} />}
     </div>
   );
 }
