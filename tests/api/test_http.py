@@ -14,6 +14,7 @@ from tests.service.conftest import MOM
 from tests.service.test_cli import CASES, RUNS
 from tests.test_merge_resolutions import EARLY
 from tests.test_verifications import RECORD
+from tests.update_fake import D4, Market, rows, seed_store
 from wequant import service
 from wequant.api import create_app
 from wequant.cli.commands import DEFAULT_PORT
@@ -43,6 +44,7 @@ WRITES = [  # (argv, operation, request fields, home): each runs on its own copy
         {"category": "B", "note": "n"},
         "resolutions",
     ),  # fmt: skip
+    (["data", "names", "--commit"], "data_names", {"commit": True}, "named"),
 ]
 
 
@@ -63,8 +65,18 @@ def test_every_operation_of_the_snapshot_has_its_route_and_no_route_is_extra(hom
 
 
 def test_the_contract_cases_cover_every_operation():
-    covered = {name for _, name, *_ in CASES + RUNS + WRITES} | set(JOBS)
+    covered = {name for _, name, *_ in CASES + RUNS + WRITES} | set(JOBS) | {"data_update"}
     assert covered == {operation.__name__ for operation in OPERATIONS}
+
+
+def test_the_update_returns_the_bytes_the_cli_prints(cli, tmp_path, cache, monkeypatch):
+    """data update against a fake BaoStock, on two copies of one seed store."""
+    market = Market(days={D4: rows(D4)})
+    monkeypatch.setattr("wequant.data.sources.baostock.import_baostock", lambda: market)
+    by_cli, by_http = (seed_store(tmp_path / side).home for side in ("cli", "http"))
+    _, out, _ = cli("data", "update", "--json", "--home", by_cli)
+    response = post(by_http, cache, "data_update", {})
+    assert (response.status_code, response.text) == (200, out.removesuffix("\n"))
 
 
 JOBS = ("jobs_start", "jobs_list", "jobs_show", "jobs_cancel", "jobs_result")  # HTTP only: the queue lives in serve
@@ -128,9 +140,9 @@ def test_a_run_read_returns_the_bytes_the_cli_prints(cli, market_home, cache, ar
 
 
 @pytest.mark.parametrize("argv, name, fields, root", WRITES, ids=[case[1] for case in WRITES])
-def test_a_write_returns_the_bytes_the_cli_prints(cli, library_home, cache, tmp_path, monkeypatch, argv, name, fields, root):  # fmt: skip
+def test_a_write_returns_the_bytes_the_cli_prints(cli, library_home, named_home, cache, tmp_path, monkeypatch, argv, name, fields, root):  # fmt: skip
     monkeypatch.setattr("wequant.strategy.library.utc_now", lambda: "2026-11-11T00:00:00+00:00")
-    origin = {"library": library_home, "verified": library_home, "resolutions": library_home}[root]
+    origin = {"library": library_home, "verified": library_home, "resolutions": library_home, "named": named_home}[root]
     if root == "verified":
         service.data_verify_submit(service.VerifySubmitRequest(records=[RECORD]), Context(origin))
     if root == "resolutions":

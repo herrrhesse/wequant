@@ -1,9 +1,9 @@
 """Which codes left the market, from which trading day, and why: the rule that classifies a delisting, and the user's
 overrides that correct it.
 
-The official delisting date is the securities column DELIST_DATE and the name at delisting is securities.name, the
-source's latest name; a store without the column approximates the day from last_date, the last day of the source's
-data, and a null name is unknown.
+A code whose official listing date (securities LIST_DATE) is known has official dates: its DELIST_DATE is the official
+delisting date, null while it is listed. A code without one approximates the day from last_date, the last day of the
+source's data. The name at delisting is securities.name, the source's latest name; a null name is unknown.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ OVERRIDE_KINDS = KINDS[:3]
 SOURCES = ("rule", "override")
 OVERRIDES = Path("overrides") / "delisting.toml"  # under the data root, kept by the user with evidence
 DELIST_DATE = "delist_date"  # the securities column of the official delisting date
+LIST_DATE = "list_date"  # the securities column of the official listing date: known means official dates
 FORCED_MARK = "退"  # in a name at delisting: a forced delisting
 FACE_VALUE = 1.0  # yuan: a last close below it ends in a forced delisting (面值退市)
 DELISTINGS = {
@@ -39,6 +40,7 @@ DELISTINGS = {
     "source": pl.String,  # where the override's evidence comes from; null for the rule
 }
 _NEVER = np.datetime64("9999-12-31", "D")
+_OFFICIAL = pl.col(LIST_DATE).is_not_null()
 
 
 class Override(NamedTuple):
@@ -74,29 +76,26 @@ def delisted(securities: pl.DataFrame, calendar: np.ndarray) -> np.ndarray:
     """Whether each code left the market or looks as if it did: it has an official delisting date, or its data ends
     before the calendar does."""
     ended = securities["last_date"].to_numpy() < calendar[-1]
-    if DELIST_DATE not in securities.columns:
-        return ended
     return ended | securities[DELIST_DATE].is_not_null().to_numpy()
 
 
 def classify(codes: pl.DataFrame, calendar: np.ndarray, overrides: dict[str, Override]) -> pl.DataFrame:
     """DELISTINGS of delisted codes from their securities columns, last_bar and last_close, in their order.
 
-    The kind is an override's, else suspension for a code the official dates leave listed, else forced for a name
+    The kind is an override's, else suspension for a code its official dates leave listed, else forced for a name
     with FORCED_MARK or a last close below FACE_VALUE, else merger for a named official delisting, else unknown. An
     override sets the kind, never the day; one for a code that is not delisted is not used.
     """
-    official = DELIST_DATE in codes.columns
-    date = pl.col(DELIST_DATE) if official else pl.lit(None, pl.Date).alias(DELIST_DATE)
-    codes = codes.select("code", date, "last_date", "last_bar", "last_close", "name")
+    codes = codes.select("code", DELIST_DATE, "last_date", "last_bar", "last_close", "name", official=_OFFICIAL)
     given = pl.DataFrame(
         [(code, *entry) for code, entry in overrides.items()],
         schema={"code": pl.String, "override": pl.String, "evidence": pl.String, "source": pl.String},
         orient="row",
     )
-    found = codes.with_columns(day=pl.Series(_days(codes, calendar, official), dtype=pl.Date), approximate=not official)
+    days = pl.Series(_days(codes, calendar), dtype=pl.Date)
+    found = codes.with_columns(day=days, approximate=~pl.col("official"))
     found = found.join(given, on="code", how="left", maintain_order="left")
-    by_rule = _rule(official)
+    by_rule = _rule()
     return found.select(
         *list(DELISTINGS)[:7],
         kind=pl.coalesce("override", by_rule),
@@ -106,11 +105,11 @@ def classify(codes: pl.DataFrame, calendar: np.ndarray, overrides: dict[str, Ove
     ).cast(DELISTINGS)
 
 
-def _rule(official: bool) -> pl.Expr:
+def _rule() -> pl.Expr:
     """The kind the rule gives a delisted code."""
     name, date = pl.col("name"), pl.col(DELIST_DATE)
     return (
-        pl.when(pl.lit(official) & date.is_null())
+        pl.when(pl.col("official") & date.is_null())
         .then(pl.lit("suspension"))
         .when(name.str.contains(FORCED_MARK, literal=True) | (pl.col("last_close") < FACE_VALUE))
         .then(pl.lit("forced"))
@@ -120,17 +119,14 @@ def _rule(official: bool) -> pl.Expr:
     )
 
 
-def _days(codes: pl.DataFrame, calendar: np.ndarray, official: bool) -> np.ndarray:
-    """The first trading day on or after the official date and after the last bar, or without official dates the
-    first trading day after last_date; NaT until the calendar has it."""
-    if official:
-        on_or_after = np.searchsorted(calendar, _dates(codes[DELIST_DATE], _NEVER), "left")
-        row = np.maximum(
-            on_or_after,
-            np.searchsorted(calendar, _dates(codes["last_bar"], calendar[0] - np.timedelta64(1, "D")), "right"),
-        )
-    else:
-        row = np.searchsorted(calendar, _dates(codes["last_date"], _NEVER), "right")
+def _days(codes: pl.DataFrame, calendar: np.ndarray) -> np.ndarray:
+    """Per code, the first trading day on or after the official date and after the last bar, or without official
+    dates the first trading day after last_date; NaT until the calendar has it."""
+    on_or_after = np.searchsorted(calendar, _dates(codes[DELIST_DATE], _NEVER), "left")
+    before = calendar[0] - np.timedelta64(1, "D")
+    official = np.maximum(on_or_after, np.searchsorted(calendar, _dates(codes["last_bar"], before), "right"))
+    approximate = np.searchsorted(calendar, _dates(codes["last_date"], _NEVER), "right")
+    row = np.where(codes["official"].to_numpy(), official, approximate)
     return np.where(row < len(calendar), calendar[np.minimum(row, len(calendar) - 1)], np.datetime64("NaT", "D"))
 
 

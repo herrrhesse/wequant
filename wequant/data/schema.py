@@ -61,7 +61,16 @@ SECURITIES = Table(
             pl.Date,
             doc="last day the source has data for this code; NOT the official delisting date",
         ),
-        Column("name", pl.String, nullable=True, doc="security name; null until a name source is added"),
+        Column(
+            "list_date", pl.Date, nullable=True, doc="official listing date (BaoStock's ipoDate); null when unknown"
+        ),
+        Column(
+            "delist_date",
+            pl.Date,
+            nullable=True,
+            doc="official delisting date (BaoStock's outDate); null while listed or when unknown",
+        ),
+        Column("name", pl.String, nullable=True, doc="the security's current name; null when no source gave one"),
         Column("source", pl.String, doc="<source>@<version> the rows came from"),
     ),
     key=("code",),

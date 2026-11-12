@@ -147,6 +147,21 @@ def delistings(
     return run(service.data_delistings, lambda: validated(service.DelistingsRequest, fields), common)
 
 
+@data.command
+def names(*, request: Annotated[service.NamesRequest, FLAT] = service.NamesRequest(), common: Common = COMMON) -> int:
+    """Stock names and official listing and delisting dates from the raw stock_basic; written only with --commit."""
+    return run(service.data_names, request, common)
+
+
+@data.command
+def update(
+    *, request: Annotated[service.UpdateRequest, FLAT] = service.UpdateRequest(), common: Common = COMMON
+) -> int:
+    """Fetch BaoStock's closed trading days after the store's last one and merge them as one version; exit 1 when
+    conflicts wait for a decision or BaoStock's rows fail the checks, 4 when BaoStock cannot be reached."""
+    return run(service.data_update, request, common)
+
+
 @data.command(name="index-check")
 def index_check(
     *, request: Annotated[service.IndexCheckRequest, FLAT] = service.IndexCheckRequest(), common: Common = COMMON

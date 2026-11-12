@@ -18,10 +18,14 @@ from wequant.service.errors import ServiceError
 from wequant.service.labels import EXITS, job_text
 from wequant.service.outputs import Params
 from wequant.service.queue import FINAL, Job, Jobs, Kind
+from wequant.service.update import UpdateResult
 
-JobKind = Literal["backtest"]
+JobKind = Literal["backtest", "data_update"]
 JobState = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-KINDS = {"backtest": Kind("wequant.service.backtest:backtest")}
+KINDS = {
+    "backtest": Kind("wequant.service.backtest:backtest"),
+    "data_update": Kind("wequant.service.update:data_update", source="baostock"),
+}
 
 
 class JobStartRequest(Model):
@@ -29,8 +33,9 @@ class JobStartRequest(Model):
 
     kind: JobKind
     request: dict[str, JsonValue] = {}
-    """The request the operation takes (backtest: a BacktestRequest); a null data_version is pinned to the version
-    current now, so a version committed while the job waits or runs changes nothing."""
+    """The request the operation takes (backtest: a BacktestRequest, data_update: {}); a null data_version is pinned to
+    the version current now, so a version committed while the job waits or runs changes nothing. An update builds on
+    the version current when it plans and commits nothing if the store moved on meanwhile."""
 
 
 class JobRef(Model):
@@ -81,8 +86,9 @@ class JobList(Model):
     """Jobs that run at a time; the others wait."""
 
 
-class JobOutput(RootModel[BacktestResult]):
-    """A succeeded job's result: what its operation run directly returns."""
+class JobOutput(RootModel[BacktestResult | UpdateResult]):
+    """A succeeded job's result: what its operation run directly returns (backtest: BacktestResult, data_update:
+    UpdateResult)."""
 
     model_config = ConfigDict(frozen=True)
 

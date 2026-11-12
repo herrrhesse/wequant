@@ -9,6 +9,7 @@ import pytest
 from tests.backtest.market import build_store, business_days
 from wequant.data.delistings import (
     DELIST_DATE,
+    LIST_DATE,
     OVERRIDES,
     classify,
     delisted,
@@ -24,17 +25,22 @@ OVERRIDE = '["600003.SH"]\nkind = "merger"\nevidence = "absorbed by 600999.SH"\n
 
 
 def codes(**columns):
-    """Securities columns, last_bar and last_close of four codes, with columns replaced."""
+    """Securities columns, last_bar and last_close of four codes without official dates, with columns replaced."""
     frame = pl.DataFrame(
         {
             "code": ["600001.SH", "600002.SH", "600003.SH", "600004.SH"],
             "last_date": [D[1], D[1], D[2], D[5]],
+            LIST_DATE: pl.Series([None] * 4, dtype=pl.Date),
+            DELIST_DATE: pl.Series([None] * 4, dtype=pl.Date),
             "last_bar": [D[1], D[1], D[2], D[3]],
             "last_close": [3.2, 0.62, 8.0, 5.0],
             "name": ["退市甲", None, "丙股份", None],
         }
     )
     return frame.with_columns(**columns)
+
+
+LISTED = pl.Series([D[0]] * 4, dtype=pl.Date)  # official listing dates: the codes have official dates
 
 
 def test_without_official_dates_the_day_follows_last_date_and_is_approximate():
@@ -52,13 +58,25 @@ def test_without_official_dates_the_day_follows_last_date_and_is_approximate():
 def test_official_dates_set_the_day_never_before_the_day_after_the_last_bar():
     """Design 2.4: the first trading day on or after the official date, after the last bar; D17-4 and D17-7 kinds."""
     dates = pl.Series([D[3], None, D[4], dt.date(2024, 1, 6)], dtype=pl.Date)  # the last a Saturday
-    found = classify(codes(**{DELIST_DATE: dates, "last_bar": pl.Series([D[3]] * 4)}), CALENDAR, {})
+    found = classify(codes(**{DELIST_DATE: dates, LIST_DATE: LISTED, "last_bar": pl.Series([D[3]] * 4)}), CALENDAR, {})
     rows = found.select("code", "delist_date", "day", "approximate", "kind").rows()
     assert rows == [
         ("600001.SH", D[3], D[4], False, "forced"),  # a bar on the official day: the next day
         ("600002.SH", None, None, False, "suspension"),  # the official dates leave it listed
         ("600003.SH", D[4], D[4], False, "merger"),  # named without 退, last close at least 1 yuan
         ("600004.SH", dt.date(2024, 1, 6), D[4], False, "unknown"),  # no name; the next trading day
+    ]
+
+
+def test_official_dates_are_per_code_a_known_listing_date_makes_them_known():
+    """A code with an official listing date reads its delisting date (null: still listed); one without approximates."""
+    listed = pl.Series([D[0], D[0], None, None], dtype=pl.Date)
+    found = classify(codes(**{LIST_DATE: listed}), CALENDAR, {})
+    assert found.select("code", "day", "approximate", "kind").rows() == [
+        ("600001.SH", None, False, "suspension"),  # its official dates leave it listed
+        ("600002.SH", None, False, "suspension"),
+        ("600003.SH", D[3], True, "unknown"),
+        ("600004.SH", None, True, "unknown"),
     ]
 
 

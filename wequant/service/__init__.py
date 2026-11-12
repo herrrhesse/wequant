@@ -32,6 +32,7 @@ from wequant.service.jobs import (
     jobs_start,
 )
 from wequant.service.labels import IssueKindLabel, Label, Labels, LabelsRequest, TemplateLabel, WarningLabel, labels
+from wequant.service.names import NamesReport, NamesRequest, data_names
 from wequant.service.profile import ProfileReport, Stage
 from wequant.service.resolutions import (
     Decision,
@@ -97,6 +98,7 @@ from wequant.service.strategies import (
     strategy_validate,
     strategy_versions,
 )
+from wequant.service.update import UpdateRequest, UpdateResult, data_update
 from wequant.service.verify import (
     SourceRef,
     VerificationIn,
@@ -112,6 +114,12 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "UpdateRequest",
+    "UpdateResult",
+    "data_update",
+    "NamesReport",
+    "NamesRequest",
+    "data_names",
     "JobInfo",
     "JobList",
     "JobOutput",
