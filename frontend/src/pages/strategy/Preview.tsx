@@ -1,6 +1,7 @@
 // The right column of the strategy editor: the funnel of the draft on the latest trading day, the picked stocks with
 // their judgment chain, "查股票" and the latest backtest of this strategy. Everything shown comes from screen,
 // explain and the run records; the panel fades while a newer preview is on its way instead of jumping.
+import { jobView } from "../../api/jobstate";
 import { Stock } from "../../components/Stock";
 import { useState } from "react";
 import { useCall } from "../../api/client";
@@ -245,7 +246,7 @@ function LastRun({ spec, strategyId, draftHash, job }: Props) {
     return vs.map((v, i) => `${i ? "L" : "M"}${((i / Math.max(1, vs.length - 1)) * 300).toFixed(1)} ${(54 - ((v - lo) / (hi - lo || 1)) * 52).toFixed(1)}`).join(" ");
   };
   const years = last ? (Date.parse(last.end) - Date.parse(last.start)) / (365.25 * 864e5) : 0;
-  const running = job && (job.state === "queued" || job.state === "running");
+  const running = jobView(job).active;
   return (
     <section className="card" aria-label={st.preview.lastRun}>
       <div className="card-head">

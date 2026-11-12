@@ -1,6 +1,7 @@
 // The strategy page: a one-page editor (scope, filters, ranking, trading on the left; a live preview on the right),
 // the change history drawer and "我的策略". Every edit re-checks the draft (strategy validate) and re-screens it on the
 // latest trading day (about 300 ms after the last change); an older answer never replaces a newer one.
+import { jobView } from "../../api/jobstate";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
@@ -235,7 +236,7 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
             <a className="btn soft" href={href.strategy(origin?.id, true)}>
               {st.mine}
             </a>
-            <button type="button" className="btn acc" disabled={blocked || start.isPending || (job !== null && (job.state === "queued" || job.state === "running"))} onClick={() => void runJob()}>
+            <button type="button" className="btn acc" disabled={blocked || start.isPending || !jobView(job).canStart} onClick={() => void runJob()}>
               {st.run}
             </button>
           </div>

@@ -1,6 +1,7 @@
 // 回测: the selected run's results first (metrics, curves operated like the K-line, a picked day, periods, orders,
 // delistings, anomalies, run info), the "新建回测" form (a background job with progress and cancel) and, at the
 // bottom, the run records; ticking 2 to 3 overlays their net values, ticking 2 lists their differences.
+import { jobView } from "../../api/jobstate";
 import { useEffect, useMemo, useState } from "react";
 import { commandOf, modelDefaults, useCall, useCallMutation } from "../../api/client";
 import { cancelJob, useJob } from "../../api/jobs";
@@ -69,7 +70,7 @@ function NewBacktest() {
   const chosen = strategy || list.data?.rows[0]?.id || "";
   const subject = chosen === "__draft" ? (draft ? { strategy: draft.spec } : null) : chosen ? { saved: { id: chosen } } : null;
   const request = subject ? { ...subject, start: start || null, end: end || null, cash: Number(cash), execution, data, benchmark: benchmark.trim() || null, save: true } : null;
-  const running = !!job && (job.state === "queued" || job.state === "running");
+  const running = jobView(job).active;
   const result = useCall("jobs_result", job?.state === "succeeded" ? { id: job.id } : null);
   useEffect(() => {
     if (result.data && "run_id" in result.data) location.hash = href.backtest({ run: result.data.run_id });

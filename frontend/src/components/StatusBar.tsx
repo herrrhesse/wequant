@@ -2,6 +2,7 @@
 // name, how many data problems wait for a decision and "更新到今天" (a background job with progress and cancel).
 // The button shows while the latest local day is before today and the last update did not say "已是最新".
 // The old-version notice arrives with version switching (round 2, chunk 4).
+import { jobView } from "../api/jobstate";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useCall, useCallMutation } from "../api/client";
@@ -43,7 +44,7 @@ export function StatusBar({ right }: { right?: ReactNode }) {
     rerender((n) => n + 1);
   }, [out, client]);
   const s = status.data;
-  const active = !!job && !finished(job);
+  const active = jobView(job).active;
   const canUpdate = !!s && !active && !!s.last_trade_date && s.last_trade_date < today() && upToDateAt !== s.data_version;
   return (
     <section className="statusbar" aria-label={tx.status.label}>
