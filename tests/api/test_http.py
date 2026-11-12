@@ -19,8 +19,10 @@ from wequant.api import create_app
 from wequant.cli.commands import DEFAULT_PORT
 from wequant.data.merge.resolutions import add, default_path
 from wequant.data.store import exclusive
-from wequant.service import Context, ErrorBody, Exit, ServiceError
+from wequant.service import Context, ErrorBody, Exit, JobInfo, JobRef, ServiceError
 from wequant.service.contract import OPERATIONS
+from wequant.service.jobs import KINDS
+from wequant.service.queue import Jobs
 
 PROPOSED = EARLY | {"status": "proposed", "approval": "", "category": "B"}
 WRITES = [  # (argv, operation, request fields, home): each runs on its own copy of the home, CLI and HTTP alike
@@ -61,8 +63,49 @@ def test_every_operation_of_the_snapshot_has_its_route_and_no_route_is_extra(hom
 
 
 def test_the_contract_cases_cover_every_operation():
-    covered = {name for _, name, *_ in CASES + RUNS + WRITES}
+    covered = {name for _, name, *_ in CASES + RUNS + WRITES} | set(JOBS)
     assert covered == {operation.__name__ for operation in OPERATIONS}
+
+
+JOBS = ("jobs_start", "jobs_list", "jobs_show", "jobs_cancel", "jobs_result")  # HTTP only: the queue lives in serve
+BACKTEST_JOB = json.dumps({"kind": "backtest", "request": {"saved": {"id": "m"}}})
+
+
+def events(client, id: int) -> list[JobInfo]:
+    """The JobInfo of each event of job id's stream, which ends once the job has finished."""
+    with client.stream("GET", f"/api/jobs/{id}/events") as response:
+        assert response.headers["content-type"].startswith("text/event-stream")
+        lines = [line for line in response.iter_lines() if line.startswith("data: ")]
+    return [JobInfo.model_validate_json(line.removeprefix("data: ")) for line in lines]
+
+
+def test_the_job_routes_answer_with_their_operations_bytes(market_home, cache):
+    """Once a job has finished: show, list, cancel and result answer with their operations' JSON; the result is the
+    bytes POST /api/backtest answers with."""
+    context = Context(market_home, cache, jobs=Jobs(market_home, KINDS, cache))
+    with TestClient(create_app(context)) as client:
+        id = JobInfo.model_validate_json(client.post("/api/jobs_start", content=BACKTEST_JOB).text).id
+        events(client, id)
+        bodies = {name: client.post(f"/api/{name}", content=json.dumps({"id": id})).text for name in JOBS[2:]}
+        bodies["jobs_list"] = client.post("/api/jobs_list").text
+        direct = client.post("/api/backtest", content=json.dumps({"saved": {"id": "m"}})).text
+    ref, listed = JobRef(id=id), service.jobs_list(service.JobsListRequest(), context)
+    expected = {name: getattr(service, name)(ref, context).model_dump_json() for name in JOBS[2:]}
+    assert bodies == expected | {"jobs_list": listed.model_dump_json()} and bodies["jobs_result"] == direct
+
+
+def test_a_job_s_events_carry_each_change_until_it_has_finished(market_home, cache):
+    with TestClient(create_app(Context(market_home, cache))) as client:
+        id = JobInfo.model_validate_json(client.post("/api/jobs_start", content=BACKTEST_JOB).text).id
+        infos = events(client, id)
+    fractions = [info.fraction for info in infos]
+    assert infos[-1].state == "succeeded" and fractions == sorted(fractions) and len({*map(str, infos)}) == len(infos)
+
+
+def test_the_events_of_an_unknown_job_are_a_404_error_body(home):
+    response = TestClient(create_app(Context(home))).get("/api/jobs/7/events")
+    error = ErrorBody.model_validate_json(response.text)
+    assert (response.status_code, error.detail[0].code) == (404, "unknown_job")
 
 
 @pytest.mark.parametrize("argv, name, request_, root", CASES, ids=[case[1] for case in CASES])

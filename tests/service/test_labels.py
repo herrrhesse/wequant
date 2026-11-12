@@ -20,8 +20,13 @@ from wequant.data.store import REASONS as VERSION_REASONS
 from wequant.service import Context
 from wequant.service.details import PYDANTIC
 from wequant.service.errors import Exit
-from wequant.service.labels import fill
+from wequant.service.jobs import KINDS as JOB_KINDS
+from wequant.service.jobs import JobKind, JobState
+from wequant.service.labels import fill, job_text
+from wequant.service.queue import STAGES as QUEUE_STAGES
+from wequant.service.queue import STATES
 from wequant.service.screen import StepKind
+from wequant.service.worker import STAGES as WORKER_STAGES
 from wequant.strategy import SELL_KINDS
 from wequant.strategy.library import READ_TEXTS
 
@@ -66,6 +71,15 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "error_codes": error_codes,
     "exits": lambda: {e.name for e in Exit},
     "version_reasons": lambda: set(VERSION_REASONS),
+    "job_kinds": lambda: set(get_args(JobKind)) | set(JOB_KINDS),
+    "job_states": lambda: set(get_args(JobState)) | set(STATES),
+    "job_stages": lambda: set(QUEUE_STAGES) | set(WORKER_STAGES),
+}
+STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's and JobInfo's own
+    "queued": ["position"],
+    "backtest": ["day", "done", "total", "equity"],
+    "failed": ["reason"],
+    "crashed": ["exit_code"],
 }
 
 
@@ -112,6 +126,12 @@ def test_a_repeated_warning_fills_one_clause_per_item():
     sentence = fill(label, params | {"first_2": None})  # an empty member span has no first day
     assert sentence.count("000300.SH") == sentence.count("000905.SH") == 1 and label.repeat in sentence
     assert "2024-01-02" in sentence and "None" not in sentence
+
+
+def test_a_job_stage_template_uses_exactly_the_params_that_stage_reports():
+    assert {label.code: label.params for label in LABELS.job_stages if label.params} == STAGE_PARAMS
+    stages = (*QUEUE_STAGES, *WORKER_STAGES)
+    assert all("{" not in job_text(code, dict.fromkeys(STAGE_PARAMS.get(code, []), 1)) for code in stages)
 
 
 def test_an_optional_clause_appears_only_when_its_param_is_set():

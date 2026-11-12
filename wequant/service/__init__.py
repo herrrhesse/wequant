@@ -18,6 +18,19 @@ from wequant.service.explain import Explain, ExplainRequest, FactorScore, PoolCh
 from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest, expr_check, expr_eval
 from wequant.service.index_check import CountSpan, IndexCheck, IndexCheckRequest, IndexCoverage, data_index_check
 from wequant.service.issues import IssueCount, IssueRow, Issues, IssuesRequest, data_issues
+from wequant.service.jobs import (
+    JobInfo,
+    JobList,
+    JobOutput,
+    JobRef,
+    JobsListRequest,
+    JobStartRequest,
+    jobs_cancel,
+    jobs_list,
+    jobs_result,
+    jobs_show,
+    jobs_start,
+)
 from wequant.service.labels import IssueKindLabel, Label, Labels, LabelsRequest, TemplateLabel, WarningLabel, labels
 from wequant.service.profile import ProfileReport, Stage
 from wequant.service.resolutions import (
@@ -99,6 +112,17 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "JobInfo",
+    "JobList",
+    "JobOutput",
+    "JobRef",
+    "JobsListRequest",
+    "JobStartRequest",
+    "jobs_cancel",
+    "jobs_list",
+    "jobs_result",
+    "jobs_show",
+    "jobs_start",
     "IssueKindLabel",
     "Label",
     "Labels",
