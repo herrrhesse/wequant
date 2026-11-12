@@ -11,13 +11,14 @@ export interface Template {
   repeat?: string | null;
 }
 
-/** One value written with a Python format spec: "", ".1%", ".2f", ",", ",.2f", "d". */
+/** One value written with a Python format spec: "", ".1%", "+.1%", ".2f", ",", ",.2f", "d". */
 export function formatValue(value: number | string | null | undefined, spec: string): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "string" || !spec) return String(value);
-  const m = spec.match(/^(,)?(?:\.(\d+))?([%fd])?$/);
+  const m = spec.match(/^(\+)?(,)?(?:\.(\d+))?([%fd])?$/);
   if (!m) return String(value);
-  const [, comma, digits, type] = m;
+  const [, plus, comma, digits, type] = m;
+  if (plus) return (value >= 0 ? "+" : "") + formatValue(value, spec.slice(1));
   if (digits === undefined && type !== "f" && type !== "%") return comma ? value.toLocaleString("en-US", { maximumFractionDigits: 20 }) : String(Math.trunc(value) === value || type !== "d" ? value : Math.trunc(value));
   const places = digits === undefined ? (type === "d" ? 0 : 6) : Number(digits);
   const v = type === "%" ? value * 100 : value;

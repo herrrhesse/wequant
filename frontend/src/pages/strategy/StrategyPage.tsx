@@ -119,6 +119,7 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const valid = check.isSuccess && !check.isPlaceholderData;
   const summary = useCall("strategy_summary", check.isSuccess ? { strategy: settled } : null, { placeholderData: keepPreviousData });
   const screen = useCall("screen", check.isSuccess ? { strategy: settled } : null, { placeholderData: keepPreviousData });
+  const schedule = useCall("strategy_schedule", check.isSuccess ? { strategy: settled, count: 3 } : null, { placeholderData: keepPreviousData });
   const blocked = errors.length > 0 || (check.isError && !apiErr);
 
   // Flash how each row's count changed when a new preview arrives.
@@ -300,7 +301,7 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
           <ScopeCard {...props} />
           <FiltersCard {...props} />
           <FactorsCard {...props} shares={check.data?.weight_shares ?? null} />
-          <TradeCard {...props} />
+          <TradeCard {...props} schedule={schedule.data ?? null} />
         </div>
         {narrow ? (
           <aside className={`drawer ${drawer ? "open" : ""}`} aria-label={st.preview.title}>

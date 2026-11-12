@@ -216,6 +216,13 @@ export function Periods({ run, look, conv }: { run: RunDetail; look: string; con
   );
 }
 
+/** Why an order was placed (labels.order_causes) and, when it did not fill, why not. */
+function orderWhy(o: OrderRow): string {
+  const cause = lb().cause(o.cause, o.cause_params);
+  const miss = o.reason ? `没成交：${lb().of("order_reasons", o.reason)}` : "";
+  return [cause, miss].filter(Boolean).join("；");
+}
+
 type OrderFilter = { status: "all" | "rejected"; reason: string };
 
 /** Rows per page of runs orders (its limit is at most 500). */
@@ -249,7 +256,7 @@ export function Orders({ run }: { run: RunDetail }) {
           return <span title={`佣金 ${o.commission} · 印花税 ${o.stamp_tax} · 过户费 ${o.transfer_fee} · 滑点 ${o.slippage}`}>{`${o.commission} / ${o.stamp_tax} / ${o.transfer_fee} / ${o.slippage}`}</span>;
         },
       },
-      { header: r.ocols.reason, id: "reason", cell: (c) => (c.row.original.reason ? lb().of("order_reasons", c.row.original.reason) : "") },
+      { header: r.ocols.reason, id: "reason", cell: (c) => orderWhy(c.row.original) },
     ],
     [],
   );
@@ -519,7 +526,7 @@ export function Day({ run, day, onPick }: { run: RunDetail; day: string | null; 
                     <td className="r num">{o.shares.toLocaleString("zh-CN")}</td>
                     <td className="r num">{yuan(o.price)}</td>
                     <td className="r num">{yuan(o.value)}</td>
-                    <td>{o.reason ? lb().of("order_reasons", o.reason) : ""}</td>
+                    <td>{orderWhy(o)}</td>
                   </tr>
                 ))}
               </tbody>

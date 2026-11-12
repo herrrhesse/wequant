@@ -29,6 +29,11 @@ export const tt = {
     unsaved: "未保存的策略",
     span: (a: string, b: string) => `${a} 至 ${b}`,
   },
+  index: {
+    title: "指数行情",
+    lead: (d: string) => `${d} · 近 60 个交易日`,
+    missing: (names: string) => `本地数据里没有 ${names} 的行情`,
+  },
   issues: {
     title: "待处理的数据问题",
     onlyWhen: "有问题时才出现",

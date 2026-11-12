@@ -120,6 +120,7 @@ export const st = {
     everyN: (n: number) => `每隔 ${n} 个交易日决策一次`,
     fill: "下一交易日开盘成交",
     freqWarn: "调仓越频繁，换手和费用越高",
+    nextDays: "接下来三个调仓日：",
     weighting: "权重",
     equal: "等权",
     score: "按综合分",

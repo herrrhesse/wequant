@@ -8,6 +8,8 @@ test("format specs write values as Python's format does", () => {
   assert.equal(formatValue(3, ""), "3");
   assert.equal(formatValue("2025-01-02", ""), "2025-01-02");
   assert.equal(formatValue(null, ".1%"), "—");
+  assert.equal(formatValue(0.012, "+.1%"), "+1.2%");
+  assert.equal(formatValue(-0.012, "+.1%"), "-1.2%");
 });
 
 test("optional clauses appear only for params that are set", () => {

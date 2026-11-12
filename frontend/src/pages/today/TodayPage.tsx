@@ -1,6 +1,6 @@
 // The today page: fixed blocks top to bottom (the data status strip, followed strategies, recent backtests, data
 // problems waiting for a decision). "自定义" on the status strip picks which blocks show; kept in this browser.
-// Index quotes join when the backend serves them (round 2, chunk 5); until then the block and its checkbox are absent.
+// Index quotes come from data index bars: the latest close, its change and the last 60 trading days.
 import { Stock } from "../../components/Stock";
 import { useState } from "react";
 import { useCall } from "../../api/client";
@@ -11,7 +11,8 @@ import { useLabels } from "../../labels";
 import { follows, todayShow, type TodayShow } from "../../local";
 import { href } from "../../router";
 import { cnDate, tx, weekday } from "../../text";
-import { pct } from "../../format";
+import { pct, tone } from "../../format";
+import { st } from "../strategy/text";
 import { tt } from "./text";
 
 export function TodayPage() {
@@ -20,7 +21,7 @@ export function TodayPage() {
   const pending = useCall("data_resolve_list", { status: "proposed", limit: 3 });
   const hasIssues = (pending.data?.total ?? 0) > 0;
   const set = (k: keyof TodayShow) => todayShow.write({ ...show, [k]: !show[k] });
-  const allHidden = !show.follow && !show.runs && !(show.issues && hasIssues);
+  const allHidden = !show.follow && !show.runs && !show.index && !(show.issues && hasIssues);
   return (
     <main className="page">
       <StatusBar
@@ -37,6 +38,7 @@ export function TodayPage() {
                   [
                     ["follow", tt.follow.title, ""],
                     ["runs", tt.runs.title, ""],
+                    ["index", tt.index.title, ""],
                     ["issues", tt.issues.title, tt.issues.onlyWhen],
                   ] as const
                 ).map(([k, label, note]) => (
@@ -55,7 +57,20 @@ export function TodayPage() {
         }
       />
       {show.follow && <Followed />}
-      {show.runs && <RecentRuns />}
+      {(show.runs || show.index) && (
+        <div className="split">
+          {show.runs && (
+            <div className="main">
+              <RecentRuns />
+            </div>
+          )}
+          {show.index && (
+            <div className="aside">
+              <Indexes />
+            </div>
+          )}
+        </div>
+      )}
       {show.issues && hasIssues && pending.data && (
         <section className="card" aria-label={tt.issues.title}>
           <div className="card-head">
@@ -199,6 +214,45 @@ function RecentRuns() {
           })}
         </div>
       )}
+    </section>
+  );
+}
+
+const INDEXES: [string, ...string[]] = ["000300.SH", "000905.SH", "000906.SH", "000852.SH"];
+
+function Indexes() {
+  const status = useCall("data_status", {});
+  const last = status.data?.last_trade_date ?? null;
+  const start = last ? new Date(Date.parse(`${last}T00:00:00Z`) - 100 * 864e5).toISOString().slice(0, 10) : null;
+  const bars = useCall("data_index_bars", start ? { codes: INDEXES, start, end: last } : null);
+  return (
+    <section className="card" aria-label={tt.index.title}>
+      <div className="card-head">
+        <h2>{tt.index.title}</h2>
+        {last && <span className="push small muted">{tt.index.lead(cnDate(last))}</span>}
+      </div>
+      {bars.isError && <Problem error={bars.error} />}
+      {bars.data &&
+        INDEXES.map((code) => {
+          const rows = bars.data.rows.filter((r) => r.code === code).slice(-60);
+          const lastRow = rows[rows.length - 1];
+          if (!lastRow) return null;
+          const closes = rows.map((r) => r.close);
+          const lo = Math.min(...closes);
+          const hi = Math.max(...closes);
+          const path = closes.map((v, i) => `${i ? "L" : "M"}${((i / Math.max(1, closes.length - 1)) * 100).toFixed(1)} ${(24 - ((v - lo) / (hi - lo || 1)) * 22).toFixed(1)}`).join(" ");
+          return (
+            <div key={code} className="index-row">
+              <span className="b">{st.scope.indexNames[code] ?? code}</span>
+              <svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true" className={`spark ${tone(lastRow.change)}`}>
+                <path d={path} />
+              </svg>
+              <span className="num r">{lastRow.close.toFixed(2)}</span>
+              <span className={`num r b ${tone(lastRow.change)}`}>{pct(lastRow.change, 2, true)}</span>
+            </div>
+          );
+        })}
+      {bars.data && bars.data.missing.length > 0 && <span className="note">{tt.index.missing(bars.data.missing.map((c) => st.scope.indexNames[c] ?? c).join("、"))}</span>}
     </section>
   );
 }

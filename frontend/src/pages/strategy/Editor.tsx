@@ -1,7 +1,8 @@
 // The left column of the strategy editor: scope, filters, ranking and trading. Each row shows the backend's funnel
 // numbers for it ("剩余" = the step's left, "单独剔除" = pool size minus the step's own pass) and flashes the change.
 import { useState, type ReactNode } from "react";
-import type { ConditionSpec, FactorSpec, GroupSpec, StrategySpec } from "../../api/types.gen";
+import type { ConditionSpec, FactorSpec, GroupSpec, Schedule, StrategySpec } from "../../api/types.gen";
+import { useLabels } from "../../labels";
 import { NumInput } from "../../components/NumInput";
 import { poolIndexCodes } from "../../api/contract-info";
 import { metricForm, type Metric } from "../../strategy/expr";
@@ -28,7 +29,7 @@ import {
   type Row,
 } from "../../strategy/model";
 import { metricUnit } from "../../strategy/fields";
-import { tx } from "../../text";
+import { cnDate, tx } from "../../text";
 import { st } from "./text";
 
 export interface Err {
@@ -588,7 +589,8 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
 
 /* ---------- 4 · trading ---------- */
 
-export function TradeCard({ spec, edit, errors }: EditorProps) {
+export function TradeCard({ spec, edit, errors, schedule }: EditorProps & { schedule: Schedule | null }) {
+  const L = useLabels();
   const [adv, setAdv] = useState(false);
   const n = spec.top_n ?? 0;
   const k = spec.hold_rank && spec.hold_rank > n ? spec.hold_rank : n;
@@ -653,6 +655,13 @@ export function TradeCard({ spec, edit, errors }: EditorProps) {
           </select>
           ，{period === "day" ? (every === 1 ? st.trade.daily : st.trade.everyN(every)) : st.trade.lastDay}，{st.trade.fill}
         </>,
+      )}
+      {schedule && schedule.days.length > 0 && (
+        <span className="small sub">
+          {st.trade.nextDays}
+          {schedule.days.map((d) => cnDate(d.date)).join("、")}
+          {schedule.days.some((d) => d.source === "estimated") && <span className="muted">（{L.help("day_sources", "estimated")}）</span>}
+        </span>
       )}
       {period === "day" && every <= 2 && <span className="warnbox">{st.trade.freqWarn}</span>}
       {field(
