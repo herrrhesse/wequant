@@ -18,6 +18,7 @@ from wequant.service.explain import explain
 from wequant.service.expr import expr_check, expr_eval
 from wequant.service.index_check import data_index_check
 from wequant.service.issues import data_issues
+from wequant.service.jobs import jobs_cancel, jobs_list, jobs_result, jobs_show, jobs_start
 from wequant.service.labels import labels
 from wequant.service.profile import ProfileReport
 from wequant.service.resolutions import data_resolve_approve, data_resolve_list, data_resolve_reject
@@ -108,6 +109,7 @@ OPERATIONS = (
     runs.runs_day,
     runs.runs_anomalies,
     explain,
+    *(jobs_start, jobs_list, jobs_show, jobs_cancel, jobs_result),
     labels,
     schema,
 )

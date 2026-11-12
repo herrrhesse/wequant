@@ -1,5 +1,6 @@
 """The HTTP API: one route per service operation, no logic of its own. A route takes the operation's request model as
-its JSON body and answers with the bytes `wequant <command> --json` prints, or the ErrorBody of its failure."""
+its JSON body and answers with the bytes `wequant <command> --json` prints, or the ErrorBody of its failure. Beside
+them, GET /api/jobs/{id}/events streams a background job's JobInfo as server-sent events."""
 
 from __future__ import annotations
 
@@ -9,7 +10,8 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import get_type_hints
 
@@ -17,12 +19,14 @@ import anyio
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
-from wequant.service import Context, ErrorBody, ErrorDetail, Exit, SchemaRequest, ServiceError, schema
+from wequant.service import Context, ErrorBody, ErrorDetail, Exit, JobRef, SchemaRequest, ServiceError, schema
 from wequant.service.base import error_body
 from wequant.service.contract import OPERATIONS, route
 from wequant.service.details import error_details, usage, validated
+from wequant.service.jobs import KINDS, jobs_show
+from wequant.service.queue import FINAL, Jobs
 from wequant.version import code_version
 
 log = logging.getLogger("wequant")
@@ -35,6 +39,8 @@ STATUS = {  # HTTP status of each failure; a check that finds problems is a 200 
     Exit.INTERRUPTED: 499,  # the client went away; nobody reads it
 }
 POLL = 0.25  # seconds between checks whether the client is still connected
+TICK = 0.05  # seconds between checks whether a followed job changed
+KEEPALIVE = 15.0  # seconds of quiet after which a job's event stream sends a comment
 STATIC = Path(__file__).resolve().parents[2] / "frontend" / "dist"  # the repository's frontend build
 UNBUILT = """<!doctype html><meta charset="utf-8"><title>WeQuant</title>
 <h1>前端未构建 · The frontend is not built</h1>
@@ -52,9 +58,18 @@ def static_dir(given: Path | None = None) -> Path:
 
 def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, static: Path | None = None) -> FastAPI:
     """The app serving operations (default: all of them) with context, which a resident process keeps between calls,
-    and the frontend build at / (static_dir(static)), or a page saying how to build it."""
+    and the frontend build at / (static_dir(static)), or a page saying how to build it. Without a job queue in context
+    the app opens one over the data root; shutting the app down stops it."""
+    if context.jobs is None:
+        jobs = Jobs(context.store().home, KINDS, context.cache, clock=context.clock)
+        context = dataclasses.replace(context, jobs=jobs)
     app = FastAPI(  # no Swagger or ReDoc page: they load scripts from a CDN and are blank offline
-        title="WeQuant", version=code_version(), docs_url=None, redoc_url=None, openapi_url="/api/openapi.json"
+        title="WeQuant",
+        version=code_version(),
+        docs_url=None,
+        redoc_url=None,
+        openapi_url="/api/openapi.json",
+        lifespan=_stopping(context.jobs),
     )
     for operation in operations:
         method, path = route(operation.__name__)
@@ -67,6 +82,7 @@ def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, st
             summary=(operation.__doc__ or "").split("\n")[0],
             openapi_extra=_documented(hints["request"], hints["return"]),
         )
+    app.add_api_route("/api/jobs/{id}/events", _events(context), methods=["GET"], include_in_schema=False)
     app.add_api_route("/api/{rest:path}", _no_route, methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)  # fmt: skip
     app.add_api_route("/{path:path}", _frontend(static_dir(static)), methods=["GET"], include_in_schema=False)
     app.add_exception_handler(RequestValidationError, _invalid)
@@ -87,6 +103,52 @@ def _frontend(root: Path) -> Callable:
         return FileResponse(found if inside else index)
 
     return frontend
+
+
+def _stopping(jobs: Jobs) -> Callable:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        await anyio.to_thread.run_sync(jobs.close)
+
+    return lifespan
+
+
+def _events(context: Context) -> Callable:
+    """GET of a job's events: its JobInfo now and after each change, until it has finished."""
+
+    async def events(id: str) -> Response:
+        try:
+            ref = validated(JobRef, {"id": id})
+            jobs_show(ref, context)
+        except ServiceError as error:
+            return _failure(error_body(error))
+        headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+        return StreamingResponse(_follow(ref, context), media_type="text/event-stream", headers=headers)
+
+    return events
+
+
+async def _follow(ref: JobRef, context: Context) -> AsyncIterator[str]:
+    """Server-sent events of a job: one "job" event per JobInfo that differs from the last, a comment when quiet."""
+    seen, last, quiet = None, None, 0.0
+    while True:
+        if context.jobs.changes() != seen:
+            seen = context.jobs.changes()
+            try:
+                info = jobs_show(ref, context)
+            except ServiceError:  # dropped from the kept jobs
+                return
+            if (data := info.model_dump_json()) != last:
+                last, quiet = data, 0.0
+                yield f"event: job\ndata: {data}\n\n"
+            if info.state in FINAL:
+                return
+        if quiet >= KEEPALIVE:
+            quiet = 0.0
+            yield ": keep-alive\n\n"
+        await asyncio.sleep(TICK)
+        quiet += TICK
 
 
 async def _no_route(rest: str) -> Response:
