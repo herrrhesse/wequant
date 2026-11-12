@@ -13,7 +13,7 @@ import polars as pl
 from wequant.backtest import DataOptions, screen_warnings
 from wequant.backtest.anomalies import screen_uses
 from wequant.panel import NotInPanel, Panel, load_panel
-from wequant.service.base import Context, DataRequest, Model, Names, manifest, named, names_of, not_found
+from wequant.service.base import Context, DataRequest, Model, Names, manifest, named, names_of, not_found, read_version
 from wequant.service.details import Loc, spec_details, to_data, usage
 from wequant.service.outputs import DataAnomaly, Op, Role, SavedRef, Warning, data_anomaly, warnings_out
 from wequant.service.specs import DataSpec, IsoDate
@@ -157,7 +157,7 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
     strategy, warnings = resolve(request, library)
     data = to_data(request.data)
     context.stage("compile")
-    panel = strategy_panel(strategy, request.data_version, data, context, _where(request))
+    panel = strategy_panel(strategy, read_version(context, request.data_version), data, context, _where(request))
     with on_panel(_where(request)):
         shot = core_screen(strategy, panel, request.date, context.expr_cache, context.mark)
     section, choice, row = shot.section, shot.choice, int(shot.section.rows[0])

@@ -10,6 +10,7 @@ from wequant.data.raw import BaoStockRaw
 from wequant.data.store import StoreLocked
 from wequant.service.base import Context, Model, manifest, name_of, named, not_found
 from wequant.service.errors import Exit, ServiceError
+from wequant.service.storage import tidy
 
 
 class NamesRequest(Model):
@@ -59,6 +60,8 @@ def data_names(request: NamesRequest, context: Context = Context()) -> NamesRepo
                 committed = store.commit({}, replace={"securities": after}, reason="names").version
     except StoreLocked as error:
         raise ServiceError(Exit.LOCKED, str(error)) from None
+    if committed is not None:
+        tidy(context)
     return NamesReport(
         **named(found),
         committed=committed,

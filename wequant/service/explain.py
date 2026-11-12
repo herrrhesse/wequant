@@ -14,7 +14,7 @@ from wequant.backtest import Backtest, screen_warnings
 from wequant.backtest.anomalies import screen_uses
 from wequant.panel import Panel
 from wequant.runs.run import Run
-from wequant.service.base import Code, Context, ErrorDetail, Model, named, names_of, not_found
+from wequant.service.base import Code, Context, ErrorDetail, Model, named, names_of, not_found, read_version
 from wequant.service.details import to_data, usage
 from wequant.service.outputs import (
     Action,
@@ -155,7 +155,7 @@ def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
     where = ("strategy",) if request.strategy is not None else ("saved",)
     strategy, warnings = resolve(request, context.library())
     data = to_data(request.data or DataSpec())
-    panel = strategy_panel(strategy, request.data_version, data, context, where)
+    panel = strategy_panel(strategy, read_version(context, request.data_version), data, context, where)
     col = _column(panel, request.code)
     with on_panel(where):
         shot = core_screen(strategy, panel, request.date, context.expr_cache, context.mark)

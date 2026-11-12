@@ -26,6 +26,24 @@ from wequant.service.resolutions import data_resolve_approve, data_resolve_list,
 from wequant.service.screen import screen
 from wequant.service.securities import data_securities
 from wequant.service.status import data_status
+from wequant.service.storage import (
+    data_pin_version,
+    data_use_version,
+    runs_delete,
+    runs_pin,
+    settings_show,
+    settings_update,
+    storage_cleanup,
+    storage_usage,
+)
+from wequant.service.transfer import (
+    data_export,
+    data_import,
+    runs_export,
+    runs_import,
+    strategy_export,
+    strategy_import,
+)
 from wequant.service.update import data_update
 from wequant.service.verify import data_verify_list, data_verify_submit
 
@@ -103,17 +121,21 @@ OPERATIONS = (
     data_index_check,
     data_names,
     data_update,
+    *(data_use_version, data_pin_version, data_export, data_import),
     *(data_verify_submit, data_verify_list, data_resolve_list, data_resolve_approve, data_resolve_reject),
     *(expr_check, expr_eval),
     *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),
     *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
+    *(strategy_export, strategy_import),
     screen,
     backtest,
     *(runs.runs_list, runs.runs_show, runs.runs_report, runs.runs_rerun, runs.runs_diff, runs.runs_orders),
     runs.runs_day,
     runs.runs_anomalies,
+    *(runs_pin, runs_delete, runs_export, runs_import),
     explain,
     *(jobs_start, jobs_list, jobs_show, jobs_cancel, jobs_result),
+    *(storage_usage, storage_cleanup, settings_show, settings_update),
     labels,
     schema,
 )

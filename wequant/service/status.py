@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import datetime as dt
 
+import polars as pl
 from pydantic import JsonValue
 
-from wequant.data.store import OWN_KEYS, version_name, version_reason
+from wequant.data.raw import BaoStockRaw
+from wequant.data.store import OWN_KEYS, Store, version_name, version_reason
+from wequant.data.update import due_days
 from wequant.rules.tables import limit_check_current
-from wequant.service.base import Context, DataRequest, Model, manifest
+from wequant.service.base import Context, DataRequest, Model, manifest, read_version
 from wequant.service.labels import reason_text
 from wequant.service.outputs import Params
+from wequant.storage.settings import load as load_settings
 
 
 class StatusRequest(DataRequest):
@@ -51,7 +55,17 @@ class DataStatus(Model):
     data_version_name: str
     """The version's display name, YYYYMMDD.N."""
     current_version: int
-    """The newest version."""
+    """The current version: the newest data, which updates build on."""
+    version_in_use: int
+    """What requests without a data_version read: the version set in use while it is kept, else the current one."""
+    using_old_version: bool
+    """A version other than the current one is in use; data_use_version with null goes back."""
+    next_trading_day: dt.date | None
+    """The first trading day after the current version's last, by BaoStock's calendar in the raw layer; null without
+    that calendar or a day after it."""
+    update_due: bool | None
+    """data update has a closed trading day to fetch (a day closes at 18:00 Shanghai time); null without the
+    calendar."""
     versions: list[int]
     """Versions the store keeps, oldest first."""
     version_list: list[VersionInfo]
@@ -68,14 +82,19 @@ class DataStatus(Model):
 def data_status(request: StatusRequest, context: Context = Context()) -> DataStatus:
     """Describe one store version from the manifests alone."""
     store = context.store()
-    shown, current = manifest(store, request.data_version), manifest(store)
+    shown, current = manifest(store, read_version(context, request.data_version)), manifest(store)
+    in_use = read_version(context, None) or current["version"]
     kept = [found for v in reversed(store.versions()) if (found := store.manifest(v)) is not None]
+    pinned = set(load_settings(store.home)[0].pinned_versions)
     return DataStatus(
         data_version=shown["version"],
         data_version_name=version_name(shown),
         current_version=current["version"],
+        version_in_use=in_use,
+        using_old_version=in_use != current["version"],
+        **_update_days(store, current, context),
         versions=store.versions(),
-        version_list=[version_info(found) for found in kept],
+        version_list=[version_info(found, found["version"] in pinned) for found in kept],
         created_at=shown["created_at"],
         last_trade_date=shown.get("last_trade_date"),
         limit_check_current=limit_check_current(shown),
@@ -84,7 +103,7 @@ def data_status(request: StatusRequest, context: Context = Context()) -> DataSta
     )
 
 
-def version_info(found: dict) -> VersionInfo:
+def version_info(found: dict, pinned: bool) -> VersionInfo:
     """The VersionInfo of a manifest."""
     reason = version_reason(found)
     return VersionInfo(
@@ -95,8 +114,20 @@ def version_info(found: dict) -> VersionInfo:
         reason_params=reason["params"],
         last_trade_date=found.get("last_trade_date"),
         created_at=found["created_at"],
-        pinned=False,
+        pinned=pinned,
     )
+
+
+def _update_days(store: Store, current: dict, context: Context) -> dict:
+    """next_trading_day and update_due by the raw layer's BaoStock calendar, both null without it."""
+    path = BaoStockRaw.at(store.home).trade_dates
+    if not path.exists():
+        return {"next_trading_day": None, "update_due": None}
+    dates = pl.read_parquet(path, columns=["calendar_date", "is_trading_day"])
+    last = store.read_table("calendar", columns=["date"], manifest=current)["date"].max()
+    now = dt.datetime.fromisoformat(context.clock()) if context.clock else dt.datetime.now(dt.UTC)
+    later = sorted(d for d in dates.filter(pl.col("is_trading_day") == "1")["calendar_date"].str.to_date() if d > last)
+    return {"next_trading_day": later[0] if later else None, "update_due": bool(due_days(dates, last, now))}
 
 
 def _table(name: str, entry: dict) -> TableStatus:

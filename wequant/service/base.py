@@ -17,6 +17,7 @@ from wequant.data.store import Store, version_name
 from wequant.expr import Cache
 from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.errors import Exit, ServiceError
+from wequant.storage.settings import load as load_settings
 from wequant.strategy.library import Library
 
 if TYPE_CHECKING:
@@ -148,6 +149,16 @@ class Context:
         return Library(self.store().home / "strategies", self.clock)
 
 
+def read_version(context: Context, version: int | None) -> int | None:
+    """The version a request reads: the one it names, else the data root's version in use while it is kept, else
+    None (the newest)."""
+    if version is not None:
+        return version
+    store = context.store()
+    in_use = load_settings(store.home)[0].version_in_use
+    return in_use if in_use is not None and store.manifest(in_use) is not None else None
+
+
 def manifest(store: Store, version: int | None = None) -> dict:
     """The manifest of version (default: the current one); NOT_FOUND without a store or that version."""
     found = store.manifest(version)
@@ -186,11 +197,16 @@ def name_of(store: Store, version: int) -> str | None:
 def open_panel(request: PanelRequest, context: Context, history: bool = False) -> Panel:
     """load_panel for the request, from the first trading day with history; NOT_FOUND for an unknown code or no day."""
     store = context.store()
-    manifest(store, request.data_version)  # NOT_FOUND that names the kept versions
+    manifest(store, read_version(context, request.data_version))  # NOT_FOUND that names the kept versions
     start = None if history else request.start
     try:
         return load_panel(
-            start, request.end, request.codes, version=request.data_version, store=store, cache_dir=context.cache
+            start,
+            request.end,
+            request.codes,
+            version=read_version(context, request.data_version),
+            store=store,
+            cache_dir=context.cache,
         )
     except NotInPanel as error:
         raise not_found(error.code, error.args[0], ["codes"] if error.code == "unknown_code" else []) from None
