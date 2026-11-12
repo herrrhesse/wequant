@@ -27,6 +27,7 @@ from wequant.service.contract import OPERATIONS, route
 from wequant.service.details import error_details, usage, validated
 from wequant.service.jobs import KINDS, jobs_show
 from wequant.service.queue import FINAL, Jobs
+from wequant.service.transfer import exported, receive
 from wequant.version import code_version
 
 log = logging.getLogger("wequant")
@@ -83,6 +84,8 @@ def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, st
             openapi_extra=_documented(hints["request"], hints["return"]),
         )
     app.add_api_route("/api/jobs/{id}/events", _events(context), methods=["GET"], include_in_schema=False)
+    app.add_api_route("/api/exports/{name}", _download(context), methods=["GET"], include_in_schema=False)
+    app.add_api_route("/api/imports/{name}", _upload(context), methods=["PUT"], include_in_schema=False)
     app.add_api_route("/api/{rest:path}", _no_route, methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)  # fmt: skip
     app.add_api_route("/{path:path}", _frontend(static_dir(static)), methods=["GET"], include_in_schema=False)
     app.add_exception_handler(RequestValidationError, _invalid)
@@ -112,6 +115,34 @@ def _stopping(jobs: Jobs) -> Callable:
         await anyio.to_thread.run_sync(jobs.close)
 
     return lifespan
+
+
+def _download(context: Context) -> Callable:
+    """GET of a file an export wrote to <home>/exports/: the browser saves it."""
+
+    async def download(name: str) -> Response:
+        path = exported(context, name)
+        if path is None:
+            message = f"no export {name} under exports/ of the data root"
+            return _failure(
+                error_body(ServiceError(Exit.NOT_FOUND, message, [ErrorDetail(code="no_file", message=message)]))
+            )  # noqa: E501
+        return FileResponse(path, filename=name, media_type="application/octet-stream")
+
+    return download
+
+
+def _upload(context: Context) -> Callable:
+    """PUT of a file to import: kept as <home>/imports/<name>; its path is what the import operations take."""
+
+    async def upload(name: str, request: Request) -> Response:
+        try:
+            path = await anyio.to_thread.run_sync(receive, context, name, await request.body())
+        except ServiceError as error:
+            return _failure(error_body(error))
+        return Response(json.dumps({"path": str(path)}), media_type="application/json")
+
+    return upload
 
 
 def _events(context: Context) -> Callable:

@@ -8,7 +8,7 @@ import datetime as dt
 import polars as pl
 from pydantic import Field
 
-from wequant.service.base import Context, DataRequest, Model, manifest, named
+from wequant.service.base import Context, DataRequest, Model, manifest, named, read_version
 
 COLUMNS = ("code", "name", "exchange", "board", "first_date", "last_date")
 
@@ -46,7 +46,7 @@ class Securities(Model):
 def data_securities(request: SecuritiesRequest, context: Context = Context()) -> Securities:
     """Codes whose code starts with the query or whose name contains it."""
     store = context.store()
-    found = manifest(store, request.data_version)
+    found = manifest(store, read_version(context, request.data_version))
     query = request.query.strip()
     matches = pl.col("code").str.starts_with(query.upper()) | pl.col("name").str.contains(query, literal=True)
     rows = store.read_table("securities", manifest=found).filter(matches.fill_null(False)).sort("code")

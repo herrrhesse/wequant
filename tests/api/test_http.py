@@ -5,6 +5,7 @@ import asyncio
 import json
 import shutil
 import time
+from pathlib import Path
 from typing import get_type_hints
 
 import pytest
@@ -65,8 +66,40 @@ def test_every_operation_of_the_snapshot_has_its_route_and_no_route_is_extra(hom
 
 
 def test_the_contract_cases_cover_every_operation():
-    covered = {name for _, name, *_ in CASES + RUNS + WRITES} | set(JOBS) | {"data_update"}
+    covered = {name for _, name, *_ in CASES + RUNS + WRITES + STORAGE} | set(JOBS) | {"data_update"}
     assert covered == {operation.__name__ for operation in OPERATIONS}
+
+
+STORAGE = [  # on copies of a market with one archived run {id}; {dir} holds its exports as in.*
+    (["settings", "show"], "settings_show", {}),
+    (["settings", "set", "--keep-versions", "3"], "settings_update", {"keep_versions": 3}),
+    (["storage", "usage"], "storage_usage", {}),
+    (["storage", "cleanup", "--dry-run"], "storage_cleanup", {"dry_run": True}),
+    (["data", "use", "1"], "data_use_version", {"version": 1}),
+    (["data", "pin", "1"], "data_pin_version", {"version": 1}),
+    (["data", "export", "--path", "{dir}/v.wqver"], "data_export", {"path": "{dir}/v.wqver"}),
+    (["data", "import", "{dir}/in.wqver"], "data_import", {"path": "{dir}/in.wqver"}),
+    (["runs", "pin", "{id}"], "runs_pin", {"id": "{id}"}),
+    (["runs", "delete", "{id}"], "runs_delete", {"id": "{id}"}),
+    (["runs", "export", "{id}", "--path", "{dir}/r.wqrun"], "runs_export", {"id": "{id}", "path": "{dir}/r.wqrun"}),
+    (["runs", "import", "{dir}/in.wqrun"], "runs_import", {"path": "{dir}/in.wqrun"}),
+    (["strategy", "export", "m", "--path", "{dir}/s.wqs"], "strategy_export", {"id": "m", "path": "{dir}/s.wqs"}),
+    (["strategy", "import", "{dir}/in.wqstrategy"], "strategy_import", {"path": "{dir}/in.wqstrategy"}),
+]
+
+
+@pytest.mark.parametrize("argv, name, fields", STORAGE, ids=[case[1] for case in STORAGE])
+def test_a_storage_operation_returns_the_bytes_the_cli_prints(cli, market_home, cache, tmp_path, argv, name, fields):
+    origin = Context(market_home)
+    run_id = service.backtest(service.BacktestRequest(saved={"id": "m"}), origin).run_id
+    service.data_export(service.ExportVersionRequest(path=str(tmp_path / "in.wqver")), origin)
+    service.runs_export(service.ExportRunRequest(id=run_id, path=str(tmp_path / "in.wqrun")), origin)
+    service.strategy_export(service.ExportStrategyRequest(id="m", path=str(tmp_path / "in.wqstrategy")), origin)
+    by_cli, by_http = (shutil.copytree(market_home, tmp_path / side) for side in ("cli", "http"))
+    fill = lambda value: value.format(dir=tmp_path, id=run_id) if isinstance(value, str) else value  # noqa: E731
+    _, out, _ = cli(*map(fill, argv), "--json", "--home", by_cli, "--cache", cache)
+    response = post(by_http, cache, name, {key: fill(value) for key, value in fields.items()})
+    assert (response.status_code, response.text) == (200, out.removesuffix("\n"))
 
 
 def test_the_update_returns_the_bytes_the_cli_prints(cli, tmp_path, cache, monkeypatch):
@@ -112,6 +145,23 @@ def test_a_job_s_events_carry_each_change_until_it_has_finished(market_home, cac
         infos = events(client, id)
     fractions = [info.fraction for info in infos]
     assert infos[-1].state == "succeeded" and fractions == sorted(fractions) and len({*map(str, infos)}) == len(infos)
+
+
+def test_an_export_downloads_and_an_uploaded_file_imports(market_home, cache):
+    run_id = service.backtest(service.BacktestRequest(saved={"id": "m"}), Context(market_home)).run_id
+    written = service.runs_export(service.ExportRunRequest(id=run_id), Context(market_home))  # into exports/
+    with TestClient(create_app(Context(market_home, cache))) as client:
+        data = client.get(f"/api/exports/{run_id}.wqrun").content
+        path = client.put(f"/api/imports/{run_id}.wqrun", content=data).json()["path"]
+        imported = client.post("/api/runs_import", content=json.dumps({"path": path})).json()
+    assert data == Path(written.path).read_bytes() and imported == {"id": run_id, "added": False}
+
+
+def test_only_exports_download_and_only_export_files_upload(home):
+    client = TestClient(create_app(Context(home)))
+    missing, refused = client.get("/api/exports/none.wqrun"), client.put("/api/imports/notes.txt", content=b"x")
+    codes = [ErrorBody.model_validate_json(r.text).detail[0].code for r in (missing, refused)]
+    assert ([missing.status_code, refused.status_code], codes) == ([404, 422], ["no_file", "bad_file"])
 
 
 def test_the_events_of_an_unknown_job_are_a_404_error_body(home):

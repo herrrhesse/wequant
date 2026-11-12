@@ -41,6 +41,7 @@ from wequant.service.outputs import (
 )
 from wequant.service.specs import DataSpec, ExecutionSpec, IsoDate, MetricSpecModel, Name, StrategySpec
 from wequant.service.strategies import Hash, saved_as
+from wequant.storage.settings import load as load_settings
 from wequant.strategy.library import Library, strategy_hash
 
 Limit = Field(100, ge=1, le=500)
@@ -77,7 +78,8 @@ class RunRow(Model):
     code_version: str
     store_version: int
     data_version_name: str | None
-    """The store version's display name, YYYYMMDD.N; null once that version is no longer kept."""
+    """The store version's display name, YYYYMMDD.N, as kept or as noted when the run was archived; null only for a
+    run archived before names were noted whose version is gone."""
     anchor: dt.date
     start: dt.date
     end: dt.date
@@ -89,6 +91,8 @@ class RunRow(Model):
     max_drawdown: float | None
     rerunnable: bool
     """Its store version is still kept."""
+    pinned: bool
+    """Kept by the archive's size limit, and so is its store version by version cleanup."""
 
 
 class RunsPage(Page):
@@ -317,8 +321,8 @@ def runs_list(request: RunsListRequest, context: Context = Context()) -> RunsPag
     """Archived runs, newest first, optionally of one strategy content."""
     store = context.store()
     index = Archive(store.home / RUNS).index().sort("created_at", "id", descending=[True, False])
-    refs, names = saved_refs(context.library()), kept_names(store)
-    rows = [_run_row(row, refs, names) for row in index.iter_rows(named=True)]
+    refs, names, pinned = saved_refs(context.library()), kept_names(store), pinned_runs(store)
+    rows = [_run_row(row, refs, names, pinned) for row in index.iter_rows(named=True)]
     if request.strategy_hash is not None:
         rows = [row for row in rows if row.strategy_hash == request.strategy_hash]
     window = rows[request.offset : request.offset + request.limit]
@@ -330,7 +334,7 @@ def runs_show(request: RunRequest, context: Context = Context()) -> RunDetail:
     and periods."""
     archive, run = load_run(context, request.id)
     store = context.store()
-    row = _run_row(archive.row(request.id), saved_refs(context.library()), kept_names(store))
+    row = _run_row(archive.row(request.id), saved_refs(context.library()), kept_names(store), pinned_runs(store))
     spec = Backtest.from_form(run.description)
     start, end = run.ledger.daily["date"][0], run.ledger.daily["date"][-1]
     return RunDetail(
@@ -493,19 +497,25 @@ def kept_names(store: Store) -> dict[int, str]:
     return {v: name for v in store.versions() if (name := name_of(store, v)) is not None}
 
 
-def _run_row(row: dict, refs: dict[str, list[SavedRef]], names: dict[int, str]) -> RunRow:
-    """The RunRow of an archive index row; names are the kept versions' display names."""
+def _run_row(row: dict, refs: dict[str, list[SavedRef]], names: dict[int, str], pinned: set[str]) -> RunRow:
+    """The RunRow of an archive index row; names are the kept versions' display names, pinned the pinned runs."""
     found = digest(json.loads(row["description"])["strategy"])
     headline = {name: row[name] for name in HEADLINE}
     fields = ("id", "engine", "created_at", "code_version", "store_version", "anchor", "start", "end")
     return RunRow(
         **{name: row[name] for name in fields},
         **headline,
-        data_version_name=names.get(row["store_version"]),
+        data_version_name=names.get(row["store_version"]) or row["store_version_name"],
         strategy_hash=found,
         saved_as=refs.get(found, []),
         rerunnable=row["store_version"] in names,
+        pinned=row["id"] in pinned,
     )
+
+
+def pinned_runs(store: Store) -> set[str]:
+    """The runs the data root's settings pin."""
+    return set(load_settings(store.home)[0].pinned_runs)
 
 
 def _fee(table: str, rule: Rate, until: dt.date | None) -> FeeRule:

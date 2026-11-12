@@ -6,6 +6,7 @@ import polars as pl
 import pytest
 
 from tests.test_panel import BARS, A, bar, col, commit, install_stub_rules, seed
+from wequant.data.store import KEEP_VERSIONS
 from wequant.panel import build, load_panel
 from wequant.panel.cache import FORMAT, cache_key
 
@@ -87,7 +88,7 @@ def test_versions_the_store_no_longer_keeps_are_pruned(store, cache):
     (cache / "panel" / "notes").mkdir()
     first = load_panel(store=store, cache_dir=cache)
     assert directories(cache) == sorted([first.key, "notes"])
-    for n in range(2, 5):
+    for n in range(2, KEEP_VERSIONS + 2):  # versions 2 .. KEEP_VERSIONS + 1: version 1 falls out
         commit(store, bars=BARS[n:])
     load_panel(version=2, store=store, cache_dir=cache)
     assert directories(cache) == sorted([first.key, cache_key(store.manifest(2)), "notes"])

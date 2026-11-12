@@ -28,7 +28,7 @@ import polars as pl
 from wequant.data.files import atomic_write, parquet_bytes, utc_now
 from wequant.data.schema import TABLES, Table
 
-KEEP_VERSIONS = 3
+KEEP_VERSIONS = 5  # the user's default (round 2): the newest five versions, plus those the data root protects
 REASONS = (  # why a version was made; the service layer gives each a Chinese sentence
     "seed_import",
     "baostock_merge",
@@ -235,7 +235,7 @@ class Store:
         with self.lock(timeout):
             current = self.manifest()
             old_tables = current["tables"] if current else {}
-            result = CommitResult(version=(current["version"] if current else 0) + 1, changed=False)
+            result = CommitResult(version=self._next_version(current), changed=False)
             new_tables = dict(old_tables)
             for name, (mode, df) in writes.items():
                 old_files = old_tables.get(name, {}).get("files", [])
@@ -257,15 +257,42 @@ class Store:
             result.changed = True
             return result
 
-    def cleanup(self, keep: int = KEEP_VERSIONS, dry_run: bool = True, timeout: float = 0) -> list[Path]:
-        """Files only older versions need, plus leftover temp files; deleted (under the lock) only when dry_run is False."""
+    def cleanup(
+        self, keep: int = KEEP_VERSIONS, dry_run: bool = True, timeout: float = 0, protect: Iterable[int] = ()
+    ) -> list[Path]:
+        """Files only versions other than the newest keep and protect need (the current one is always kept), plus
+        leftover temp files; deleted (under the lock) only when dry_run is False."""
         if dry_run:
-            return self._unneeded(keep)
+            return self._unneeded(keep, set(protect))
         with self.lock(timeout):
-            doomed = self._unneeded(keep)
+            doomed = self._unneeded(keep, set(protect))
             for path in doomed:
                 path.unlink()
             return doomed
+
+    def add(self, manifest: dict, files: dict[str, bytes], reason: str, reason_params: dict | None = None) -> int:
+        """Add a version made elsewhere, as the next version number but not the current one: each of its files under
+        this store's name for it (a kept file with the same content is reused), its manifest's own keys new. files
+        maps the manifest's paths to their bytes. Returns the new version."""
+        with self.lock():
+            version = max([0, *self.versions()]) + 1
+            known = {e["sha256"]: e["path"] for v in self.versions() for e in version_files(self.manifest(v))}
+            tables = {
+                name: {
+                    "files": [
+                        self._added(name, entry, files[entry["path"]], version, known) for entry in table["files"]
+                    ]
+                }
+                for name, table in manifest["tables"].items()
+            }
+            body = {k: v for k, v in manifest.items() if k not in OWN_KEYS} | {"tables": tables}
+            why = {"code": reason, "params": json.loads(json.dumps(reason_params or {}))}
+            added = {"version": version, "name": self._next_name(_name_day(manifest)), "reason": why}
+            data = (
+                json.dumps(added | {"created_at": self.clock(), **body}, indent=1, ensure_ascii=False).encode() + b"\n"
+            )
+            atomic_write(self._manifest_path(version), data)
+            return version
 
     # ------------------------------------------------------------ internals
 
@@ -309,9 +336,30 @@ class Store:
         result.files_written.append(rel)
         return {"part": part, "path": rel, "rows": rows.height, "sha256": digest}
 
-    def _unneeded(self, keep: int) -> list[Path]:
+    def _next_version(self, current: dict | None) -> int:
+        """One past the current version, past any added version there: a manifest an interrupted commit left is
+        written over, an added one never."""
+        version = (current["version"] if current else 0) + 1
+        while (found := self.manifest(version)) is not None and version_reason(found)["code"] == "version_import":
+            version += 1
+        return version
+
+    def _added(self, name: str, entry: dict, data: bytes, version: int, known: dict[str, str]) -> dict:
+        """The manifest entry of one added file: a kept file with its sha256, else the file written as this version's."""
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != entry["sha256"]:
+            raise ValueError(f"{entry['path']}: its bytes do not have the sha256 its manifest records")
+        if digest in known and (self.home / known[digest]).exists():
+            return entry | {"path": known[digest]}
+        rel = f"{name}/{entry['part']}.v{version}.parquet"
+        atomic_write(self.home / rel, data)
+        return entry | {"path": rel}
+
+    def _unneeded(self, keep: int, protect: set[int] = frozenset()) -> list[Path]:
         versions = self.versions()
-        kept = versions[-keep:] if keep > 0 else []
+        current = self.manifest()
+        kept = (versions[-keep:] if keep > 0 else []) + [v for v in versions if v in protect]
+        kept += [current["version"]] if current else []
         referenced = set()
         for v in kept:
             for entry in self.manifest(v)["tables"].values():
@@ -414,6 +462,11 @@ def version_name(manifest: dict) -> str:
 def version_reason(manifest: dict) -> dict:
     """{code, params} of why the version was made; legacy for one written before reasons."""
     return manifest.get("reason") or {"code": "legacy", "params": {}}
+
+
+def version_files(manifest: dict) -> list[dict]:
+    """The file entries of every table of a manifest: part, path, rows, sha256."""
+    return [entry for table in manifest["tables"].values() for entry in table["files"]]
 
 
 def _name_day(manifest: dict) -> str:

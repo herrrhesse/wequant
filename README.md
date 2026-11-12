@@ -68,6 +68,10 @@ wequant data issues [--table T] [--kind K] [--codes C...] [--start D] [--end D] 
 wequant data check [--commit]
 wequant data update
 wequant data names [--commit]
+wequant data use [VERSION]
+wequant data pin VERSION [--unpin]
+wequant data export [--data-version N] [--path FILE]
+wequant data import FILE
 wequant data delistings [--delisting RULE] [--failure-recovery X] [--data-version N]
 wequant data index-check [--data-version N]
 wequant data verify submit FILE|-
@@ -96,6 +100,10 @@ wequant runs list [--strategy-hash H] [--limit N] [--offset N]
 wequant runs show ID | report ID | rerun ID | diff A B | day ID DATE
 wequant runs orders ID [--code C] [--status S] [--side S] [--start D] [--end D] [--limit N] [--offset N]
 wequant runs anomalies ID [--channel C] [--code C] [--limit N] [--offset N]
+wequant runs pin ID [--unpin] | delete ID | export ID [--path FILE] | import FILE
+wequant strategy export ID [--history] [--path FILE] | import FILE
+wequant settings show | set [--runs-limit-gb X] [--keep-versions N]
+wequant storage usage | cleanup [--dry-run]
 wequant schema
 wequant labels
 ```
@@ -291,6 +299,29 @@ uv run wequant data names [--commit]  # "补充股票名称", once, from raw/bao
   official listing date reads its official delisting date (null: still listed); one without approximates the day from
   its data. Results that list stocks name them as the newest version does: screen rows and rejects, explain, a run's
   orders, holdings and decisions, and `data bars` (`names`); `data securities --query` matches names.
+
+## Storage
+
+- **Settings** live in `<home>/settings.json` (`wequant settings show|set`): the run archive's size limit
+  (`runs_limit_gb`, default 2), how many data versions cleanup keeps (`keep_versions`, default 5), the version in use,
+  and the pinned versions and runs. A value that is not valid reads as its default, and `settings show` says why.
+- **The version in use** (`wequant data use VERSION`; without VERSION, the current one again) is what every request
+  without a `data_version` reads, jobs included; it survives restarts. `data status` gives `version_in_use` and
+  `using_old_version`, plus `next_trading_day` and `update_due` (by the raw layer's BaoStock calendar).
+- **Cleanup** keeps the newest `keep_versions` versions, the pinned ones (`data pin`), the one in use, and those a
+  pinned run reads (`runs pin`); it runs after every commit the operations make (update, names, data check, import)
+  and after settings or pins change. Display names never change. Saving a backtest removes the oldest unpinned runs
+  beyond the archive's limit; `runs delete` removes one. Panels are kept for the version in use only.
+  `wequant storage usage` gives the bytes of the current data, other versions, panels and runs, the limits and what
+  cleanup would free; `storage cleanup` frees it now.
+- **Exports and imports:** `data export` writes a version (its manifest and every file it reads) as a `.wqver` file,
+  `runs export` a run with its strategy as `.wqrun`, `strategy export` a strategy (its current version, or every
+  version with `--history`) as `.wqstrategy`; the default place is `<home>/exports/`. The same content always gives
+  the same file. `data import` adds a version as a new one, not the current one (reason 从文件导入; use it with
+  `data use`); `runs import` archives the run byte for byte under its id (rerunning it needs its version here);
+  `strategy import` saves under a new name and id when its own are taken. Under `wequant serve`, `GET
+  /api/exports/<name>` downloads an export and `PUT /api/imports/<name>` keeps an uploaded file for the import
+  operations (its path comes back).
 
 ## Fetching BaoStock raw data
 

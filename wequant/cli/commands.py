@@ -826,3 +826,6 @@ def _logging_to_stderr(verbose: int) -> Iterator[None]:
     finally:
         log.removeHandler(handler)
         log.setLevel(level)
+
+
+from wequant.cli import storage as _storage  # noqa: E402, F401  its commands register themselves on app

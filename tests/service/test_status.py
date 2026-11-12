@@ -16,6 +16,10 @@ def test_the_seed_store(home, context):
         "data_version": 1,
         "data_version_name": name,
         "current_version": 1,
+        "version_in_use": 1,
+        "using_old_version": False,
+        "next_trading_day": None,  # no BaoStock calendar in the raw layer
+        "update_due": None,
         "versions": [1],
         "version_list": [
             {

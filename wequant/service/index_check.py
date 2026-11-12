@@ -10,7 +10,7 @@ import numpy as np
 from wequant.expr.vocab import INDEXES, STORED_AS
 from wequant.panel import Panel, load_panel
 from wequant.panel.coverage import NOMINAL, count_spans
-from wequant.service.base import Check, Context, DataRequest, Model, manifest, named
+from wequant.service.base import Check, Context, DataRequest, Model, manifest, named, read_version
 
 
 class IndexCheckRequest(DataRequest):
@@ -57,8 +57,8 @@ class IndexCheck(Check):
 def data_index_check(request: IndexCheckRequest, context: Context = Context()) -> IndexCheck:
     """Each index's daily member count over its stored span against its nominal size; ok False when any is off."""
     store = context.store()
-    manifest(store, request.data_version)
-    panel = load_panel(version=request.data_version, store=store, cache_dir=context.cache)
+    manifest(store, read_version(context, request.data_version))
+    panel = load_panel(version=read_version(context, request.data_version), store=store, cache_dir=context.cache)
     indexes = [found for index in INDEXES if (found := _coverage(panel, index)) is not None]
     return IndexCheck(ok=not any(i.spans for i in indexes), **named(panel.manifest), indexes=indexes)
 

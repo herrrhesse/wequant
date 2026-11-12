@@ -35,6 +35,7 @@ INDEX = {
     **dict.fromkeys(HEADLINE, pl.Float64),
     "code_version": pl.String,
     "created_at": pl.String,
+    "store_version_name": pl.String,  # as noted at save; null for runs archived before names were noted
 }
 
 
@@ -56,15 +57,53 @@ class Archive:
     def __init__(self, root: Path | None = None) -> None:
         self.root = Path(root) if root is not None else wequant_home() / RUNS
 
-    def save(self, run: Run) -> str:
-        """Archive run and return its id; a run already archived is checked against its content and kept."""
+    def save(self, run: Run, notes: dict | None = None) -> str:
+        """Archive run and return its id; a run already archived is checked against its content and kept. notes go
+        into provenance.json, which reruns never compare (e.g. the store version's display name)."""
         files, directory = run_files(run), self.path(run.id)
         if not directory.exists():
-            self._write(directory, files | {PROVENANCE: provenance(run)})
+            self._write(directory, files | {PROVENANCE: provenance(run, notes)})
         found = {name: text for name, text in differences(_archived(directory), files).items() if text != SAME}
         if found:
             raise RunConflict(run.id, found, directory)
         return run.id
+
+    def files(self, run_id: str) -> dict[str, bytes]:
+        """Every file of the archived run, provenance.json included, by name; KeyError when there is none."""
+        directory = self._directory(run_id)
+        return {name: (directory / name).read_bytes() for name in (*FILES, PROVENANCE)}
+
+    def add(self, run_id: str, files: dict[str, bytes]) -> bool:
+        """Archive a run's files made elsewhere under its id; False when the run is already archived with the same
+        content, RunConflict when with other content, ValueError for files that do not read as that run."""
+        if set(files) != {*FILES, PROVENANCE}:
+            raise ValueError(f"a run's files are {sorted({*FILES, PROVENANCE})}, not {sorted(files)}")
+        directory = self.path(run_id)
+        if directory.exists():
+            compared = {name: files[name] for name in FILES}  # provenance.json is never compared
+            found = {name: text for name, text in differences(_archived(directory), compared).items() if text != SAME}
+            if found:
+                raise RunConflict(run_id, found, directory)
+            return False
+        self._write(directory, files)
+        try:
+            read_run(directory)  # the files read as a run of this format, under this id
+        except Exception:
+            shutil.rmtree(directory, ignore_errors=True)
+            raise
+        return True
+
+    def delete(self, run_id: str) -> None:
+        """Remove the archived run; KeyError when there is none."""
+        shutil.rmtree(self._directory(run_id))
+
+    def size(self, run_id: str) -> int:
+        """Bytes the archived run takes on disk."""
+        return sum(path.stat().st_size for path in self._directory(run_id).iterdir())
+
+    def notes(self, run_id: str) -> dict:
+        """The run's provenance.json: code and library versions, creation time and the notes it was saved with."""
+        return read_json(self._directory(run_id) / PROVENANCE)
 
     def load(self, run_id: str) -> Run:
         """The archived run; KeyError when there is none."""
@@ -161,6 +200,7 @@ def _row(directory: Path) -> tuple:
             *(metrics[name]["value"] for name in HEADLINE),
             made["code_version"],
             made["created_at"],
+            made.get("store_version_name"),
         )
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValueError(f"{directory} is not a readable run: {error!r}") from error

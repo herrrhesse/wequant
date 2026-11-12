@@ -14,9 +14,10 @@ from wequant.account.ledger import FORCED
 from wequant.analytics import Metric
 from wequant.backtest import Backtest, Cancelled, panel_for
 from wequant.backtest import run as engine_run
+from wequant.data.store import version_name
 from wequant.panel import NotInPanel
 from wequant.runs.archive import RUNS, Archive
-from wequant.service.base import Context, DataRequest, ErrorDetail, Model, manifest, named, not_found
+from wequant.service.base import Context, DataRequest, ErrorDetail, Model, manifest, named, not_found, read_version
 from wequant.service.details import Loc, spec_details, usage
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.outputs import (
@@ -31,6 +32,8 @@ from wequant.service.outputs import (
 )
 from wequant.service.specs import DataSpec, ExecutionSpec, IsoDate, MetricSpecModel
 from wequant.service.strategies import Hash, StrategyInput, resolve, saved_as
+from wequant.storage.retention import prune_runs
+from wequant.storage.settings import load as load_settings
 from wequant.strategy import SpecError, SpecErrors, Strategy
 from wequant.strategy.library import strategy_hash
 from wequant.strategy.summary import sentence, summary
@@ -95,10 +98,12 @@ def backtest(request: BacktestRequest, context: Context = Context()) -> Backtest
         spec = Backtest.from_form(_form(request, strategy))
     context.stage("compile")
     store = context.store()
-    manifest(store, request.data_version)
+    manifest(store, read_version(context, request.data_version))
     context.stage("open_store")
     try:
-        panel = panel_for(spec, store=store, version=request.data_version, cache_dir=context.cache)
+        panel = panel_for(
+            spec, store=store, version=read_version(context, request.data_version), cache_dir=context.cache
+        )
     except NotInPanel as error:
         raise not_found(error.code, error.args[0], ["end"]) from None
     context.stage("open_panel")
@@ -106,7 +111,9 @@ def backtest(request: BacktestRequest, context: Context = Context()) -> Backtest
         callbacks = {"progress": context.progress, "cancel": context.cancel, "mark": context.mark}
         run = engine_run(spec, panel, cache=context.expr_cache, **callbacks)
     if request.save:
-        Archive(store.home / RUNS).save(run)
+        archive = Archive(store.home / RUNS)
+        archive.save(run, {"store_version_name": version_name(panel.manifest)})
+        prune_runs(archive, load_settings(store.home)[0], keep=[run.id])  # the oldest unpinned beyond the size limit
         context.stage("archive_save")
     found = strategy_hash(strategy)
     result = BacktestResult(

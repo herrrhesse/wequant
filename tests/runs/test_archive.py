@@ -80,7 +80,7 @@ def test_index_rows(tmp_path, clock):
     description = '{"cash":100000.0,"code":"600000.SH","shares":1000}'
     days = (dt.date(2024, 1, 2), dt.date(2024, 1, 2), dt.date(2024, 1, 4))
     headline = (0.0019489999999999785, 0.26566728713318555, 2.722573368698643, 0.0029852261159520888)
-    expected = (ID, "hold", 1, "fake", *days, description, *headline, run.code_version, NEW_YEAR)
+    expected = (ID, "hold", 1, "fake", *days, description, *headline, run.code_version, NEW_YEAR, None)
     assert archive.index().rows() == [expected]
     clock("2026-01-02T00:00:00+00:00")
     double = hold(DESC | {"shares": 2000}, 1)
