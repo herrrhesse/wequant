@@ -127,13 +127,23 @@ test("data: the page opens with its sections", async ({ page }) => {
   await expect(page.getByRole("region", { name: "交易日历" })).toBeVisible();
 });
 
-test("ordinary pages show no developer details: no curl, no hashes, no English warning text", async ({ page }) => {
-  for (const at of ["#/", `#/strategy?id=${preset}`, `#/picks?id=${preset}`, "#/backtest", "#/data"]) {
+test("ordinary pages show no developer details: no curl, hashes, decision numbers, code names or English text", async ({ page }) => {
+  const runs = await (await page.request.post("api/runs_list", { data: { limit: 1 } })).json();
+  const run = runs.rows[0]?.id as string | undefined;
+  const pages = ["#/", `#/strategy?id=${preset}`, `#/strategy?view=list`, `#/picks?id=${preset}`, "#/backtest", "#/data", "#/stock/600030.SH"];
+  if (run) pages.push(`#/backtest?run=${run}`);
+  for (const at of pages) {
     await page.goto(at);
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    // Hash routes load their data after the page itself: give the requests time to finish.
+    await page.waitForTimeout(1500);
     await page.waitForLoadState("networkidle");
     const text = await page.locator("body").innerText();
     expect(text, at).not.toMatch(/curl/);
     expect(text, at).not.toMatch(/\b[0-9a-f]{16}\b/);
     expect(text, at).not.toMatch(/[A-Za-z]{4,} [a-z]{3,} [a-z]{3,} [a-z]{3,}/);
+    expect(text, at).not.toMatch(/\bD\d{2}\b/);
+    expect(text, at).not.toMatch(/\b[a-z]+_[a-z_]+\b/);
   }
 });

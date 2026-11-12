@@ -425,7 +425,7 @@ function CondRow({ path, c, any, inGroup, counts, delta, errors, hl, taken, upda
             </div>
             <div className="row nowrap">
               {(row.mode === "topn" || row.mode === "toppct") && (
-                <select className="select" style={{ width: 62 }} aria-label={st.filters.dir} value={row.dir} onChange={(e) => write({ ...row, dir: e.target.value as "high" | "low" })}>
+                <select className="select" style={{ width: 76 }} aria-label={st.filters.dir} value={row.dir} onChange={(e) => write({ ...row, dir: e.target.value as "high" | "low" })}>
                   <option value="high">{st.filters.high}</option>
                   <option value="low">{st.filters.low}</option>
                 </select>

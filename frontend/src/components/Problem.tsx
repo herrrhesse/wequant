@@ -2,11 +2,15 @@
 import { useState } from "react";
 import { ApiError, Unreachable } from "../api/http";
 import { t } from "../i18n";
+import { useLabels } from "../labels";
+import { useUi } from "../ui";
 
 const p = t.problem;
 
 /** One error, explained. 422 errors are usually located on controls instead; this is the fallback. */
 export function Problem({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const { dev } = useUi();
+  const L = useLabels();
   if (error instanceof Unreachable) return <p className="problem">{p.unreachable}</p>;
   if (!(error instanceof ApiError)) return <p className="problem">{String(error)}</p>;
   const b = error.body;
@@ -15,18 +19,19 @@ export function Problem({ error, onRetry }: { error: unknown; onRetry?: () => vo
   return (
     <div className="problem" role="alert">
       <strong>{head}</strong>
-      <div>{b.message}</div>
-      {error.status === 422 && b.detail && b.detail.length > 0 && (
+      {dev && <div className="mono small">{b.message}</div>}
+      {b.detail && b.detail.length > 0 && (
         <ul className="serrors">
           {b.detail.map((d, i) => (
             <li key={i}>
-              <span className="mono">{d.code}</span> · {(d.loc ?? []).join(".")} · {d.message}
+              {[L.of("error_codes", d.code), L.help("error_codes", d.code)].filter(Boolean).join("：")}
+              {dev && <span className="mono"> · {d.code} · {(d.loc ?? []).join(".")} · {d.message}</span>}
             </li>
           ))}
         </ul>
       )}
       {error.status === 422 && b.complete === false && <div className="note">{p.incomplete}</div>}
-      {error.status >= 500 && error.status !== 503 && <CopyReport text={`${error.operation} ${error.status} ${b.name}: ${b.message}`} />}
+      {dev && error.status >= 500 && error.status !== 503 && <CopyReport text={`${error.operation} ${error.status} ${b.name}: ${b.message}`} />}
       {(error.status === 409 || error.status === 503) && onRetry && (
         <button type="button" className="cmd" onClick={onRetry}>
           {p.retry}

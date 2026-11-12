@@ -23,7 +23,7 @@ export function StatusBar({ right }: { right?: ReactNode }) {
         <span className="status-day muted">{tx.app.loading}</span>
       )}
       {pending.data && (
-        <a className="link small" href={href.data()}>
+        <a className={pending.data.total > 0 ? "link small" : "small sub"} href={href.data()}>
           {tx.status.pending(pending.data.total)}
         </a>
       )}

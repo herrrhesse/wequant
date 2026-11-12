@@ -167,7 +167,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .fgroup .select { background: var(--card); }
 .cond { padding: 8px 10px; border-radius: 14px; background: var(--card); border: 2px solid transparent; display: flex; flex-direction: column; gap: 4px; }
 .cond.off { opacity: 0.5; }
-.cond-grid { display: grid; grid-template-columns: 24px minmax(0, 1fr) 150px 110px 64px; gap: 8px; align-items: center; }
+.cond-grid { display: grid; grid-template-columns: 24px minmax(0, 1fr) 170px 110px 64px; gap: 8px; align-items: center; }
 .cond .select, .cond .input { background: var(--soft); }
 .cond-count { position: relative; text-align: right; font-size: 12px; line-height: 1.4; display: flex; flex-direction: column; }
 .cond-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-left: 32px; font-size: 11px; color: var(--muted); align-items: center; }

@@ -71,7 +71,7 @@ export const zh = {
     update: {
       title: "每日更新",
       button: "更新到今天",
-      pending: "每日更新在 S2.5 提供",
+      pending: "",
     },
     issues: {
       title: "数据问题",
@@ -98,13 +98,13 @@ export const zh = {
     },
     resolve: {
       title: "裁决待批准",
-      pending: "wequant data resolve 在 S2.4b 收尾时提供",
+      pending: "",
     },
     delistings: {
       title: "退市处理",
-      pending: "示例数据，待后端提供（wequant data delistings）",
-      rules: "回测里持有的股票退市时按原因自动处理（D17）：强制退市减记为 0，合并类按最后收盘价折现，长期停牌照旧持有并告警，原因未知的照旧持有。处理方式是成交参数的一项，可以在回测里改（D15）。",
-      approxNote: "S2.3 之前没有官方摘牌日：处理日按数据里最后有成交的日子近似，标为“近似”，可能早于实际摘牌日。",
+      pending: "",
+      rules: "回测里持有的股票退市时按原因自动处理：强制退市减记为 0，合并类按最后收盘价折现，长期停牌照旧持有并告警，原因未知的照旧持有。处理方式是成交参数的一项，可以在回测里改（D15）。",
+      approxNote: "没有官方摘牌日时：处理日按数据里最后有成交的日子近似，标为“近似”，可能早于实际摘牌日。",
       overrides: "数据目录里有人工覆盖表 overrides/delisting.toml，覆盖表里的条目优先于规则。",
       all: "全部",
       by: { rule: "规则", override: "覆盖表条目" } as Record<string, string>,
@@ -137,7 +137,7 @@ export const zh = {
     notFound: (code: string) => `没有这只股票：${code}`,
     noBars: "这段时间没有行情",
     search: "代码",
-    searchNote: "输入代码或名称的一部分，从建议里选；真实库里的名称要等 S2.3",
+    searchNote: "输入代码，从建议里选",
     runTrades: (run: string, n: number) => `叠加运行 ${run} 的这只股票的 ${n} 笔订单（买在 K 线下方，卖在上方，被拒为灰色）`,
     notInFixtures: (code: string) => `示例数据不含该股票：${code}`,
     available: "示例数据包含：",
