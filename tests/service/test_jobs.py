@@ -16,13 +16,14 @@ from wequant.service import BacktestRequest, Context, Exit, JobRef, JobStartRequ
 from wequant.service.base import error_body
 from wequant.service.jobs import KINDS
 from wequant.service.queue import Jobs, Kind
-from wequant.service.worker import progress_message
+from wequant.service.running import progress_message
 
-KINDS_FOR_TESTS = KINDS | {
+KINDS_FOR_TESTS = KINDS | {  # threads of the queue's process unless marked process
     "wait": Kind("tests.service.job_ops:wait"),
-    "stubborn": Kind("tests.service.job_ops:stubborn"),
-    "pid": Kind("tests.service.job_ops:pid"),
+    "boom": Kind("tests.service.job_ops:boom"),
     "source": Kind("tests.service.job_ops:wait", source="baostock"),
+    "stubborn": Kind("tests.service.job_ops:stubborn", process=True),
+    "pid": Kind("tests.service.job_ops:pid", process=True),
 }
 
 
@@ -70,6 +71,22 @@ def test_a_job_s_result_is_byte_for_byte_its_operation_run_directly(market_home,
     direct = service.backtest(BacktestRequest(saved={"id": "m"}), Context(market_home, cache)).model_dump_json()
     assert jobs.result(info.id) == direct
     assert service.jobs_result(JobRef(id=info.id), context).model_dump_json() == direct
+
+
+def test_a_job_runs_with_the_server_s_context_so_its_caches_stay_warm(market_home, cache, queue):
+    """A backtest job fills the server's expression cache, and the same backtest asked directly then reads from it."""
+    context = Context.resident(market_home, cache)
+    jobs = queue(market_home, context=context)
+    until(jobs, jobs.submit("backtest", {"saved": {"id": "m"}, "save": False}).id, finished)
+    hits = context.expr_cache.hits
+    service.backtest(BacktestRequest(saved={"id": "m"}, save=False), context)
+    assert context.expr_cache.nbytes > 0 and context.expr_cache.hits > hits
+
+
+def test_a_job_whose_operation_raises_fails_with_an_internal_error(home, queue):
+    jobs = queue(home)
+    ended = until(jobs, jobs.submit("boom", {}).id, finished)
+    assert (ended.state, ended.error["exit"], ended.error["message"]) == ("failed", Exit.INTERNAL, "ValueError: boom")
 
 
 def test_a_failed_job_answers_with_the_error_its_operation_gives(market_home, cache, queue):

@@ -6,7 +6,6 @@ ErrorBody the operation would have. GET /api/jobs/{id}/events streams a job's Jo
 
 from __future__ import annotations
 
-import importlib
 from typing import Literal, get_type_hints
 
 from pydantic import ConfigDict, Field, JsonValue, RootModel
@@ -18,13 +17,14 @@ from wequant.service.errors import ServiceError
 from wequant.service.labels import EXITS, job_text
 from wequant.service.outputs import Params
 from wequant.service.queue import FINAL, Job, Jobs, Kind
+from wequant.service.running import imported
 from wequant.service.update import UpdateResult
 
 JobKind = Literal["backtest", "data_update"]
 JobState = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-KINDS = {
+KINDS = {  # a backtest in a thread of the server, with its warm caches; the update in a worker process of its own
     "backtest": Kind("wequant.service.backtest:backtest"),
-    "data_update": Kind("wequant.service.update:data_update", source="baostock"),
+    "data_update": Kind("wequant.service.update:data_update", source="baostock", process=True),
 }
 
 
@@ -173,8 +173,7 @@ def _params(job: Job, every: list[Job]) -> dict:
 def _pinned(request: JobStartRequest, kind: Kind, context: Context) -> dict:
     """The job's request as JSON: checked against the operation's model (errors located under request), its null
     data_version set to the current version."""
-    module, name = kind.operation.split(":")
-    model = get_type_hints(getattr(importlib.import_module(module), name))["request"]
+    model = get_type_hints(imported(kind.operation))["request"]
     try:
         parsed = validated(model, request.request)
     except ServiceError as error:

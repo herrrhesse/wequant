@@ -25,9 +25,9 @@ from wequant.service.jobs import JobKind, JobState
 from wequant.service.labels import fill, job_text, update_params
 from wequant.service.queue import STAGES as QUEUE_STAGES
 from wequant.service.queue import STATES
+from wequant.service.running import STAGES as WORKER_STAGES
 from wequant.service.screen import StepKind
 from wequant.service.update import Status as UpdateStatus
-from wequant.service.worker import STAGES as WORKER_STAGES
 from wequant.strategy import SELL_KINDS
 from wequant.strategy.library import READ_TEXTS
 

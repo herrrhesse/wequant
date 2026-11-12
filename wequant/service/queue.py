@@ -1,8 +1,11 @@
-"""The job queue of wequant serve (S5.2): each job runs one operation in a worker process of its own.
+"""The job queue of wequant serve (S5.2): each job runs one operation, in a thread of the server or in a worker process.
 
+A job runs in a thread by default, with the server's context: it shares the warm panel and expression caches of the
+plain routes, so a backtest job takes as long as the same backtest asked directly. A kind marked process runs in a
+worker process of its own instead: isolated from the server, and killable when it does not stop.
 At most `limit` jobs run at a time and at most one per data source (BaoStock allows one session); the others wait in
 the order they came. Each job is a record at <home>/jobs/<id>.json, with its result's JSON beside it once it succeeds.
-Cancel asks the worker to stop, and the operation then leaves nothing behind; a worker still running `grace` seconds
+Cancel asks the operation to stop, and it then leaves nothing behind; a worker process still running `grace` seconds
 later is killed. A worker that exits without a result fails its job with the exit code. A job left unfinished when the
 server stops fails then, or when the next queue opens if the server was killed. Round 3's first-run build can pause and
 resume as a kind whose operation continues from what is already stored: pausing is a cancel, resuming is a new job with
@@ -22,8 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from wequant.data.files import atomic_write, utc_now
-from wequant.service.base import error_body
+from wequant.service.base import Context, error_body
 from wequant.service.errors import Exit, ServiceError
+from wequant.service.running import imported, outcome, progress_message
 
 log = logging.getLogger("wequant")
 STATES = ("queued", "running", "succeeded", "failed", "cancelled")
@@ -34,10 +38,12 @@ WORKER = (sys.executable, "-m", "wequant.service.worker")
 
 @dataclass(frozen=True)
 class Kind:
-    """What a job of one kind runs: an operation as module:function, and the data source it holds, if any."""
+    """What a job of one kind runs: an operation as module:function, the data source it holds, if any, and whether it
+    runs in a worker process of its own rather than a thread of the server."""
 
     operation: str
     source: str | None = None
+    process: bool = False
 
 
 @dataclass
@@ -59,7 +65,8 @@ class Job:
 
 
 class Jobs:
-    """The queue over one data root; kinds names what each kind of job runs."""
+    """The queue over one data root; kinds names what each kind of job runs, and context is the server's, which thread
+    jobs share (default: a plain context over home and cache)."""
 
     def __init__(
         self,
@@ -70,13 +77,16 @@ class Jobs:
         grace: float = 10.0,
         keep: int = 50,
         clock: Callable[[], str] | None = None,
+        context: Context | None = None,
     ) -> None:
         self.home, self.kinds, self.cache, self.limit, self.grace, self.keep = home, kinds, cache, limit, grace, keep
         self.root, self.clock = home / "jobs", clock or utc_now
+        self.context = context or Context(home, cache, clock=clock)
         self._lock = threading.RLock()
         self._jobs = {job.id: job for job in self._load()}
-        self._workers: dict[int, subprocess.Popen] = {}
-        self._followers: dict[int, threading.Thread] = {}
+        self._workers: dict[int, subprocess.Popen] = {}  # process jobs
+        self._stops: dict[int, threading.Event] = {}  # thread jobs: set to cancel
+        self._threads: dict[int, threading.Thread] = {}  # each running job's thread: its runner or its worker's reader
         self._cancelling: set[int] = set()
         self._closing, self._changes = False, 0
         for job in self._jobs.values():
@@ -112,7 +122,8 @@ class Jobs:
         return self._result(id).read_text("utf-8")
 
     def cancel(self, id: int) -> Job | None:
-        """Stop job id: a queued one never starts; a running one is asked to stop, and killed after grace seconds."""
+        """Stop job id: a queued one never starts; a running one is asked to stop, and a worker process still running
+        grace seconds later is killed."""
         with self._lock:
             job = self._jobs.get(id)
             if job is None or job.state in FINAL:
@@ -122,6 +133,9 @@ class Jobs:
                 return self.get(id)
             self._cancelling.add(id)
             self._change(job, stage="cancelling", params={})
+            if id in self._stops:
+                self._stops[id].set()
+                return self.get(id)
             _tell(self._workers[id], "cancel\n")
             timer = threading.Timer(self.grace, self._kill, args=(id,))
             timer.daemon = True
@@ -129,12 +143,15 @@ class Jobs:
             return self.get(id)
 
     def close(self) -> None:
-        """Stop for good: queued jobs fail, each worker sees its input close and cancels, and is killed after grace."""
+        """Stop for good: queued jobs fail, running ones are asked to stop (a worker sees its input close), and a worker
+        still running after grace is killed."""
         with self._lock:
             self._closing = True
             for job in self._waiting():
                 self._end(job, "failed", "interrupted", error=_error(Exit.INTERRUPTED, "the server stopped first"))
-            workers, followers = list(self._workers.values()), list(self._followers.values())
+            stops, workers, threads = [*self._stops.values()], [*self._workers.values()], [*self._threads.values()]
+        for stop in stops:
+            stop.set()
         for worker in workers:
             _close(worker)
         for worker in workers:
@@ -142,13 +159,13 @@ class Jobs:
                 worker.wait(self.grace)
             except subprocess.TimeoutExpired:
                 worker.kill()
-        for follower in followers:
-            follower.join(self.grace)
+        for thread in threads:
+            thread.join(self.grace)
 
     def _next(self) -> None:
         """Start queued jobs, oldest first, while a slot is free and the data source each needs is too."""
         for job in self._waiting():
-            running = [self._jobs[id] for id in self._workers]
+            running = [self._jobs[id] for id in self._threads]
             if self._closing or len(running) >= self.limit:
                 return
             source = self.kinds[job.kind].source
@@ -156,37 +173,68 @@ class Jobs:
                 self._launch(job)
 
     def _launch(self, job: Job) -> None:
-        order = {"operation": self.kinds[job.kind].operation, "request": job.request, "home": str(self.home)}
+        self._change(job, state="running", stage="start", params={}, started_at=self.clock())
+        self._save(job)
+        kind = self.kinds[job.kind]
+        runner = self._process(job, kind) if kind.process else self._thread(job, kind)
+        self._threads[job.id] = threading.Thread(target=runner, name=f"job-{job.id}", daemon=True)
+        self._threads[job.id].start()
+
+    def _thread(self, job: Job, kind: Kind) -> Callable[[], None]:
+        """The runner of a thread job: the operation with the server's context, its own progress and cancel."""
+        stop = self._stops[job.id] = threading.Event()
+        report = lambda state: self._report(job.id, progress_message(state))  # noqa: E731
+        context = dataclasses.replace(self.context, progress=report, cancel=stop.is_set, jobs=None)
+        request = job.request
+
+        def run() -> None:
+            message = {"error": _error(Exit.INTERNAL, "the job stopped without a result")}
+            try:
+                self._report(job.id, {"stage": "load", "fraction": 0.0, "params": {}})
+                message = outcome(imported(kind.operation), request, context)
+            finally:
+                self._done(job.id, message, 0)
+
+        return run
+
+    def _process(self, job: Job, kind: Kind) -> Callable[[], None]:
+        """The reader of a process job: it starts the worker, takes its messages until it exits, then ends the job."""
+        order = {"operation": kind.operation, "request": job.request, "home": str(self.home)}
         worker = subprocess.Popen(
             WORKER, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8", start_new_session=True
         )  # its own session: Ctrl-C in the server's terminal reaches the server, which then stops it
         _tell(worker, json.dumps(order | {"cache": self.cache and str(self.cache)}) + "\n")
         self._workers[job.id] = worker
-        self._change(job, state="running", stage="start", params={}, started_at=self.clock())
-        self._save(job)
-        follower = threading.Thread(target=self._follow, args=(job.id, worker), name=f"job-{job.id}", daemon=True)
-        self._followers[job.id] = follower
-        follower.start()
 
-    def _follow(self, id: int, worker: subprocess.Popen) -> None:
-        """Take the worker's messages until it exits, then end its job and start the next."""
-        last = None
-        for line in worker.stdout:
-            try:
-                message = json.loads(line)
-            except ValueError:
-                log.warning("job %s: not a message: %r", id, line)
-                continue
-            if "stage" not in message:
-                last = message
-                continue
-            with self._lock:
-                if id not in self._cancelling:
-                    self._change(self._jobs[id], **message)
-        code = worker.wait()
+        def follow() -> None:
+            last = None
+            for line in worker.stdout:
+                try:
+                    message = json.loads(line)
+                except ValueError:
+                    log.warning("job %s: not a message: %r", job.id, line)
+                    continue
+                if "stage" in message:
+                    self._report(job.id, message)
+                else:
+                    last = message
+            self._done(job.id, last or {}, worker.wait())
+
+        return follow
+
+    def _report(self, id: int, message: dict) -> None:
+        """A running job's progress message, unless it is being cancelled."""
         with self._lock:
-            del self._workers[id], self._followers[id]
-            self._finish(self._jobs[id], last or {}, code)
+            if id not in self._cancelling:
+                self._change(self._jobs[id], **message)
+
+    def _done(self, id: int, message: dict, code: int) -> None:
+        """End a running job by its last message and exit code, then start the next."""
+        with self._lock:
+            self._workers.pop(id, None)
+            self._stops.pop(id, None)
+            self._threads.pop(id, None)
+            self._finish(self._jobs[id], message, code)
             self._next()
 
     def _finish(self, job: Job, last: dict, code: int) -> None:
