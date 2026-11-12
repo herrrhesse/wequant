@@ -72,6 +72,9 @@ export interface ServiceModels {
   FunnelStep?: FunnelStep;
   GroupSpec?: GroupSpec;
   ImportRequest?: ImportRequest;
+  IndexBar?: IndexBar;
+  IndexBars?: IndexBars;
+  IndexBarsRequest?: IndexBarsRequest;
   IndexCheck?: IndexCheck;
   IndexCheckRequest?: IndexCheckRequest;
   IndexCoverage?: IndexCoverage;
@@ -132,6 +135,9 @@ export interface ServiceModels {
   SavedRef?: SavedRef;
   SavedStrategy?: SavedStrategy;
   SavedVersion?: SavedVersion;
+  Schedule?: Schedule;
+  ScheduleRequest?: ScheduleRequest;
+  ScheduledDay?: ScheduledDay;
   SchemaRequest?: SchemaRequest;
   ScoreCheck?: ScoreCheck;
   ScreenRequest?: ScreenRequest;
@@ -1743,6 +1749,27 @@ export interface OrderRow {
         | "delist_exit"
       )
     | null;
+  /**
+   * Why the order was placed, from the run's decisions: a code of labels.order_causes; unrecorded when no decision
+   * row explains it.
+   */
+  cause:
+    | "enter"
+    | "backup"
+    | "rebalance"
+    | "exit_pool"
+    | "exit_filter"
+    | "exit_no_score"
+    | "exit_rank"
+    | "exit_slots"
+    | "delisting"
+    | "unrecorded";
+  /**
+   * The params the cause's sentence reads: rank, limit, step, weight or drift.
+   */
+  cause_params: {
+    [k: string]: number | string | null;
+  };
 }
 /**
  * A stock and a day, for a strategy (inline or saved) or an archived run: exactly one of the three.
@@ -1945,6 +1972,61 @@ export interface FunnelStep {
  */
 export interface ImportRequest {
   path: string;
+}
+/**
+ * One index day: prices in index points, volume in shares, amount in yuan.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexBar".
+ */
+export interface IndexBar {
+  code: string;
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  amount: number;
+  /**
+   * close over the index's previous stored close, minus 1; null on its first stored day.
+   */
+  change: number | null;
+}
+/**
+ * The days of each index in the range, by code then date; codes without rows are listed apart.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexBars".
+ */
+export interface IndexBars {
+  data_version: number;
+  data_version_name: string;
+  rows: IndexBar[];
+  /**
+   * Codes the version has no bar of in the range.
+   */
+  missing: string[];
+}
+/**
+ * Daily bars of a few indices over a date range.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexBarsRequest".
+ */
+export interface IndexBarsRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  /**
+   * Index codes such as 000300.SH.
+   *
+   * @minItems 1
+   */
+  codes: [string, ...string[]];
+  start?: string | null;
+  end?: string | null;
 }
 /**
  * Each index's coverage, counting the members member@ reads (a member code the store does not list is not
@@ -2313,6 +2395,14 @@ export interface Labels {
    * data update's statuses; params: days (merged), last_day, waiting, proposed, unresolved.
    */
   update_statuses: TemplateLabel[];
+  /**
+   * Why an order was placed (OrderRow.cause), filled from its cause_params.
+   */
+  order_causes: TemplateLabel[];
+  /**
+   * Where a scheduled rebalance day comes from (ScheduledDay.source).
+   */
+  day_sources: Label[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -3032,6 +3122,52 @@ export interface SavedVersion {
    * ISO 8601 with offset.
    */
   saved_at: string;
+}
+/**
+ * The next count rebalance days on or after the store's last trading day.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Schedule".
+ */
+export interface Schedule {
+  data_version: number;
+  data_version_name: string;
+  period: string;
+  every: number;
+  days: ScheduledDay[];
+  /**
+   * The last day BaoStock's published calendar covers; null without it in the raw layer.
+   */
+  calendar_until: string | null;
+}
+/**
+ * One rebalance day: its close decides, the next trading day trades.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScheduledDay".
+ */
+export interface ScheduledDay {
+  date: string;
+  /**
+   * stored: a trading day of the store; calendar: BaoStock's published calendar; estimated: a weekday after it,
+   * which a holiday may move (labels.day_sources).
+   */
+  source: "stored" | "calendar" | "estimated";
+}
+/**
+ * A strategy's next rebalance days.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScheduleRequest".
+ */
+export interface ScheduleRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  strategy?: StrategySpec | null;
+  saved?: StrategyRef | null;
+  count?: number;
 }
 /**
  * The JSON Schema of every service model.

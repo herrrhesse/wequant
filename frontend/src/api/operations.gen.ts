@@ -11,6 +11,7 @@ export interface Operations {
   data_check: { request: M.CheckRequest; result: M.CheckReport };
   data_delistings: { request: M.DelistingsRequest; result: M.Delistings };
   data_index_check: { request: M.IndexCheckRequest; result: M.IndexCheck };
+  data_index_bars: { request: M.IndexBarsRequest; result: M.IndexBars };
   data_names: { request: M.NamesRequest; result: M.NamesReport };
   data_update: { request: M.UpdateRequest; result: M.UpdateResult };
   data_use_version: { request: M.UseVersionRequest; result: M.SettingsOut };
@@ -34,6 +35,7 @@ export interface Operations {
   strategy_archive: { request: M.ArchiveRequest; result: M.StrategyInfo };
   strategy_export: { request: M.ExportStrategyRequest; result: M.Exported };
   strategy_import: { request: M.ImportRequest; result: M.StrategyImported };
+  strategy_schedule: { request: M.ScheduleRequest; result: M.Schedule };
   screen: { request: M.ScreenRequest; result: M.ScreenResult };
   backtest: { request: M.BacktestRequest; result: M.BacktestResult };
   runs_list: { request: M.RunsListRequest; result: M.RunsPage };
@@ -74,6 +76,7 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_check: { method: "POST", path: "/api/data_check" },
   data_delistings: { method: "POST", path: "/api/data_delistings" },
   data_index_check: { method: "POST", path: "/api/data_index_check" },
+  data_index_bars: { method: "POST", path: "/api/data_index_bars" },
   data_names: { method: "POST", path: "/api/data_names" },
   data_update: { method: "POST", path: "/api/data_update" },
   data_use_version: { method: "POST", path: "/api/data_use_version" },
@@ -97,6 +100,7 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   strategy_archive: { method: "POST", path: "/api/strategy_archive" },
   strategy_export: { method: "POST", path: "/api/strategy_export" },
   strategy_import: { method: "POST", path: "/api/strategy_import" },
+  strategy_schedule: { method: "POST", path: "/api/strategy_schedule" },
   screen: { method: "POST", path: "/api/screen" },
   backtest: { method: "POST", path: "/api/backtest" },
   runs_list: { method: "POST", path: "/api/runs_list" },
