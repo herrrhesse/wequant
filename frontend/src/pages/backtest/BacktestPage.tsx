@@ -5,6 +5,8 @@ import { jobView } from "../../api/jobstate";
 import { useEffect, useMemo, useState } from "react";
 import { commandOf, modelDefaults, useCall, useCallMutation } from "../../api/client";
 import { cancelJob, useJob } from "../../api/jobs";
+import { exportFile, importFile } from "../../api/files";
+import { FileButton } from "../../components/FileButton";
 import type { DataSpec, ExecutionSpec, RunDetail, RunRow, StrategySpec } from "../../api/types.gen";
 import { cssVar, EChart } from "../../components/EChart";
 import { Problem } from "../../components/Problem";
@@ -279,6 +281,19 @@ function Holdings({ run }: { run: RunDetail }) {
 }
 
 function RunList({ rows, selected, cmp, nameOf }: { rows: RunRow[]; selected: string | null; cmp: string[]; nameOf: NameOf }) {
+  const pin = useCallMutation("runs_pin", ["runs_list", "settings_show"]);
+  const del = useCallMutation("runs_delete", ["runs_list", "storage_usage"]);
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState<unknown>(null);
+  const act = async (fn: () => Promise<unknown>, done: string) => {
+    setErr(null);
+    try {
+      await fn();
+      setNote(done);
+    } catch (e) {
+      setErr(e);
+    }
+  };
   const toggle = (id: string) => {
     const next = cmp.includes(id) ? cmp.filter((x) => x !== id) : [...cmp, id].slice(-3);
     location.hash = href.backtest({ run: selected, cmp: next });
@@ -289,8 +304,26 @@ function RunList({ rows, selected, cmp, nameOf }: { rows: RunRow[]; selected: st
       <section className="card" aria-label="运行记录">
         <div className="card-head">
           <h2>运行记录</h2>
-          <span className="small muted">勾选 2 到 3 条：叠加净值；勾选 2 条时列出差别</span>
+          <span className="small muted">勾选 2 到 3 条：叠加净值；勾选 2 条时列出差别。保留的存档不会被自动清理。</span>
+          <span className="push" />
+          <FileButton
+            accept=".wqrun"
+            onFile={(f) =>
+              void act(async () => {
+                const r = await importFile("runs_import", f);
+                location.hash = href.backtest({ run: r.id });
+              }, "已导入回测存档")
+            }
+          >
+            导入回测存档
+          </FileButton>
         </div>
+        {note && (
+          <span role="status" className="small ok b">
+            {note}
+          </span>
+        )}
+        {err !== null && <Problem error={err} />}
         {rows.length === 0 && <span className="note">还没有回测过。</span>}
         {rows.length > 0 && (
           <div className="tbl-wrap">
@@ -305,6 +338,7 @@ function RunList({ rows, selected, cmp, nameOf }: { rows: RunRow[]; selected: st
                   <th className="r">夏普</th>
                   <th>数据版本</th>
                   <th>运行时间</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -322,6 +356,26 @@ function RunList({ rows, selected, cmp, nameOf }: { rows: RunRow[]; selected: st
                     <td className="num r">{r.sharpe === null ? "—" : r.sharpe.toFixed(2)}</td>
                     <td className="small">{r.data_version_name ?? <span className="muted">数据版本已清理</span>}</td>
                     <td className="small muted">{localTime(r.created_at)}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="row nowrap">
+                        <button type="button" className="btn sm soft" aria-pressed={r.pinned} onClick={() => void act(() => pin.mutateAsync({ id: r.id, pinned: !r.pinned }), r.pinned ? "已取消保留" : "已保留")}>
+                          {r.pinned ? "已保留" : "保留"}
+                        </button>
+                        <button type="button" className="btn sm soft" onClick={() => void act(() => exportFile("runs_export", { id: r.id }), "已导出，浏览器开始下载")}>
+                          导出
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm ghost"
+                          disabled={r.pinned}
+                          onClick={() => {
+                            if (window.confirm(`删除这次回测（${nameOf(r)}，${r.start} 至 ${r.end}）？删除后不能恢复。`)) void act(() => del.mutateAsync({ id: r.id }), "已删除");
+                          }}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -327,3 +327,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .status-progress { width: 140px; display: inline-block; }
 .warn-text { color: var(--warn); font-weight: 600; }
 .stock-ref b { font-weight: 700; }
+.old-version { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 18px; border-radius: 20px; background: var(--warn-t); color: var(--warn); }
+.version-row { gap: 6px; }
+.stack-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }

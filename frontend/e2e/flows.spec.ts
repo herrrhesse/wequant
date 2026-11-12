@@ -159,3 +159,33 @@ test("search: a stock found by part of its name opens its page, and pages show n
   await page.goto(`#/picks?id=${preset}`);
   await expect(page.locator(".picks-main .stock-ref b").first()).not.toHaveText(/^\d{6}\.(SH|SZ)$/);
 });
+
+test("storage: an old version in use is announced and one click goes back; a pinned version says so; a run exports and imports", async ({ page }) => {
+  await page.goto("#/data");
+  const versions = page.getByRole("region", { name: "版本历史" });
+  const older = versions.locator(".version-row").nth(1);
+  await older.getByRole("button", { name: "切换到这个版本使用" }).click();
+  const notice = page.getByRole("region", { name: "正在使用旧版本" });
+  await expect(notice).toBeVisible();
+  await notice.getByRole("button", { name: "回到最新版本" }).click();
+  await expect(notice).toHaveCount(0);
+  await older.getByRole("button", { name: "固定" }).click();
+  await expect(older.getByText("已固定")).toBeVisible();
+  await older.getByRole("button", { name: "取消固定" }).click();
+  await expect(older.getByText("已固定")).toHaveCount(0);
+
+  await page.goto("#/backtest");
+  const list = page.getByRole("region", { name: "运行记录" });
+  const rows = list.locator("tbody tr");
+  await expect(rows.first()).toBeVisible();
+  const download = page.waitForEvent("download");
+  await rows.first().getByRole("button", { name: "导出" }).click();
+  const file = await (await download).path();
+  const name = (await download).suggestedFilename();
+  expect(name).toMatch(/\.wqrun$/);
+  await rows.first().getByRole("button", { name: "保留" }).click();
+  await expect(rows.first().getByRole("button", { name: "已保留" })).toBeVisible();
+  await expect(rows.first().getByRole("button", { name: "删除" })).toBeDisabled();
+  await page.locator('input[type=file][accept=".wqrun"]').setInputFiles({ name, mimeType: "application/octet-stream", buffer: (await import("node:fs")).readFileSync(file) });
+  await expect(list.getByRole("status")).toBeVisible();
+});

@@ -1,7 +1,7 @@
 // The data status strip under the top bar, on every page: the local latest trading day, the data version's display
 // name, how many data problems wait for a decision and "更新到今天" (a background job with progress and cancel).
-// The button shows while the latest local day is before today and the last update did not say "已是最新".
-// The old-version notice arrives with version switching (round 2, chunk 4).
+// The button shows only when the backend says an update is due (data status update_due). While an older data
+// version is in use, a notice above the strip says so and goes back to the newest in one click.
 import { jobView } from "../api/jobstate";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
@@ -11,14 +11,6 @@ import type { UpdateResult } from "../api/types.gen";
 import { useLabels, type LabelBook } from "../labels";
 import { href } from "../router";
 import { tx, weekday } from "../text";
-
-/** Today's date where the market is (Asia/Shanghai), as YYYY-MM-DD. */
-function today(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
-}
-
-/** The data version an update last found up to date (kept for this visit). */
-let upToDateAt: number | null = null;
 
 function outcome(L: LabelBook, r: UpdateResult): string {
   return L.updateStatus(r.status, { days: r.days.length, last_day: r.days[r.days.length - 1] ?? null, waiting: r.waiting, proposed: r.proposed, unresolved: r.unresolved });
@@ -39,14 +31,32 @@ export function StatusBar({ right }: { right?: ReactNode }) {
   const [, rerender] = useState(0);
   useEffect(() => {
     if (!out) return;
-    if (out.status === "up_to_date") upToDateAt = out.data_version;
     void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "jobs_result" });
     rerender((n) => n + 1);
   }, [out, client]);
   const s = status.data;
   const active = jobView(job).active;
-  const canUpdate = !!s && !active && !!s.last_trade_date && s.last_trade_date < today() && upToDateAt !== s.data_version;
+  const canUpdate = !!s && !active && s.update_due === true;
+  const back = useCallMutation("data_use_version", []);
   return (
+    <>
+    {s?.using_old_version && (
+      <section className="old-version" aria-label="正在使用旧版本">
+        <strong>正在使用旧的数据版本 {s.version_list.find((v) => v.id === s.version_in_use)?.name ?? s.data_version_name}</strong>
+        <span className="small sub">选股、回测和个股都按这个版本计算。最新版本是 {s.version_list.find((v) => v.id === s.current_version)?.name ?? ""}。</span>
+        <button
+          type="button"
+          className="btn push"
+          disabled={back.isPending}
+          onClick={async () => {
+            await back.mutateAsync({ version: null });
+            void client.invalidateQueries();
+          }}
+        >
+          回到最新版本
+        </button>
+      </section>
+    )}
     <section className="statusbar" aria-label={tx.status.label}>
       {s ? (
         <span className="status-day">
@@ -94,5 +104,6 @@ export function StatusBar({ right }: { right?: ReactNode }) {
         {right}
       </div>
     </section>
+    </>
   );
 }

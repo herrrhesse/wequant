@@ -1,6 +1,6 @@
 // 数据: data problems with their proposed handling (approve or reject, view on the K-line), what the import changed,
-// delisting handling (folded) and the trading calendar. Version history, storage and "更新到今天" arrive with the
-// backend's round 2 (chunks 3 and 4); the data directory and the first-run wizard are round 3.
+// version history and storage, delisting handling (folded) and the trading calendar. The data directory and the
+// first-run wizard are round 3.
 import { useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
 import type { Resolution } from "../../api/types.gen";
@@ -10,6 +10,7 @@ import { useLabels } from "../../labels";
 import { href, type Route } from "../../router";
 import { useUi } from "../../ui";
 import { DelistingsSection } from "./DelistingsSection";
+import { Storage, Versions } from "./Versions";
 
 type DataRoute = Extract<Route, { page: "data" }>;
 type Tab = "proposed" | "approved" | "rejected";
@@ -56,6 +57,14 @@ export function DataPage({ route }: { route: DataRoute }) {
         {res.data && res.data.rows.length === 0 && <span className="note">{tab === "proposed" ? "没有待批准的处理。" : "没有记录。"}</span>}
         {res.data?.rows.map((r) => <ResolutionRow key={`${r.code}/${r.date}/${r.kind}`} r={r} />)}
       </section>
+      <div className="split">
+        <div className="main">
+          <Versions />
+        </div>
+        <div className="aside">
+          <Storage />
+        </div>
+      </div>
       <section className="card" aria-label="导入时的改动">
         <button type="button" className="card-head fold" aria-expanded={!fold} onClick={() => setFold(!fold)}>
           <h2>导入时的改动</h2>
