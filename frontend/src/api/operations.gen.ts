@@ -11,6 +11,13 @@ export interface Operations {
   data_check: { request: M.CheckRequest; result: M.CheckReport };
   data_delistings: { request: M.DelistingsRequest; result: M.Delistings };
   data_index_check: { request: M.IndexCheckRequest; result: M.IndexCheck };
+  data_index_bars: { request: M.IndexBarsRequest; result: M.IndexBars };
+  data_names: { request: M.NamesRequest; result: M.NamesReport };
+  data_update: { request: M.UpdateRequest; result: M.UpdateResult };
+  data_use_version: { request: M.UseVersionRequest; result: M.SettingsOut };
+  data_pin_version: { request: M.PinVersionRequest; result: M.SettingsOut };
+  data_export: { request: M.ExportVersionRequest; result: M.Exported };
+  data_import: { request: M.ImportRequest; result: M.VersionImported };
   data_verify_submit: { request: M.VerifySubmitRequest; result: M.VerifySubmitResult };
   data_verify_list: { request: M.VerifyListRequest; result: M.VerifyPage };
   data_resolve_list: { request: M.ResolveListRequest; result: M.ResolvePage };
@@ -26,6 +33,9 @@ export interface Operations {
   strategy_versions: { request: M.VersionsRequest; result: M.StrategyVersions };
   strategy_show: { request: M.ShowRequest; result: M.SavedStrategy };
   strategy_archive: { request: M.ArchiveRequest; result: M.StrategyInfo };
+  strategy_export: { request: M.ExportStrategyRequest; result: M.Exported };
+  strategy_import: { request: M.ImportRequest; result: M.StrategyImported };
+  strategy_schedule: { request: M.ScheduleRequest; result: M.Schedule };
   screen: { request: M.ScreenRequest; result: M.ScreenResult };
   backtest: { request: M.BacktestRequest; result: M.BacktestResult };
   runs_list: { request: M.RunsListRequest; result: M.RunsPage };
@@ -36,7 +46,21 @@ export interface Operations {
   runs_orders: { request: M.OrdersRequest; result: M.OrdersPage };
   runs_day: { request: M.RunDayRequest; result: M.RunDay };
   runs_anomalies: { request: M.AnomaliesRequest; result: M.AnomaliesPage };
+  runs_pin: { request: M.PinRunRequest; result: M.SettingsOut };
+  runs_delete: { request: M.DeleteRunRequest; result: M.RunDeleted };
+  runs_export: { request: M.ExportRunRequest; result: M.Exported };
+  runs_import: { request: M.ImportRequest; result: M.RunImported };
   explain: { request: M.ExplainRequest; result: M.Explain };
+  jobs_start: { request: M.JobStartRequest; result: M.JobInfo };
+  jobs_list: { request: M.JobsListRequest; result: M.JobList };
+  jobs_show: { request: M.JobRef; result: M.JobInfo };
+  jobs_cancel: { request: M.JobRef; result: M.JobInfo };
+  jobs_result: { request: M.JobRef; result: M.JobOutput };
+  storage_usage: { request: M.UsageRequest; result: M.StorageUsage };
+  storage_cleanup: { request: M.CleanupRequest; result: M.Cleanup };
+  settings_show: { request: M.SettingsRequest; result: M.SettingsOut };
+  settings_update: { request: M.SettingsUpdate; result: M.SettingsOut };
+  labels: { request: M.LabelsRequest; result: M.Labels };
   schema: { request: M.SchemaRequest; result: M.ServiceSchema };
 }
 
@@ -52,6 +76,13 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_check: { method: "POST", path: "/api/data_check" },
   data_delistings: { method: "POST", path: "/api/data_delistings" },
   data_index_check: { method: "POST", path: "/api/data_index_check" },
+  data_index_bars: { method: "POST", path: "/api/data_index_bars" },
+  data_names: { method: "POST", path: "/api/data_names" },
+  data_update: { method: "POST", path: "/api/data_update" },
+  data_use_version: { method: "POST", path: "/api/data_use_version" },
+  data_pin_version: { method: "POST", path: "/api/data_pin_version" },
+  data_export: { method: "POST", path: "/api/data_export" },
+  data_import: { method: "POST", path: "/api/data_import" },
   data_verify_submit: { method: "POST", path: "/api/data_verify_submit" },
   data_verify_list: { method: "POST", path: "/api/data_verify_list" },
   data_resolve_list: { method: "POST", path: "/api/data_resolve_list" },
@@ -67,6 +98,9 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   strategy_versions: { method: "POST", path: "/api/strategy_versions" },
   strategy_show: { method: "POST", path: "/api/strategy_show" },
   strategy_archive: { method: "POST", path: "/api/strategy_archive" },
+  strategy_export: { method: "POST", path: "/api/strategy_export" },
+  strategy_import: { method: "POST", path: "/api/strategy_import" },
+  strategy_schedule: { method: "POST", path: "/api/strategy_schedule" },
   screen: { method: "POST", path: "/api/screen" },
   backtest: { method: "POST", path: "/api/backtest" },
   runs_list: { method: "POST", path: "/api/runs_list" },
@@ -77,6 +111,20 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   runs_orders: { method: "POST", path: "/api/runs_orders" },
   runs_day: { method: "POST", path: "/api/runs_day" },
   runs_anomalies: { method: "POST", path: "/api/runs_anomalies" },
+  runs_pin: { method: "POST", path: "/api/runs_pin" },
+  runs_delete: { method: "POST", path: "/api/runs_delete" },
+  runs_export: { method: "POST", path: "/api/runs_export" },
+  runs_import: { method: "POST", path: "/api/runs_import" },
   explain: { method: "POST", path: "/api/explain" },
+  jobs_start: { method: "POST", path: "/api/jobs_start" },
+  jobs_list: { method: "POST", path: "/api/jobs_list" },
+  jobs_show: { method: "POST", path: "/api/jobs_show" },
+  jobs_cancel: { method: "POST", path: "/api/jobs_cancel" },
+  jobs_result: { method: "POST", path: "/api/jobs_result" },
+  storage_usage: { method: "POST", path: "/api/storage_usage" },
+  storage_cleanup: { method: "POST", path: "/api/storage_cleanup" },
+  settings_show: { method: "POST", path: "/api/settings_show" },
+  settings_update: { method: "POST", path: "/api/settings_update" },
+  labels: { method: "POST", path: "/api/labels" },
   schema: { method: "POST", path: "/api/schema" },
 };

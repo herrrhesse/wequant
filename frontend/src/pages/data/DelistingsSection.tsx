@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { commandOf, useCall } from "../api/client";
-import type { DelistingRow } from "../api/types.gen";
-import { Card } from "../components/Card";
-import { Problem } from "../components/Problem";
-import { Seg } from "./strategy/shared";
-import { show } from "../format";
-import { t } from "../i18n";
-import { href } from "../router";
+import { commandOf, useCall } from "../../api/client";
+import type { DelistingRow } from "../../api/types.gen";
+import { Card } from "../../components/Card";
+import { Problem } from "../../components/Problem";
+import { Seg } from "../../components/Seg";
+import { show } from "../../format";
+import { t } from "../../i18n";
+import { lb } from "../../labels";
+import { href } from "../../router";
 
 type Kind = DelistingRow["kind"] | "all";
 const KINDS: Kind[] = ["all", "forced", "merger", "suspension", "unknown"];
@@ -27,12 +28,12 @@ export function DelistingsSection() {
         <Stat label={d.total} value={data.counts.total} />
         <Stat label={d.approximate} value={data.counts.approximate} />
         {Object.entries(data.counts.kind).map(([k, n]) => (
-          <Stat key={k} label={d.kinds[k] ?? k} value={n} />
+          <Stat key={k} label={lb().of("delisting_kinds", k)} value={n} />
         ))}
       </div>
       <p className="note">
         {Object.entries(data.counts.treatment)
-          .map(([k, n]) => `${d.treatments[k] ?? k} ${n}`)
+          .map(([k, n]) => `${lb().of("delisting_treatments", k)} ${n}`)
           .join(" · ")}
         {" · "}
         {Object.entries(data.counts.classified_by)
@@ -42,7 +43,7 @@ export function DelistingsSection() {
       <p className="lead">{d.rules}</p>
       <p className="approx-note">{d.approxNote}</p>
       {data.overrides && <span className="note">{d.overrides}</span>}
-      <Seg label={d.kind} value={kind} options={KINDS.map((k): [Kind, string] => [k, k === "all" ? d.all : d.kinds[k]!])} onChange={setKind} />
+      <Seg label={d.kind} value={kind} options={KINDS.map((k): [Kind, string] => [k, k === "all" ? d.all : lb().of("delisting_kinds", k)])} onChange={setKind} />
       <div className="tbl-wrap">
         <table className="tbl">
           <thead>
@@ -70,7 +71,7 @@ export function DelistingsSection() {
                   {r.day ?? d.notInCalendar}
                   {r.approximate && <span className="badge approx">{d.approximate}</span>}
                 </td>
-                <td>{d.kinds[r.kind]}</td>
+                <td>{lb().of("delisting_kinds", r.kind)}</td>
                 <td>
                   <div>{d.by[r.classified_by]}</div>
                   {r.evidence && <div className="note">{r.evidence}</div>}
@@ -78,7 +79,7 @@ export function DelistingsSection() {
                   {r.last_bar && <div className="note">{d.lastBar(r.last_bar, show(r.last_close))}</div>}
                 </td>
                 <td>
-                  <div>{d.treatments[r.treatment]}</div>
+                  <div>{lb().of("delisting_treatments", r.treatment)}</div>
                   {/* Display-only: a ratio shown as a percent. */}
                   {r.recovery !== null && <div className="note">{d.recovery(String(Number((r.recovery * 100).toPrecision(12))))}</div>}
                 </td>

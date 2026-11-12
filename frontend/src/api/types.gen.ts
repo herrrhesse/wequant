@@ -12,6 +12,14 @@ export type JsonValue = unknown;
  * via the `definition` "Exit".
  */
 export type Exit = 0 | 1 | 2 | 3 | 4 | 5 | 70 | 130;
+/**
+ * A succeeded job's result: what its operation run directly returns (backtest: BacktestResult, data_update:
+ * UpdateResult).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobOutput".
+ */
+export type JobOutput = BacktestResult | UpdateResult;
 
 export interface ServiceModels {
   AnomaliesPage?: AnomaliesPage;
@@ -26,6 +34,8 @@ export interface ServiceModels {
   CalendarRequest?: CalendarRequest;
   CheckReport?: CheckReport;
   CheckRequest?: CheckRequest;
+  Cleanup?: Cleanup;
+  CleanupRequest?: CleanupRequest;
   ConditionSpec?: ConditionSpec;
   CountSpan?: CountSpan;
   DailyRow?: DailyRow;
@@ -35,6 +45,7 @@ export interface ServiceModels {
   Decision?: Decision;
   DecisionRequest?: DecisionRequest;
   DecisionRow?: DecisionRow;
+  DeleteRunRequest?: DeleteRunRequest;
   DelistedRow?: DelistedRow;
   DelistingCounts?: DelistingCounts;
   DelistingRow?: DelistingRow;
@@ -48,6 +59,10 @@ export interface ServiceModels {
   Exit?: Exit;
   Explain?: Explain;
   ExplainRequest?: ExplainRequest;
+  ExportRunRequest?: ExportRunRequest;
+  ExportStrategyRequest?: ExportStrategyRequest;
+  ExportVersionRequest?: ExportVersionRequest;
+  Exported?: Exported;
   ExprCheck?: ExprCheck;
   ExprRequest?: ExprRequest;
   FactorCell?: FactorCell;
@@ -56,19 +71,35 @@ export interface ServiceModels {
   FeeRule?: FeeRule;
   FunnelStep?: FunnelStep;
   GroupSpec?: GroupSpec;
+  ImportRequest?: ImportRequest;
+  IndexBar?: IndexBar;
+  IndexBars?: IndexBars;
+  IndexBarsRequest?: IndexBarsRequest;
   IndexCheck?: IndexCheck;
   IndexCheckRequest?: IndexCheckRequest;
   IndexCoverage?: IndexCoverage;
   IssueCount?: IssueCount;
+  IssueKindLabel?: IssueKindLabel;
   IssueRow?: IssueRow;
   Issues?: Issues;
   IssuesRequest?: IssuesRequest;
+  JobInfo?: JobInfo;
+  JobList?: JobList;
+  JobOutput?: JobOutput;
+  JobRef?: JobRef;
+  JobStartRequest?: JobStartRequest;
+  JobsListRequest?: JobsListRequest;
   JsonValue?: JsonValue;
+  Label?: Label;
+  Labels?: Labels;
+  LabelsRequest?: LabelsRequest;
   LevelCounts?: LevelCounts;
   MemberResult?: MemberResult;
   MetricDiff?: MetricDiff;
   MetricOut?: MetricOut;
   MetricSpecModel?: MetricSpecModel1;
+  NamesReport?: NamesReport;
+  NamesRequest?: NamesRequest;
   OperationModels?: OperationModels;
   OrderCounts?: OrderCounts;
   OrderRow?: OrderRow;
@@ -76,6 +107,8 @@ export interface ServiceModels {
   OrdersRequest?: OrdersRequest;
   PeriodRow?: PeriodRow;
   Periods?: Periods;
+  PinRunRequest?: PinRunRequest;
+  PinVersionRequest?: PinVersionRequest;
   PoolCheck?: PoolCheck;
   PoolSpec?: PoolSpec1;
   PositionRow?: PositionRow;
@@ -88,9 +121,11 @@ export interface ServiceModels {
   RunComparison?: RunComparison;
   RunDay?: RunDay;
   RunDayRequest?: RunDayRequest;
+  RunDeleted?: RunDeleted;
   RunDetail?: RunDetail;
   RunDiff?: RunDiff;
   RunDiffRequest?: RunDiffRequest;
+  RunImported?: RunImported;
   RunReport?: RunReport;
   RunRequest?: RunRequest;
   RunRow?: RunRow;
@@ -100,6 +135,9 @@ export interface ServiceModels {
   SavedRef?: SavedRef;
   SavedStrategy?: SavedStrategy;
   SavedVersion?: SavedVersion;
+  Schedule?: Schedule;
+  ScheduleRequest?: ScheduleRequest;
+  ScheduledDay?: ScheduledDay;
   SchemaRequest?: SchemaRequest;
   ScoreCheck?: ScoreCheck;
   ScreenRequest?: ScreenRequest;
@@ -110,13 +148,18 @@ export interface ServiceModels {
   SecurityRow?: SecurityRow;
   SellReason?: SellReason;
   ServiceSchema?: ServiceSchema;
+  SettingsOut?: SettingsOut;
+  SettingsRequest?: SettingsRequest;
+  SettingsUpdate?: SettingsUpdate;
   ShowRequest?: ShowRequest;
   SourceRef?: SourceRef;
   Stage?: Stage;
   StatusCount?: StatusCount;
   StatusRequest?: StatusRequest;
   StepCheck?: StepCheck;
+  StorageUsage?: StorageUsage;
   StrategyCheck?: StrategyCheck;
+  StrategyImported?: StrategyImported;
   StrategyInfo?: StrategyInfo;
   StrategyList?: StrategyList;
   StrategyListRequest?: StrategyListRequest;
@@ -129,6 +172,11 @@ export interface ServiceModels {
   StrategyVersions?: StrategyVersions;
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
+  TemplateLabel?: TemplateLabel;
+  UpdateRequest?: UpdateRequest;
+  UpdateResult?: UpdateResult;
+  UsageRequest?: UsageRequest;
+  UseVersionRequest?: UseVersionRequest;
   VerificationIn?: VerificationIn;
   VerificationOut?: VerificationOut;
   VerifiedCell?: VerifiedCell;
@@ -137,9 +185,12 @@ export interface ServiceModels {
   VerifyPage?: VerifyPage;
   VerifySubmitRequest?: VerifySubmitRequest;
   VerifySubmitResult?: VerifySubmitResult;
-  VersionInfo?: VersionInfo;
+  VersionImported?: VersionImported;
   VersionsRequest?: VersionsRequest;
   Warning?: Warning;
+  WarningLabel?: WarningLabel;
+  wequant__service__status__VersionInfo?: VersionInfo;
+  wequant__service__strategies__VersionInfo?: VersionInfo1;
 }
 /**
  * Uses in archive order (date, code, channel, anomaly_date, kind, seq).
@@ -462,6 +513,10 @@ export interface BacktestResult {
    */
   saved: boolean;
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   strategy_hash: string;
   saved_as: SavedRef[];
   start: string;
@@ -648,6 +703,10 @@ export interface Warning {
  */
 export interface Bars {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   fields: (
     | "open"
     | "high"
@@ -672,6 +731,12 @@ export interface Bars {
     | "st_known"
     | "list_days"
   )[];
+  /**
+   * Each code's stock name today (newest store version); null when no source gave one.
+   */
+  names: {
+    [k: string]: string | null;
+  };
   rows: Row[];
 }
 /**
@@ -781,6 +846,10 @@ export interface BarsRequest {
 export interface Calendar {
   data_version: number;
   /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
+  /**
    * The version's first trading day, whatever the range; null: an empty calendar.
    */
   first: string | null;
@@ -829,6 +898,10 @@ export interface CheckReport {
    */
   data_version: number;
   /**
+   * Its display name.
+   */
+  data_version_name: string;
+  /**
    * New version, or null if none was made.
    */
   committed: number | null;
@@ -876,6 +949,73 @@ export interface CheckRequest {
    * Record breaches and the limit_check block in a new version under the writer lock, and write the report.
    */
   commit?: boolean;
+}
+/**
+ * Usage before and after, and what went.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Cleanup".
+ */
+export interface Cleanup {
+  before: StorageUsage;
+  after: StorageUsage;
+  files_removed: number;
+  runs_removed: string[];
+  panels_removed: number;
+}
+/**
+ * Bytes on disk, the limits, and what cleanup would free.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "StorageUsage".
+ */
+export interface StorageUsage {
+  /**
+   * The data the current version and the one in use read.
+   */
+  current: number;
+  /**
+   * Files only other kept versions read.
+   */
+  versions: number;
+  /**
+   * Panels.
+   */
+  cache: number;
+  /**
+   * The run archive.
+   */
+  runs: number;
+  runs_limit: number;
+  keep_versions: number;
+  /**
+   * Files and manifests of versions cleanup does not keep.
+   */
+  free_versions: number;
+  /**
+   * Panels of versions other than the one in use.
+   */
+  free_cache: number;
+  /**
+   * The oldest unpinned runs beyond the archive's limit.
+   */
+  free_runs: number;
+  /**
+   * All of it.
+   */
+  free: number;
+}
+/**
+ * Clean up now: versions, runs over the limit and panels, as cleanup keeps them.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "CleanupRequest".
+ */
+export interface CleanupRequest {
+  /**
+   * Only count.
+   */
+  dry_run?: boolean;
 }
 /**
  * A run of days whose member count is off the nominal count.
@@ -958,18 +1098,47 @@ export interface DataSpec1 {
   exclude_suspicious?: boolean;
 }
 /**
- * One store version: its tables and meta, next to the versions the store keeps.
+ * One store version: its tables and meta, next to every version the store keeps.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "DataStatus".
  */
 export interface DataStatus {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N.
+   */
+  data_version_name: string;
+  /**
+   * The current version: the newest data, which updates build on.
+   */
   current_version: number;
   /**
-   * Versions the store keeps.
+   * What requests without a data_version read: the version set in use while it is kept, else the current one.
+   */
+  version_in_use: number;
+  /**
+   * A version other than the current one is in use; data_use_version with null goes back.
+   */
+  using_old_version: boolean;
+  /**
+   * The first trading day after the current version's last, by BaoStock's calendar in the raw layer; null without
+   * that calendar or a day after it.
+   */
+  next_trading_day: string | null;
+  /**
+   * data update has a closed trading day to fetch (a day closes at 18:00 Shanghai time); null without the
+   * calendar.
+   */
+  update_due: boolean | null;
+  /**
+   * Versions the store keeps, oldest first.
    */
   versions: number[];
+  /**
+   * The same versions with their names and reasons, newest first.
+   */
+  version_list: VersionInfo[];
   created_at: string;
   last_trade_date: string | null;
   /**
@@ -983,6 +1152,40 @@ export interface DataStatus {
   meta: {
     [k: string]: JsonValue;
   };
+}
+/**
+ * One version the store keeps.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "wequant__service__status__VersionInfo".
+ */
+export interface VersionInfo {
+  /**
+   * The number requests take as data_version.
+   */
+  id: number;
+  /**
+   * The display name, YYYYMMDD.N: the version's last trade date, then which version of that day; written when the
+   * version was made and never changed (legacy versions: the day and their own number).
+   */
+  name: string;
+  /**
+   * Why it was made, in Chinese, e.g. 每日更新.
+   */
+  reason: string;
+  /**
+   * The reason's code (labels.version_reasons) and its params.
+   */
+  reason_code: string;
+  reason_params: {
+    [k: string]: number | string | null;
+  };
+  last_trade_date: string | null;
+  created_at: string;
+  /**
+   * Kept by every cleanup.
+   */
+  pinned: boolean;
 }
 /**
  * One table of the version.
@@ -1047,6 +1250,10 @@ export interface DecisionRequest {
  */
 export interface DecisionRow {
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   role: "target" | "backup" | "none";
   /**
    * null: no score.
@@ -1088,6 +1295,15 @@ export interface SellReason {
    * hold_rank or top_n; null: not applicable.
    */
   limit: number | null;
+}
+/**
+ * Remove one archived run.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "DeleteRunRequest".
+ */
+export interface DeleteRunRequest {
+  id: string;
 }
 /**
  * The rows in total and by kind, treatment and classifier (every key, zeros included), and how many are
@@ -1165,6 +1381,10 @@ export interface DelistingRow {
  */
 export interface Delistings {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   /**
    * An overrides file exists in the data root.
    */
@@ -1293,6 +1513,10 @@ export interface EvalRequest {
  */
 export interface EvalResult {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   key: string;
   kind: "num" | "bool";
   rows: Row[];
@@ -1334,9 +1558,17 @@ export interface ExecutionSpec2 {
  */
 export interface Explain {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   date: string;
   next_day: string | null;
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   strategy_hash: string;
   run_id: string | null;
   pool: PoolCheck[];
@@ -1470,6 +1702,10 @@ export interface OrderRow {
    */
   date: string;
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   side: "buy" | "sell";
   status: "filled" | "partial" | "rejected";
   /**
@@ -1513,6 +1749,27 @@ export interface OrderRow {
         | "delist_exit"
       )
     | null;
+  /**
+   * Why the order was placed, from the run's decisions: a code of labels.order_causes; unrecorded when no decision
+   * row explains it.
+   */
+  cause:
+    | "enter"
+    | "backup"
+    | "rebalance"
+    | "exit_pool"
+    | "exit_filter"
+    | "exit_no_score"
+    | "exit_rank"
+    | "exit_slots"
+    | "delisting"
+    | "unrecorded";
+  /**
+   * The params the cause's sentence reads: rank, limit, step, weight or drift.
+   */
+  cause_params: {
+    [k: string]: number | string | null;
+  };
 }
 /**
  * A stock and a day, for a strategy (inline or saved) or an archived run: exactly one of the three.
@@ -1537,6 +1794,62 @@ export interface ExplainRequest {
    * null: the current version, or the run's (then it must be null).
    */
   data_version?: number | null;
+}
+/**
+ * An archived run as one file, with its strategy.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ExportRunRequest".
+ */
+export interface ExportRunRequest {
+  id: string;
+  /**
+   * Where to write it; null: <home>/exports/<id>.wqrun.
+   */
+  path?: string | null;
+}
+/**
+ * A saved strategy as one file: its name and current version, or every version.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ExportStrategyRequest".
+ */
+export interface ExportStrategyRequest {
+  id: string;
+  /**
+   * Every saved version, not only the current one.
+   */
+  history?: boolean;
+  /**
+   * Where to write it; null: <home>/exports/<id>.wqstrategy.
+   */
+  path?: string | null;
+}
+/**
+ * A data version as one file: its manifest and every file it reads.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ExportVersionRequest".
+ */
+export interface ExportVersionRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  /**
+   * Where to write it; null: <home>/exports/v<N>_<name>.wqver.
+   */
+  path?: string | null;
+}
+/**
+ * The file written.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Exported".
+ */
+export interface Exported {
+  path: string;
+  bytes: number;
 }
 /**
  * A valid expression's canonical key and kind.
@@ -1652,6 +1965,70 @@ export interface FunnelStep {
   members: string[] | null;
 }
 /**
+ * A file to import, as an export wrote it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ImportRequest".
+ */
+export interface ImportRequest {
+  path: string;
+}
+/**
+ * One index day: prices in index points, volume in shares, amount in yuan.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexBar".
+ */
+export interface IndexBar {
+  code: string;
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  amount: number;
+  /**
+   * close over the index's previous stored close, minus 1; null on its first stored day.
+   */
+  change: number | null;
+}
+/**
+ * The days of each index in the range, by code then date; codes without rows are listed apart.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexBars".
+ */
+export interface IndexBars {
+  data_version: number;
+  data_version_name: string;
+  rows: IndexBar[];
+  /**
+   * Codes the version has no bar of in the range.
+   */
+  missing: string[];
+}
+/**
+ * Daily bars of a few indices over a date range.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexBarsRequest".
+ */
+export interface IndexBarsRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  /**
+   * Index codes such as 000300.SH.
+   *
+   * @minItems 1
+   */
+  codes: [string, ...string[]];
+  start?: string | null;
+  end?: string | null;
+}
+/**
  * Each index's coverage, counting the members member@ reads (a member code the store does not list is not
  * counted); ok is False when any index has an anomalous span.
  *
@@ -1664,6 +2041,10 @@ export interface IndexCheck {
    */
   ok: boolean;
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   indexes: IndexCoverage[];
 }
 /**
@@ -1715,6 +2096,33 @@ export interface IssueCount {
   rows: number;
 }
 /**
+ * A data_issues kind, with what schema.py says of it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IssueKindLabel".
+ */
+export interface IssueKindLabel {
+  code: string;
+  /**
+   * Short, for tables and chips.
+   */
+  label: string;
+  /**
+   * One sentence, for tooltips.
+   */
+  help: string;
+  table: string;
+  /**
+   * True: every merge or check recomputes it (it describes the data as it is); false: a record of one action.
+   */
+  state: boolean;
+  /**
+   * Its anomaly class; null when it marks no cell a run reads.
+   */
+  anomaly: string | null;
+  level: string | null;
+}
+/**
  * One data_issues row; detail is its JSON text as stored.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -1737,6 +2145,10 @@ export interface IssueRow {
  */
 export interface Issues {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   total: number;
   counts: IssueCount[];
   rows: IssueRow[];
@@ -1778,6 +2190,268 @@ export interface IssuesRequest {
   limit?: number;
 }
 /**
+ * Where one job is.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobInfo".
+ */
+export interface JobInfo {
+  id: number;
+  /**
+   * A code of labels.job_kinds.
+   */
+  kind: string;
+  state: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  /**
+   * The request as the job runs it, data_version pinned.
+   */
+  request: {
+    [k: string]: JsonValue;
+  };
+  data_version: number | null;
+  /**
+   * Null once that version is no longer kept.
+   */
+  data_version_name: string | null;
+  /**
+   * Place in the queue, 1 = next to start; null unless queued.
+   */
+  position: number | null;
+  /**
+   * Done, from 0 to 1.
+   */
+  fraction: number;
+  /**
+   * A code of labels.job_stages; its template filled from params is text.
+   */
+  stage: string;
+  params: {
+    [k: string]: number | string | null;
+  };
+  /**
+   * The stage in one Chinese sentence.
+   */
+  text: string;
+  /**
+   * Why a failed or cancelled job has no result; null otherwise.
+   */
+  error: ErrorBody | null;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  /**
+   * Counts the job's changes.
+   */
+  seq: number;
+}
+/**
+ * Running and queued jobs first, in queue order, then finished ones, newest first.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobList".
+ */
+export interface JobList {
+  jobs: JobInfo[];
+  /**
+   * Jobs that run at a time; the others wait.
+   */
+  limit: number;
+}
+/**
+ * What the update did; ok unless conflicts or rejected rows stopped it (the store is then unchanged).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UpdateResult".
+ */
+export interface UpdateResult {
+  /**
+   * True when the check found nothing to act on.
+   */
+  ok: boolean;
+  status: "updated" | "up_to_date" | "not_published" | "conflicts" | "rejected";
+  /**
+   * The outcome in one Chinese sentence (labels.update_statuses filled from this result).
+   */
+  text: string;
+  data_version: number;
+  /**
+   * The current version afterwards: the new one when updated.
+   */
+  data_version_name: string;
+  previous_version: number;
+  /**
+   * Days merged; with conflicts, the days held back.
+   */
+  days: string[];
+  /**
+   * The first day BaoStock has not published yet; null when every closed day is in.
+   */
+  waiting: string | null;
+  /**
+   * Resolutions proposed for conflicts, waiting for approval on the data page.
+   */
+  proposed: number;
+  unresolved: number;
+  /**
+   * This update's data_issues rows by kind.
+   */
+  issues: {
+    [k: string]: number;
+  };
+  /**
+   * Index rows added, by code.
+   */
+  indexes: {
+    [k: string]: number;
+  };
+  /**
+   * Why BaoStock's rows were rejected; empty otherwise.
+   */
+  problems: string[];
+  /**
+   * Requests to BaoStock, the login included.
+   */
+  requests: number;
+}
+/**
+ * One job.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobRef".
+ */
+export interface JobRef {
+  id: number;
+}
+/**
+ * A job to start: its kind and its operation's request.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobStartRequest".
+ */
+export interface JobStartRequest {
+  kind: "backtest" | "data_update";
+  /**
+   * The request the operation takes (backtest: a BacktestRequest, data_update: {}); a null data_version is pinned to
+   * the version current now, so a version committed while the job waits or runs changes nothing. An update builds on
+   * the version current when it plans and commits nothing if the store moved on meanwhile.
+   */
+  request?: {
+    [k: string]: JsonValue;
+  };
+}
+/**
+ * Every job kept.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobsListRequest".
+ */
+export interface JobsListRequest {}
+/**
+ * One code's Chinese name and sentence.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Label".
+ */
+export interface Label {
+  code: string;
+  /**
+   * Short, for tables and chips.
+   */
+  label: string;
+  /**
+   * One sentence, for tooltips.
+   */
+  help: string;
+}
+/**
+ * The Chinese of every code: warnings, data issues, metrics, funnel, orders, delistings, anomalies, errors,
+ * versions and jobs.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Labels".
+ */
+export interface Labels {
+  warnings: WarningLabel[];
+  issue_kinds: IssueKindLabel[];
+  issue_actions: Label[];
+  metrics: Label[];
+  metric_reasons: Label[];
+  units: Label[];
+  funnel_kinds: Label[];
+  order_statuses: Label[];
+  order_reasons: Label[];
+  sell_kinds: Label[];
+  delisting_treatments: Label[];
+  delisting_kinds: Label[];
+  anomaly_classes: Label[];
+  anomaly_levels: Label[];
+  error_codes: Label[];
+  exits: Label[];
+  version_reasons: TemplateLabel[];
+  job_kinds: Label[];
+  job_states: Label[];
+  job_stages: TemplateLabel[];
+  /**
+   * data update's statuses; params: days (merged), last_day, waiting, proposed, unresolved.
+   */
+  update_statuses: TemplateLabel[];
+  /**
+   * Why an order was placed (OrderRow.cause), filled from its cause_params.
+   */
+  order_causes: TemplateLabel[];
+  /**
+   * Where a scheduled rebalance day comes from (ScheduledDay.source).
+   */
+  day_sources: Label[];
+}
+/**
+ * A warning: template, plus optional clauses and repetition (fill shows how).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "WarningLabel".
+ */
+export interface WarningLabel {
+  code: string;
+  label: string;
+  template: string;
+  /**
+   * The keys template uses.
+   */
+  params: string[];
+  /**
+   * param -> clause appended when that param is not null.
+   */
+  optional: {
+    [k: string]: string;
+  };
+  /**
+   * Not null: params repeat per item with suffixes _2, _3, ...; the filled templates are joined by this.
+   */
+  repeat: string | null;
+}
+/**
+ * A code whose sentence is filled from params: {name}, {name:.1%} (a fraction as a percent) or {name:,.2f}.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TemplateLabel".
+ */
+export interface TemplateLabel {
+  code: string;
+  label: string;
+  template: string;
+  /**
+   * The keys template uses.
+   */
+  params: string[];
+}
+/**
+ * Every label table.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "LabelsRequest".
+ */
+export interface LabelsRequest {}
+/**
  * A metric that differs between two runs.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -1799,6 +2473,58 @@ export interface MetricSpecModel1 {
   periods_per_year?: number;
   risk_free_rate?: number;
   tail_fraction?: number;
+}
+/**
+ * What the stock_basic file gives the current version's securities.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "NamesReport".
+ */
+export interface NamesReport {
+  data_version: number;
+  /**
+   * The version read.
+   */
+  data_version_name: string;
+  /**
+   * The new version; null without commit or when nothing changes.
+   */
+  committed: number | null;
+  committed_name: string | null;
+  /**
+   * Codes in securities.
+   */
+  codes: number;
+  /**
+   * Codes with an official listing date afterwards: those stock_basic lists, and any that had one.
+   */
+  listed: number;
+  named_before: number;
+  named_after: number;
+  /**
+   * Codes whose stored name changes.
+   */
+  renamed: number;
+  /**
+   * Codes with an official delisting date afterwards.
+   */
+  delisted: number;
+  /**
+   * When the stock_basic file was fetched.
+   */
+  fetched_at: string | null;
+}
+/**
+ * Names and official dates of the current version's codes from raw/baostock/meta/stock_basic.parquet.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "NamesRequest".
+ */
+export interface NamesRequest {
+  /**
+   * Write them in a new version (reason "names") under the writer lock; otherwise only count.
+   */
+  commit?: boolean;
 }
 /**
  * One operation, the names of its request and result models, and its HTTP route.
@@ -1890,6 +2616,26 @@ export interface Periods {
   month: PeriodRow[];
 }
 /**
+ * Pin a run so the archive's size limit never removes it (cleanup then keeps its version), or unpin it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PinRunRequest".
+ */
+export interface PinRunRequest {
+  id: string;
+  pinned?: boolean;
+}
+/**
+ * Pin a data version so cleanup keeps it, or unpin it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PinVersionRequest".
+ */
+export interface PinVersionRequest {
+  version: number;
+  pinned?: boolean;
+}
+/**
  * Explicit pool items, ANDed with the universe; all defaults leave the pool as the universe.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -1921,6 +2667,10 @@ export interface PoolSpec1 {
  */
 export interface PositionRow {
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   shares: number;
   value: number;
   /**
@@ -1961,6 +2711,10 @@ export interface Stage {
  */
 export interface Reject {
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   step: string;
   kind: "listed" | "bar" | "universe" | "pool" | "condition" | "group" | "scored" | "targets" | "backups";
   /**
@@ -2123,6 +2877,16 @@ export interface RunDayRequest {
   date: string;
 }
 /**
+ * The run removed and the bytes it took.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "RunDeleted".
+ */
+export interface RunDeleted {
+  id: string;
+  bytes: number;
+}
+/**
  * An archived run with its inputs, results and derived daily and period views.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2134,6 +2898,11 @@ export interface RunDetail {
   created_at: string;
   code_version: string;
   store_version: number;
+  /**
+   * The store version's display name, YYYYMMDD.N, as kept or as noted when the run was archived; null only for a
+   * run archived before names were noted whose version is gone.
+   */
+  data_version_name: string | null;
   anchor: string;
   start: string;
   end: string;
@@ -2147,6 +2916,10 @@ export interface RunDetail {
    * Its store version is still kept.
    */
   rerunnable: boolean;
+  /**
+   * Kept by the archive's size limit, and so is its store version by version cleanup.
+   */
+  pinned: boolean;
   strategy: StrategySpec;
   execution: ExecutionSpec2;
   data: DataSpec1;
@@ -2193,6 +2966,19 @@ export interface RunDiffRequest {
   b: string;
 }
 /**
+ * The run the file held.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "RunImported".
+ */
+export interface RunImported {
+  id: string;
+  /**
+   * False: it was archived here already, with the same content.
+   */
+  added: boolean;
+}
+/**
  * An archived run's Markdown report.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2226,6 +3012,11 @@ export interface RunRow {
   created_at: string;
   code_version: string;
   store_version: number;
+  /**
+   * The store version's display name, YYYYMMDD.N, as kept or as noted when the run was archived; null only for a
+   * run archived before names were noted whose version is gone.
+   */
+  data_version_name: string | null;
   anchor: string;
   start: string;
   end: string;
@@ -2239,6 +3030,10 @@ export interface RunRow {
    * Its store version is still kept.
    */
   rerunnable: boolean;
+  /**
+   * Kept by the archive's size limit, and so is its store version by version cleanup.
+   */
+  pinned: boolean;
 }
 /**
  * Archived runs, newest first.
@@ -2329,6 +3124,52 @@ export interface SavedVersion {
   saved_at: string;
 }
 /**
+ * The next count rebalance days on or after the store's last trading day.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Schedule".
+ */
+export interface Schedule {
+  data_version: number;
+  data_version_name: string;
+  period: string;
+  every: number;
+  days: ScheduledDay[];
+  /**
+   * The last day BaoStock's published calendar covers; null without it in the raw layer.
+   */
+  calendar_until: string | null;
+}
+/**
+ * One rebalance day: its close decides, the next trading day trades.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScheduledDay".
+ */
+export interface ScheduledDay {
+  date: string;
+  /**
+   * stored: a trading day of the store; calendar: BaoStock's published calendar; estimated: a weekday after it,
+   * which a holiday may move (labels.day_sources).
+   */
+  source: "stored" | "calendar" | "estimated";
+}
+/**
+ * A strategy's next rebalance days.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScheduleRequest".
+ */
+export interface ScheduleRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  strategy?: StrategySpec | null;
+  saved?: StrategyRef | null;
+  count?: number;
+}
+/**
  * The JSON Schema of every service model.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2377,6 +3218,10 @@ export interface DataSpec2 {
  */
 export interface ScreenResult {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   date: string;
   /**
    * The fill day t+1; null: t is the store's last day.
@@ -2409,6 +3254,10 @@ export interface ScreenResult {
  */
 export interface ScreenRow {
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   rank: number;
   /**
    * In (0, 1].
@@ -2444,6 +3293,10 @@ export interface ScreenRow {
  */
 export interface Securities {
   data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
   total: number;
   rows: SecurityRow[];
 }
@@ -2501,6 +3354,49 @@ export interface ServiceSchema {
   $defs: {
     [k: string]: JsonValue;
   };
+}
+/**
+ * The data root's settings (<home>/settings.json) as they read.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SettingsOut".
+ */
+export interface SettingsOut {
+  /**
+   * The run archive's size limit; beyond it the oldest unpinned runs go when a run is archived.
+   */
+  runs_limit_gb: number;
+  /**
+   * Data versions cleanup keeps, besides the pinned ones, the one in use and those pinned runs read.
+   */
+  keep_versions: number;
+  /**
+   * What requests without a data_version read; null: the current version.
+   */
+  version_in_use: number | null;
+  pinned_versions: number[];
+  pinned_runs: string[];
+  /**
+   * Why a value of settings.json reads as its default.
+   */
+  problems: string[];
+}
+/**
+ * The data root's settings.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SettingsRequest".
+ */
+export interface SettingsRequest {}
+/**
+ * New limits; a null field keeps its setting.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SettingsUpdate".
+ */
+export interface SettingsUpdate {
+  runs_limit_gb?: number | null;
+  keep_versions?: number | null;
 }
 /**
  * One saved version (n null: the current one).
@@ -2616,6 +3512,17 @@ export interface StrategySpec1 {
   pool?: PoolSpec;
 }
 /**
+ * The strategy the file became.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "StrategyImported".
+ */
+export interface StrategyImported {
+  id: string;
+  name: string;
+  versions: number;
+}
+/**
  * One saved strategy.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2726,15 +3633,15 @@ export interface StrategyVersions {
   id: string;
   name: string;
   archived: boolean;
-  rows: VersionInfo[];
+  rows: VersionInfo1[];
 }
 /**
  * One saved version.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
- * via the `definition` "VersionInfo".
+ * via the `definition` "wequant__service__strategies__VersionInfo".
  */
-export interface VersionInfo {
+export interface VersionInfo1 {
   n: number;
   strategy_hash: string;
   saved_at: string;
@@ -2744,6 +3651,32 @@ export interface VersionInfo {
   strategy_version: number | null;
   note: string | null;
   current: boolean;
+}
+/**
+ * Fetch BaoStock's trading days after the store's last one and merge them as one version.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UpdateRequest".
+ */
+export interface UpdateRequest {}
+/**
+ * How much each part of the data root takes.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UsageRequest".
+ */
+export interface UsageRequest {}
+/**
+ * The version requests read when they name none.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UseVersionRequest".
+ */
+export interface UseVersionRequest {
+  /**
+   * A kept version; null: the current version again.
+   */
+  version?: number | null;
 }
 /**
  * One checked cell, as submitted.
@@ -2919,6 +3852,23 @@ export interface VerifySubmitResult {
    * In submission order.
    */
   ids: string[];
+}
+/**
+ * The version the file became.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VersionImported".
+ */
+export interface VersionImported {
+  data_version: number;
+  /**
+   * Its display name here.
+   */
+  data_version_name: string;
+  /**
+   * Its display name where it was exported.
+   */
+  source_name: string;
 }
 /**
  * The versions of one strategy.

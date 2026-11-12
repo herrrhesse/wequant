@@ -1,73 +1,85 @@
-/* Colour tokens carried over from the design prototype: lacquer red accent, red-up/green-down switchable, and
-   light, dark or follow-system themes. Pages use var(--…) only. */
+/* Colour tokens from the final design (version 56): lacquer red accent, red-up/green-down switchable, and light,
+   dark or follow-system themes. Pages use var(--…) only. */
 :root,
 [data-theme="light"] {
-  --bg: #f2f3f5;
-  --card: #ffffff;
+  --bg: #F2F3F5;
+  --card: #FFFFFF;
   --ink: #111214;
-  --sub: #4b5563;
-  --muted: #6b7280;
-  --soft: #f2f3f5;
-  --soft2: #f7f8f9;
-  --chip: #e6e8eb;
-  --line: #f0f1f3;
+  --sub: #4B5563;
+  --muted: #6B7280;
+  --soft: #F2F3F5;
+  --soft2: #F7F8F9;
+  --chip: #E6E8EB;
+  --line: #F0F1F3;
   --inv: #111214;
-  --on-inv: #ffffff;
-  --track: #d1d5db;
-  --acc: #b3262e;
-  --acc-t: rgba(179, 38, 46, 0.09);
-  --red: #c42b35;
-  --green: #2f7a5f;
-  --warn: #9a6700;
-  --warn-t: rgba(191, 135, 0, 0.12);
-  --shadow: 0 6px 24px rgba(17, 18, 20, 0.05);
+  --on-inv: #FFFFFF;
+  --tip: #111214;
+  --track: #D1D5DB;
+  --acc: #B3262E;
+  --acc-t: rgba(179,38,46,0.09);
+  --red: #C42B35;
+  --red-t: rgba(196,43,53,0.09);
+  --green: #2F7A5F;
+  --green-t: rgba(47,122,95,0.10);
+  --warn: #8A5C00;
+  --warn-t: rgba(191,135,0,0.12);
+  --shadow: 0 6px 24px rgba(17,18,20,0.05);
+  --pop: 0 24px 60px rgba(17,18,20,0.18);
   color-scheme: light;
 }
 
 [data-theme="dark"] {
-  --bg: #0d0e10;
-  --card: #17191c;
-  --ink: #eceef1;
-  --sub: #b4b9c0;
-  --muted: #8e959e;
+  --bg: #0D0E10;
+  --card: #17191C;
+  --ink: #ECEEF1;
+  --sub: #B4B9C0;
+  --muted: #8E959E;
   --soft: #202327;
-  --soft2: #1c1e22;
-  --chip: #26292e;
-  --line: #24272b;
-  --inv: #eceef1;
+  --soft2: #1C1E22;
+  --chip: #26292E;
+  --line: #24272B;
+  --inv: #ECEEF1;
   --on-inv: #111214;
-  --track: #3a3e44;
-  --acc: #d2444c;
-  --acc-t: rgba(210, 68, 76, 0.16);
-  --red: #e25b63;
-  --green: #4fa585;
-  --warn: #e3b341;
-  --warn-t: rgba(227, 179, 65, 0.14);
+  --tip: #2B2E33;
+  --track: #3A3E44;
+  --acc: #E0555C;
+  --acc-t: rgba(224,85,92,0.16);
+  --red: #E25B63;
+  --red-t: rgba(226,91,99,0.14);
+  --green: #4FA585;
+  --green-t: rgba(79,165,133,0.14);
+  --warn: #E3B341;
+  --warn-t: rgba(227,179,65,0.14);
   --shadow: none;
+  --pop: 0 24px 60px rgba(0,0,0,0.55);
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
   [data-theme="system"] {
-    --bg: #0d0e10;
-    --card: #17191c;
-    --ink: #eceef1;
-    --sub: #b4b9c0;
-    --muted: #8e959e;
+    --bg: #0D0E10;
+    --card: #17191C;
+    --ink: #ECEEF1;
+    --sub: #B4B9C0;
+    --muted: #8E959E;
     --soft: #202327;
-    --soft2: #1c1e22;
-    --chip: #26292e;
-    --line: #24272b;
-    --inv: #eceef1;
+    --soft2: #1C1E22;
+    --chip: #26292E;
+    --line: #24272B;
+    --inv: #ECEEF1;
     --on-inv: #111214;
-    --track: #3a3e44;
-    --acc: #d2444c;
-    --acc-t: rgba(210, 68, 76, 0.16);
-    --red: #e25b63;
-    --green: #4fa585;
-    --warn: #e3b341;
-    --warn-t: rgba(227, 179, 65, 0.14);
+    --tip: #2B2E33;
+    --track: #3A3E44;
+    --acc: #E0555C;
+    --acc-t: rgba(224,85,92,0.16);
+    --red: #E25B63;
+    --red-t: rgba(226,91,99,0.14);
+    --green: #4FA585;
+    --green-t: rgba(79,165,133,0.14);
+    --warn: #E3B341;
+    --warn-t: rgba(227,179,65,0.14);
     --shadow: none;
+    --pop: 0 24px 60px rgba(0,0,0,0.55);
     color-scheme: dark;
   }
 }
@@ -76,8 +88,12 @@
 [data-conv="cn"] {
   --up: var(--red);
   --down: var(--green);
+  --up-t: var(--red-t);
+  --down-t: var(--green-t);
 }
 [data-conv="intl"] {
   --up: var(--green);
   --down: var(--red);
+  --up-t: var(--green-t);
+  --down-t: var(--red-t);
 }

@@ -1,6 +1,7 @@
 // Pieces the screen and backtest pages share: warnings (code + backend text) and anomaly uses.
 import type { AnomalyUse, Warning } from "../../api/types.gen";
 import { t } from "../../i18n";
+import { lb } from "../../labels";
 
 const r = t.runs;
 
@@ -8,15 +9,14 @@ export function WarningList({ warnings, empty }: { warnings: Warning[]; empty: s
   if (!warnings.length) return <span className="note">{empty}</span>;
   return (
     <>
-      <ul className="warn-list">
-        {warnings.map((w) => (
-          <li key={w.code}>
-            <strong>{t.warningLabels[w.code] ?? w.code}</strong> <span className="mono">{w.code}</span>
-            <div className="note">{w.text}</div>
+      <ul className="warn-list plain">
+        {warnings.map((w, i) => (
+          <li key={`${w.code}/${i}`}>
+            <strong>{lb().warningName(w.code)}</strong>
+            <div className="sub">{lb().warning(w)}</div>
           </li>
         ))}
       </ul>
-      <span className="note">{r.warningsTemp}</span>
     </>
   );
 }
@@ -41,17 +41,17 @@ export function AnomalyTable({ rows }: { rows: AnomalyUse[] }) {
           {rows.map((a, i) => (
             <tr key={`${a.date}/${a.code}/${a.channel}/${a.seq}/${i}`} className={`level-${a.level}`}>
               <td>
-                <span className={a.level === "error" ? "badge level-error" : a.level === "suspicious" ? "badge warn" : "badge"}>{r.levels[a.level]}</span>
+                <span className={a.level === "error" ? "badge level-error" : a.level === "suspicious" ? "badge warn" : "badge"}>{lb().of("anomaly_levels", a.level)}</span>
               </td>
               <td className="num">{a.date}</td>
               <td>{a.code}</td>
               <td>{r.channels[a.channel]}</td>
               <td className="num">{a.anomaly_date}</td>
               <td>
-                {t.data.kinds[a.kind] ?? a.kind} <span className="code-sub">{a.anomaly_class}</span>
+                {lb().of("issue_kinds", a.kind)} <span className="code-sub">{lb().of("anomaly_classes", a.anomaly_class)}</span>
               </td>
               <td>{a.root ?? t.common.none}</td>
-              <td>{a.decision ? (r.actions[a.decision] ?? t.picks.roles[a.decision] ?? a.decision) : a.order_status ?? t.common.none}</td>
+              <td>{a.decision ? (r.actions[a.decision] ?? a.decision) : a.order_status ?? t.common.none}</td>
             </tr>
           ))}
         </tbody>
