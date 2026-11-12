@@ -202,7 +202,12 @@ def build_tables(
             "first_date": _dates([span.start for _, span in listed]),
             "last_date": _dates([span.end for _, span in listed]),
         }
-    ).with_columns(name=pl.lit(None, dtype=pl.String), source=pl.lit(source))
+    ).with_columns(
+        list_date=pl.lit(None, dtype=pl.Date),
+        delist_date=pl.lit(None, dtype=pl.Date),
+        name=pl.lit(None, dtype=pl.String),
+        source=pl.lit(source),
+    )
 
     has_bars = pl.col("code").is_in(bars["code"].unique().implode())
     securities, adj_factor = securities.filter(has_bars), adj_factor.filter(has_bars)

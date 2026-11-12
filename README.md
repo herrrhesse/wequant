@@ -66,6 +66,8 @@ wequant data securities [--query Q] [--limit N] [--data-version N]
 wequant data bars --codes C... [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--fields F...] [--data-version N]
 wequant data issues [--table T] [--kind K] [--codes C...] [--start D] [--end D] [--limit N] [--data-version N]
 wequant data check [--commit]
+wequant data update
+wequant data names [--commit]
 wequant data delistings [--delisting RULE] [--failure-recovery X] [--data-version N]
 wequant data index-check [--data-version N]
 wequant data verify submit FILE|-
@@ -196,19 +198,20 @@ Exit codes (`wequant.service.Exit`):
 | Code | Name | Meaning |
 | --- | --- | --- |
 | 0 | `OK` | success |
-| 1 | `PROBLEMS` | a check found something to act on: `data check` found breaches the store does not record, recorded breaches that are gone, or no current limit check; `data index-check` found days off an index's nominal size |
+| 1 | `PROBLEMS` | a check found something to act on: `data check` found breaches the store does not record, recorded breaches that are gone, or no current limit check; `data index-check` found days off an index's nominal size; `data update` stopped at conflicts waiting for a decision or at BaoStock rows that fail the checks (the store is unchanged) |
 | 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day, an invalid verification record (none of the submission is added), a malformed resolutions file, a decision without a selector or one that would approve an `undetermined` entry (nothing is changed) |
 | 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, run, or resolutions file to decide in |
-| 4 | `UNREACHABLE` | a data source cannot be reached |
-| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock, the verification records' lock or the resolutions file's lock; try again later |
+| 4 | `UNREACHABLE` | a data source cannot be reached or logged in to (`data update`: the store is unchanged) |
+| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock, the verification records' lock or the resolutions file's lock, or another BaoStock session holds `raw/baostock/.lock`; try again later |
 | 70 | `INTERNAL` | a bug (the traceback is on stderr), or the cli extra is not installed |
 | 130 | `INTERRUPTED` | Ctrl-C, or a cancelled run |
 
 A failure's `ErrorBody` holds `exit`, `name`, `message`, `detail` and `complete`. Each detail has a stable `code`
 (`unknown_key`, `missing_key`, `wrong_type`, `not_a_choice`, `out_of_range`, `requires`, `duplicate_name`,
 `reserved_name`, `bad_ref`, `hash_mismatch`, `not_a_decision_day`, the expression codes such as `unknown_field` or
-`future_function`, and the NOT_FOUND codes `no_store`, `version_not_kept`, `unknown_code`, `not_a_trading_day`,
-`unknown_strategy`, `unknown_version`, `unknown_run`), its `loc` in the request (e.g. `["strategy", "filters", 2,
+`future_function`, the NOT_FOUND codes `no_store`, `version_not_kept`, `unknown_code`, `not_a_trading_day`,
+`unknown_strategy`, `unknown_version`, `unknown_run`, `no_stock_basic`, and `source_unreachable`, `store_busy`; `wequant
+labels` gives each its Chinese), its `loc` in the request (e.g. `["strategy", "filters", 2,
 "expr"]`) and, inside an expression, its `path`. One failure reports every field error at once; `complete` is false
 when rules that relate fields to each other could not run yet because a field failed.
 
@@ -235,7 +238,7 @@ uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl
   Chinese sentence). The request is checked at once (errors located under `request`), and a null `data_version` is
   pinned to the version current then, so a version committed while the job waits or runs changes nothing. A backtest
   job runs in a thread of the server and shares its warm panel and expression caches, so it takes as long as
-  `POST /api/backtest`; a kind marked process (the daily update, next) runs in a worker process of its own. One job
+  `POST /api/backtest`; the daily update (`{"kind": "data_update"}`) runs in a worker process of its own. One job
   runs at a time and at most one uses BaoStock, while the others wait in order.
   `GET /api/jobs/{id}/events` streams the job's JobInfo as server-sent events (`event: job`), one per change, and ends
   once the job has finished. `jobs_list`, `jobs_show` and `jobs_cancel` take `{"id": n}` (`jobs_list` none).
@@ -257,6 +260,37 @@ uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl
   directory: every board, two ST stocks, a suspension, a delisting, a new listing, limit-up and limit-down streaks, a
   bonus issue and a dividend, 000300.SH with synthetic members, data issues (one at error level), its limit check
   recorded and two saved strategies. Nothing comes from a real market.
+
+## Daily update and stock names
+
+```bash
+uv sync --extra baostock
+uv run wequant data update            # also a background job under wequant serve: jobs_start {"kind": "data_update"}
+uv run wequant data names [--commit]  # "补充股票名称", once, from raw/baostock/meta/stock_basic.parquet
+```
+
+- **`data update` (S2.5)** fetches BaoStock's closed trading days after the store's last one and merges them as one
+  version (reason "每日更新"). A day counts as closed once 18:00 has passed in Shanghai; missed days all come in
+  together, and a day BaoStock has not published yet ends the fetch normally (`status: not_published`, or `updated`
+  with `waiting` set). A second run with nothing new makes no version (`up_to_date`). Each day costs two requests
+  (the day's snapshot of every SH/SZ stock and its adjustment events); the calendar, stock_basic and each stored index
+  one per update, and a code new to the store or without a factor file one more.
+- The fetched responses go to the raw layer (`daily/`, `daily_factor/`, `index/`, and `meta/stock_basic.parquet` and
+  `meta/trade_dates.parquet` refreshed); the merge is the S2.4b one (`wequant.data.merge`): its checks write
+  `data_issues` rows by level and never correct silently, and approved resolutions apply. A conflict without an
+  approved resolution becomes a proposed entry in the resolutions file and stops the update with the store unchanged
+  (`status: conflicts`, exit 1) until it is decided (`wequant data resolve`). Names and official listing and
+  delisting dates come in with each update, and each stored index gets the new days' bars.
+- **Failures leave the store as it was:** BaoStock unreachable or refusing the login is exit 4
+  (`source_unreachable`), another writer or BaoStock session exit 5 (`store_busy`), cancel exit 130; a day already
+  fetched stays in the raw layer and is not fetched again. The update holds `raw/baostock/.lock`, as the backfill does,
+  so one BaoStock session runs at a time.
+- **Names:** `securities` has `name`, `list_date` and `delist_date` (official, from BaoStock's stock_basic; null when
+  unknown). `data names` fills them for the current version's codes from the raw stock_basic file and, with
+  `--commit`, writes them as one version (reason "补充股票名称"); the daily update refreshes them. A code with an
+  official listing date reads its official delisting date (null: still listed); one without approximates the day from
+  its data. Results that list stocks name them as the newest version does: screen rows and rejects, explain, a run's
+  orders, holdings and decisions, and `data bars` (`names`); `data securities --query` matches names.
 
 ## Fetching BaoStock raw data
 

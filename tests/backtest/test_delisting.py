@@ -1,7 +1,6 @@
 """G-D17, hand-computed runs of delisted holdings through the engine (each test names the rule it guards); the
 treatments themselves are tested on the account."""
 
-import dataclasses
 import datetime as dt
 
 import polars as pl
@@ -10,8 +9,7 @@ import pytest
 from tests.backtest.market import build_store, business_days
 from wequant.account import Execution
 from wequant.backtest import Backtest, run
-from wequant.data.delistings import DELIST_DATE
-from wequant.data.schema import SECURITIES, TABLES, Column
+from wequant.data.delistings import DELIST_DATE, LIST_DATE
 from wequant.expr import Field
 from wequant.panel import load_panel
 from wequant.strategy import Condition, Factor, Strategy
@@ -36,24 +34,21 @@ CASH = HELD - 250_000 - 249_600 - 249_300  # 250,867.84
 
 
 def securities(store, delist_dates: dict | None) -> pl.DataFrame:
-    """The store's securities with names, the three cheap codes' data ending on day 2, and official dates if given."""
+    """The store's securities with names, the three cheap codes' data ending on day 2, and official dates if given:
+    every code listed on day 0, the given ones delisted on their dates."""
     ended = pl.when(pl.col("code").is_in([F, M, S])).then(pl.lit(D[2])).otherwise(pl.col("last_date"))
     frame = store.read_table("securities").with_columns(last_date=ended, name=pl.col("code").replace_strict(NAMES))
     if delist_dates is None:
         return frame
     dates = pl.col("code").replace_strict(delist_dates, default=None, return_dtype=pl.Date)
-    return frame.with_columns(dates.alias(DELIST_DATE)).select(*TABLES["securities"].schema)
+    return frame.with_columns(dates.alias(DELIST_DATE), pl.lit(D[0]).alias(LIST_DATE))
 
 
 def market(home, delist_dates: dict | None = None):
     """The 30-day market: F, M and S trade days 0 to 2, B every day; with delist_dates the store has official dates."""
     bars = {code: [(price, price)] * 3 + [None] * 27 for code, price in LAST.items()} | {B: [(20.0, 20.0)] * 30}
-    with pytest.MonkeyPatch.context() as patch:
-        if delist_dates is not None:
-            column = Column(DELIST_DATE, pl.Date, nullable=True, doc="official delisting date")
-            patch.setitem(TABLES, "securities", dataclasses.replace(SECURITIES, columns=(*SECURITIES.columns, column)))
-        store = build_store(home / "home", DAYS, bars)
-        store.commit({}, replace={"securities": securities(store, delist_dates)})
+    store = build_store(home / "home", DAYS, bars)
+    store.commit({}, replace={"securities": securities(store, delist_dates)})
     return load_panel(store=store, cache_dir=home / "cache")
 
 
@@ -128,16 +123,14 @@ def target_delisting(tmp_path_factory):
     """Y trades days 0 to 3 at 6.00 and delists on day 4; B and C trade every day at 20.00 and 30.00."""
     home, days = tmp_path_factory.mktemp("target"), DAYS[:6]
     bars = {Y: [(6.0, 6.0)] * 4 + [None] * 2, B: [(20.0, 20.0)] * 6, C: [(30.0, 30.0)] * 6}
-    column = Column(DELIST_DATE, pl.Date, nullable=True, doc="official delisting date")
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setitem(TABLES, "securities", dataclasses.replace(SECURITIES, columns=(*SECURITIES.columns, column)))
-        store = build_store(home / "home", days, bars)
-        frame = store.read_table("securities").with_columns(
-            last_date=pl.when(pl.col("code") == Y).then(pl.lit(D[3])).otherwise(pl.col("last_date")),
-            name=pl.col("code").replace_strict({Y: "戊股份", B: "丁股份", C: "己股份"}),
-            **{DELIST_DATE: pl.when(pl.col("code") == Y).then(pl.lit(D[4])).otherwise(pl.lit(None, pl.Date))},
-        )
-        store.commit({}, replace={"securities": frame})
+    store = build_store(home / "home", days, bars)
+    frame = store.read_table("securities").with_columns(
+        last_date=pl.when(pl.col("code") == Y).then(pl.lit(D[3])).otherwise(pl.col("last_date")),
+        name=pl.col("code").replace_strict({Y: "戊股份", B: "丁股份", C: "己股份"}),
+        **{DELIST_DATE: pl.when(pl.col("code") == Y).then(pl.lit(D[4])).otherwise(pl.lit(None, pl.Date))},
+        **{LIST_DATE: pl.lit(D[0])},
+    )
+    store.commit({}, replace={"securities": frame})
     return load_panel(store=store, cache_dir=home / "cache")
 
 

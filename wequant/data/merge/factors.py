@@ -15,13 +15,18 @@ COLUMNS = ("code", "dividOperateDate", "backAdjustFactor")
 
 
 def read_factors(raw: BaoStockRaw, codes: Iterable[str]) -> pl.DataFrame:
-    """adj_factor rows from each code's factor file as published; RawDataError on bad rows."""
-    paths = [str(raw.adjust_factor(code)) for code in sorted(codes)]
+    """adj_factor rows of these codes as published: each code's factor file, plus the events of the daily factor files
+    fetched since; RawDataError on bad rows, a factor two files give differently included."""
+    codes = sorted(codes)
+    paths = [str(raw.adjust_factor(code)) for code in codes]
     if not paths:
         return pl.DataFrame(schema=ADJ_FACTOR.schema)
     scan = pl.scan_parquet(paths, include_file_paths="path")
     file_code = pl.col("path").str.extract(r"([^/\\]+)\.parquet$")
     factors = pl.concat([parse_adjust_factor(scan), scan.select(file=file_code)], how="horizontal").collect()
+    if daily := raw.daily_factor_files():
+        events = parse_adjust_factor(pl.scan_parquet([str(path) for path in daily])).filter(pl.col("code").is_in(codes))
+        factors = pl.concat([factors, events.collect().with_columns(file=pl.col("code"))])
     problems = [
         f"{name}: {rows.height} rows, e.g. {rows.head(SAMPLES).rows()}"
         for name, rows in _bad_factor_rows(factors).items()

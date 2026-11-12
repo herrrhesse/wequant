@@ -1,3 +1,4 @@
+import dataclasses
 import datetime as dt
 import hashlib
 import json
@@ -367,3 +368,18 @@ def test_a_version_written_before_names_is_named_by_its_day_and_own_number(store
 def test_a_commit_names_its_reason_from_the_known_ones(store):
     with pytest.raises(ValueError, match="reason"):
         dated(store, "2024-01-05", "a", reason="because")
+
+
+def test_a_file_written_before_a_column_was_added_reads_it_as_null(tmp_path, monkeypatch):
+    table = TABLES["securities"]
+    older = dataclasses.replace(table, columns=tuple(c for c in table.columns if c.name != "list_date"))
+    row = {"code": "600000.SH", "exchange": "SH", "board": "main", "first_date": dt.date(2024, 1, 2), "source": "t"}
+    frame = pl.DataFrame(
+        [row | {"last_date": row["first_date"], "delist_date": None, "name": None}], schema=older.schema
+    )
+    store = Store(tmp_path / "home")
+    with monkeypatch.context() as patch:
+        patch.setitem(TABLES, "securities", older)
+        store.commit({}, replace={"securities": frame})
+    read = store.read_table("securities")
+    assert list(read.columns) == list(table.schema) and read["list_date"].to_list() == [None]

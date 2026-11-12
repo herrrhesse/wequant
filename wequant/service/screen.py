@@ -13,7 +13,7 @@ import polars as pl
 from wequant.backtest import DataOptions, screen_warnings
 from wequant.backtest.anomalies import screen_uses
 from wequant.panel import NotInPanel, Panel, load_panel
-from wequant.service.base import Context, DataRequest, Model, manifest, named, not_found
+from wequant.service.base import Context, DataRequest, Model, Names, manifest, named, names_of, not_found
 from wequant.service.details import Loc, spec_details, to_data, usage
 from wequant.service.outputs import DataAnomaly, Op, Role, SavedRef, Warning, data_anomaly, warnings_out
 from wequant.service.specs import DataSpec, IsoDate
@@ -79,6 +79,8 @@ class ScreenRow(Model):
     """A scored stock, by rank."""
 
     code: str
+    name: str | None
+    """The stock's name today (newest store version); null when no source gave one."""
     rank: int
     score: float
     """In (0, 1]."""
@@ -107,6 +109,8 @@ class Reject(Model):
     """A listed stock without a score, at the first chain level it fails."""
 
     code: str
+    name: str | None
+    """The stock's name today (newest store version); null when no source gave one."""
     step: str
     kind: StepKind
     passed: Literal[False] | None
@@ -158,7 +162,7 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
         shot = core_screen(strategy, panel, request.date, context.expr_cache, context.mark)
     section, choice, row = shot.section, shot.choice, int(shot.section.rows[0])
     uses = screen_uses(strategy, panel, section, choice)
-    found = strategy_hash(strategy)
+    found, names = strategy_hash(strategy), names_of(context, panel.codes.tolist())
     result = ScreenResult(
         **named(panel.manifest),
         date=panel.dates[row].item(),
@@ -168,8 +172,8 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
         scored_count=int(section.scored[0].sum()),
         cap_cash=float(choice.cash[0]),
         funnel=funnel_steps(strategy, shot.funnel),
-        rows=screen_rows(strategy, section, choice, panel),
-        rejects=reject_rows(strategy, shot.rejects, section, panel),
+        rows=screen_rows(strategy, section, choice, panel, names),
+        rejects=reject_rows(strategy, shot.rejects, section, panel, names),
         anomalies=data_anomaly(uses, panel.excluded, sample=None),
         warnings=warnings + warnings_out(screen_warnings(strategy, panel, section, choice, uses)),
     )
@@ -227,8 +231,10 @@ def funnel_steps(strategy: Strategy, funnel: pl.DataFrame) -> list[FunnelStep]:
     return found
 
 
-def screen_rows(strategy: Strategy, section: Section, choice: Choice, panel: Panel, i: int = 0) -> list[ScreenRow]:
-    """Decision row i's scored stocks by rank: role, weights, factor cells, formula and each comparison's value."""
+def screen_rows(
+    strategy: Strategy, section: Section, choice: Choice, panel: Panel, names: Names, i: int = 0
+) -> list[ScreenRow]:
+    """Decision row i's scored stocks by rank: name, role, weights, factor cells, formula and each comparison's value."""
     shares, pcts, weights = weight_shares(strategy), percentiles(strategy, section), target_weights(choice, i)
     rows = []
     for col in section.order[i, : section.scored[i].sum()].tolist():
@@ -236,6 +242,7 @@ def screen_rows(strategy: Strategy, section: Section, choice: Choice, panel: Pan
         rows.append(
             ScreenRow(
                 code=panel.codes[col],
+                name=names.get(panel.codes[col]),
                 rank=section.rank[i, col],
                 score=section.score[i, col],
                 role="target" if weight is not None else "backup" if choice.backup[i, col] else "none",
@@ -271,8 +278,10 @@ def factor_cells(shares: dict, pcts: dict, section: Section, i: int, col: int) -
     ]
 
 
-def reject_rows(strategy: Strategy, rejects: pl.DataFrame, section: Section, panel: Panel, i: int = 0) -> list[Reject]:
-    """The rejects frame's rows with each simple comparison's op and thresholds and each group's member verdicts."""
+def reject_rows(
+    strategy: Strategy, rejects: pl.DataFrame, section: Section, panel: Panel, names: Names, i: int = 0
+) -> list[Reject]:
+    """The rejects frame's rows with each name, simple comparison's op and thresholds and group's member verdicts."""
     steps, column = {step.name: step for step in strategy.steps()}, {code: j for j, code in enumerate(panel.codes)}
     found = []
     for row in rejects.iter_rows(named=True):
@@ -285,6 +294,7 @@ def reject_rows(strategy: Strategy, rejects: pl.DataFrame, section: Section, pan
         found.append(
             Reject(
                 **row,
+                name=names.get(row["code"]),
                 op=compared and compared.op,
                 threshold=compared and compared.threshold,
                 threshold_hi=compared and compared.threshold_hi,

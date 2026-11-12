@@ -183,7 +183,9 @@ def _security(i: int, code: str, rows: list[dict]) -> dict:
     exchange = code[-2:]
     name = f"演示{i + 1:02d}"
     span = {"first_date": rows[0]["date"], "last_date": rows[-1]["date"]}
-    return {"code": code, "exchange": exchange, "board": board(code), "name": name, **span, "source": "demo"}
+    official = {"list_date": rows[0]["date"], "delist_date": rows[-1]["date"] if code == DELISTED[0] else None}
+    fields = {"code": code, "exchange": exchange, "board": board(code), **span, **official, "name": name}
+    return fields | {"source": "demo"}
 
 
 def _status(days: list[dt.date], bars: dict[str, list[dict]]) -> pl.DataFrame:

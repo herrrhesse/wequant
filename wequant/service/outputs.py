@@ -72,6 +72,8 @@ class OrderRow(Model):
     date: dt.date
     """The fill day."""
     code: str
+    name: str | None
+    """The stock's name today (newest store version); null when no source gave one."""
     side: Literal["buy", "sell"]
     status: Literal["filled", "partial", "rejected"]
     requested: float | None
@@ -205,7 +207,8 @@ def anomaly_use(row: Mapping) -> AnomalyUse:
     return AnomalyUse(**{key: value for key, value in row.items() if key != "class"}, anomaly_class=row["class"])
 
 
-def order_row(row: Mapping) -> OrderRow:
-    """The OrderRow of an archived orders row; a full exit, archived as requested inf, asks for null."""
-    requested = row["requested"]
-    return OrderRow(**{**row, "requested": None if math.isinf(requested) else requested})
+def order_row(row: Mapping, names: Mapping[str, str | None]) -> OrderRow:
+    """The OrderRow of an archived orders row, its name from names; a full exit, archived as requested inf, asks for
+    null."""
+    requested = None if math.isinf(row["requested"]) else row["requested"]
+    return OrderRow(**{**row, "requested": requested, "name": names.get(row["code"])})

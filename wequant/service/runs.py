@@ -20,7 +20,7 @@ from wequant.runs.archive import HEADLINE, RUNS, Archive
 from wequant.runs.compare import json_differences
 from wequant.runs.run import Run
 from wequant.service.backtest import BacktestResult, metrics_out, order_counts, report
-from wequant.service.base import Context, Model, name_of, not_found
+from wequant.service.base import Context, Model, name_of, names_of, not_found
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.outputs import (
     Action,
@@ -255,6 +255,8 @@ class PositionRow(Model):
     """A holding at a day's close."""
 
     code: str
+    name: str | None
+    """The stock's name today (newest store version); null when no source gave one."""
     shares: float
     value: float
     weight: float
@@ -265,6 +267,8 @@ class DecisionRow(Model):
     """A target, backup or held stock on a decision day."""
 
     code: str
+    name: str | None
+    """The stock's name today (newest store version); null when no source gave one."""
     role: Role
     rank: int | None
     """null: no score."""
@@ -424,7 +428,8 @@ def runs_orders(request: OrdersRequest, context: Context = Context()) -> OrdersP
         *([pl.col("date") <= request.end] if request.end else []),
     )
     window = orders.slice(request.offset, request.limit)
-    rows = [order_row(row) for row in window.iter_rows(named=True)]
+    names = names_of(context, window["code"])
+    rows = [order_row(row, names) for row in window.iter_rows(named=True)]
     return OrdersPage(total=orders.height, offset=request.offset, limit=request.limit, rows=rows)
 
 
@@ -436,11 +441,13 @@ def runs_day(request: RunDayRequest, context: Context = Context()) -> RunDay:
         raise not_found("not_a_trading_day", f"{request.date} is not a day of run {request.id}", ["date"])
     equity = day["equity"].item()
     held = run.ledger.positions.filter(pl.col("date") == request.date).sort("value", "code", descending=[True, False])
-    positions = [
-        PositionRow(code=r["code"], shares=r["shares"], value=r["value"], weight=r["value"] / equity)
-        for r in held.iter_rows(named=True)
-    ]
     orders = run.ledger.orders.filter(pl.col("date") == request.date)
+    decided = run.detail.filter(pl.col("date") == request.date)["code"]
+    names = names_of(context, [*held["code"], *orders["code"], *decided])
+    positions = [
+        PositionRow(name=names.get(r["code"]), weight=r["value"] / equity, **r)
+        for r in held.select("code", "shares", "value").iter_rows(named=True)
+    ]
     return RunDay(
         id=request.id,
         date=request.date,
@@ -448,8 +455,8 @@ def runs_day(request: RunDayRequest, context: Context = Context()) -> RunDay:
         cash=day["cash"].item(),
         positions=positions,
         decision_day=bool((run.funnel["date"] == request.date).any()),
-        decisions=_decisions(run, request.date),
-        orders=[order_row(row) for row in orders.iter_rows(named=True)],
+        decisions=_decisions(run, request.date, names),
+        orders=[order_row(row, names) for row in orders.iter_rows(named=True)],
     )
 
 
@@ -525,8 +532,8 @@ def _value(run: Run, name: str) -> float | int | dt.date | None:
     return None if metric is None else metric.value
 
 
-def _decisions(run: Run, day: dt.date) -> list[DecisionRow]:
-    """The day's targets, backups and held stocks: by rank, the unranked after by code."""
+def _decisions(run: Run, day: dt.date, names: dict[str, str | None]) -> list[DecisionRow]:
+    """The day's targets, backups and held stocks: by rank, the unranked after by code; names from names."""
     picks = run.picks.filter(pl.col("date") == day).select("code", "role", "score", "weight", "raw_weight")
     detail = run.detail.filter(pl.col("date") == day).join(picks, on="code", how="left")
     chosen = detail.filter(pl.col("role").is_not_null() | pl.col("held")).sort("rank", "code", nulls_last=True)
@@ -539,6 +546,7 @@ def _decisions(run: Run, day: dt.date) -> list[DecisionRow]:
         rows.append(
             DecisionRow(
                 code=r["code"],
+                name=names.get(r["code"]),
                 role=r["role"] or "none",
                 rank=r["rank"],
                 score=r["score"],

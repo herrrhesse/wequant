@@ -14,7 +14,7 @@ from wequant.backtest import Backtest, screen_warnings
 from wequant.backtest.anomalies import screen_uses
 from wequant.panel import Panel
 from wequant.runs.run import Run
-from wequant.service.base import Code, Context, ErrorDetail, Model, named, not_found
+from wequant.service.base import Code, Context, ErrorDetail, Model, named, names_of, not_found
 from wequant.service.details import to_data, usage
 from wequant.service.outputs import (
     Action,
@@ -121,6 +121,8 @@ class Explain(Model):
     date: dt.date
     next_day: dt.date | None
     code: str
+    name: str | None
+    """The stock's name today (newest store version); null when no source gave one."""
     strategy_hash: Hash
     run_id: str | None
     pool: list[PoolCheck]
@@ -166,6 +168,7 @@ def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
         date=panel.dates[row].item(),
         next_day=panel.dates[row + 1].item() if row + 1 < len(panel.dates) else None,
         code=request.code,
+        name=names_of(context, [request.code]).get(request.code),
         strategy_hash=strategy_hash(strategy),
         run_id=None,
         **_checks(strategy, panel, shot, col),
@@ -210,11 +213,13 @@ def _with_run(request: ExplainRequest, context: Context) -> Explain:
     )
     orders = run.ledger.orders.filter((pl.col("date") == fill) & code) if fill else run.ledger.orders.clear()
     uses = run.anomalies.filter(code & pl.col("date").is_in([day, *([fill] if fill else [])]))
+    names = names_of(context, [request.code])
     return Explain(
         **named(panel.manifest),
         date=day,
         next_day=fill,
         code=request.code,
+        name=names.get(request.code),
         strategy_hash=strategy_hash(spec.strategy),
         run_id=request.run,
         **_checks(spec.strategy, panel, shot, col),
@@ -224,7 +229,7 @@ def _with_run(request: ExplainRequest, context: Context) -> Explain:
         held=bool(decided.get("held", False)),
         action=action,
         sell_reason=reason or None,
-        execution=[order_row(order) for order in orders.iter_rows(named=True)],
+        execution=[order_row(order, names) for order in orders.iter_rows(named=True)],
         anomalies=[anomaly_use(use) for use in uses.iter_rows(named=True)],
         warnings=warnings_out(screen_warnings(spec.strategy, panel, shot.section, shot.choice, screened)),
     )

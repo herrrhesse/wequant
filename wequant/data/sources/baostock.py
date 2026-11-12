@@ -20,6 +20,7 @@ from wequant.data.sources.base import CORPORATE_ACTIONS, DAILY, SECURITIES_ON
 
 SOURCE = "baostock"
 DAILY_FIELDS = "date,code,open,high,low,close,preclose,volume,amount,tradestatus,isST"
+INDEX_FIELDS = "date,code,open,high,low,close,volume,amount"
 PAGE_ROWS = 2000  # BaoStock pages results; a full page means next() fetches another one
 FIRST_DAY = "1990-12-19"  # first trading day in China; BaoStock's own defaults start in 2015
 NOT_LOGGED_IN = "10001001"
@@ -61,6 +62,18 @@ def parse_daily(
         is_st=_text("isST").cast(pl.Int8).cast(pl.Boolean),
         **extra,
     ).select(*DAILY, *extra)
+
+
+def parse_index(frame: pl.DataFrame, source: str) -> pl.DataFrame:
+    """BaoStock index daily rows (INDEX_FIELDS, string columns) in index_bars columns; rows without a close dropped."""
+    return frame.filter(pl.col("close") != "").select(
+        code=_code("code"),
+        date=_text("date").str.to_date(),
+        **{f: _li(f, 3) for f in ("open", "high", "low", "close")},
+        volume=_text("volume").cast(pl.Float64).cast(pl.Int64),
+        amount=_text("amount").cast(pl.Float64),
+        source=pl.lit(source),
+    )
 
 
 def parse_adjust_factor(frame: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame | pl.LazyFrame:
@@ -139,6 +152,8 @@ class BaoStock:
             board=pl.Series([_board(c) for c in codes], dtype=pl.String),
             first_date=_text("ipoDate").str.to_date(),
             last_date=_text("outDate").str.to_date(),
+            list_date=_text("ipoDate").str.to_date(),
+            delist_date=_text("outDate").str.to_date(),
             name=_text("code_name"),
             source=pl.lit(SOURCE),
         )
