@@ -39,6 +39,18 @@ CASES = [
     ),
     (["data", "index-check"], "data_index_check", service.IndexCheckRequest(), "market_home"),
     (
+        ["data", "index-bars", "--codes", "000300.SH"],
+        "data_index_bars",
+        service.IndexBarsRequest(codes=["000300.SH"]),
+        "market_home",
+    ),
+    (
+        ["strategy", "schedule", "--strategy", "m"],
+        "strategy_schedule",
+        service.ScheduleRequest(saved={"id": "m"}),
+        "market_home",
+    ),  # noqa: E501
+    (
         ["expr", "check", "--form", '["MA","close",2]'],
         "expr_check",
         service.ExprRequest(form='["MA","close",2]'),

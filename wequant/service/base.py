@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -13,6 +14,7 @@ from pydantic_core import PydanticCustomError
 
 from wequant.backtest.progress import Progress
 from wequant.data.codes import split as split_code
+from wequant.data.files import OutsideRoot
 from wequant.data.store import Store, version_name
 from wequant.expr import Cache
 from wequant.panel import NotInPanel, Panel, load_panel
@@ -147,6 +149,16 @@ class Context:
     def library(self) -> Library:
         """The saved strategies of the data root."""
         return Library(self.store().home / "strategies", self.clock)
+
+
+@contextmanager
+def guarded() -> Iterator[None]:
+    """A write or delete refused because a data path links outside the data root, as USAGE outside_data_root."""
+    try:
+        yield
+    except OutsideRoot as error:
+        detail = ErrorDetail(code="outside_data_root", message=str(error))
+        raise ServiceError(Exit.USAGE, str(error), [detail]) from None
 
 
 def read_version(context: Context, version: int | None) -> int | None:

@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 import polars as pl
 
+from wequant.data.files import check_inside
 from wequant.data.merge import apply_merge, plan_merge
 from wequant.data.merge.propose import propose
 from wequant.data.merge.resolutions import add, default_path
@@ -78,6 +79,7 @@ def update(
     base = store.manifest()
     if base is None:
         raise ValueError(f"{store.home} has no committed version to update")
+    check_inside(store.home, [raw.root, *(store.home / table for table in base["tables"]), store.home / "manifests"])
     raw.root.mkdir(parents=True, exist_ok=True)
     with exclusive(raw.root / ".lock"):  # one BaoStock session: the backfill and refetch hold it too
         say(Step(STAGES[0], 0.0, {}))

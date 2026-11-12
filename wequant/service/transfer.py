@@ -14,7 +14,7 @@ from pathlib import Path
 from wequant.data.files import atomic_write
 from wequant.data.store import version_name
 from wequant.runs.archive import RUNS, Archive, RunConflict
-from wequant.service.base import Context, DataRequest, ErrorDetail, Model, manifest, not_found, read_version
+from wequant.service.base import Context, DataRequest, ErrorDetail, Model, guarded, manifest, not_found, read_version
 from wequant.service.details import usage
 from wequant.service.specs import Name
 from wequant.service.storage import tidy
@@ -110,7 +110,7 @@ def data_export(request: ExportVersionRequest, context: Context = Context()) -> 
 def data_import(request: ImportRequest, context: Context = Context()) -> VersionImported:
     """Add the version in a file as a new version (reason version_import); use it with data_use_version."""
     store = context.store()
-    with _reading(request.path) as path:
+    with _reading(request.path) as path, guarded():
         version = import_version(store, path)
     tidy(context)
     added = store.manifest(version)

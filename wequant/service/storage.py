@@ -10,9 +10,10 @@ from pathlib import Path
 
 from pydantic import Field
 
+from wequant.data.files import OutsideRoot, check_inside
 from wequant.data.store import StoreLocked
 from wequant.runs.archive import RUNS, Archive
-from wequant.service.base import Context, Model, manifest, not_found
+from wequant.service.base import Context, Model, guarded, manifest, not_found
 from wequant.service.specs import Name
 from wequant.storage.retention import clean_versions, prune_panels, prune_runs
 from wequant.storage.settings import change, load, pinned
@@ -175,7 +176,9 @@ def runs_delete(request: DeleteRunRequest, context: Context = Context()) -> RunD
     if request.id not in archive:
         raise not_found("unknown_run", f"no archived run {request.id}", ["id"])
     size = archive.size(request.id)
-    archive.delete(request.id)
+    with guarded():
+        check_inside(home, [archive.root])
+        archive.delete(request.id)
     change(home, lambda s: {"pinned_runs": pinned(s.pinned_runs, request.id, False)})
     tidy(context)
     return RunDeleted(id=request.id, bytes=size)
@@ -198,9 +201,10 @@ def storage_cleanup(request: CleanupRequest, context: Context = Context()) -> Cl
     before = storage_usage(UsageRequest(), context)
     files, runs, panels = [], [], []
     if not request.dry_run:
-        files = clean_versions(store, archive, settings)
-        runs = prune_runs(archive, settings)
-        panels = prune_panels(_cache(context), store, settings)
+        with guarded():
+            files = clean_versions(store, archive, settings)
+            runs = prune_runs(archive, settings)
+            panels = prune_panels(_cache(context), store, settings)
     after = storage_usage(UsageRequest(), context)
     return Cleanup(before=before, after=after, files_removed=len(files), runs_removed=runs, panels_removed=len(panels))
 
@@ -214,8 +218,8 @@ def tidy(context: Context) -> None:
     settings = load(store.home)[0]
     try:
         clean_versions(store, Archive(store.home / RUNS), settings)
-    except StoreLocked:
-        log.info("tidy skipped: the store is locked")
+    except (StoreLocked, OutsideRoot) as error:
+        log.info("tidy skipped: %s", error)
     prune_panels(_cache(context), store, settings)
 
 

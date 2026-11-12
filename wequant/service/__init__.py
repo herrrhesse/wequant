@@ -16,6 +16,7 @@ from wequant.service.delistings import (
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.explain import Explain, ExplainRequest, FactorScore, PoolCheck, ScoreCheck, StepCheck, explain
 from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest, expr_check, expr_eval
+from wequant.service.index_bars import IndexBar, IndexBars, IndexBarsRequest, data_index_bars
 from wequant.service.index_check import CountSpan, IndexCheck, IndexCheckRequest, IndexCoverage, data_index_check
 from wequant.service.issues import IssueCount, IssueRow, Issues, IssuesRequest, data_issues
 from wequant.service.jobs import (
@@ -70,6 +71,7 @@ from wequant.service.runs import (
     runs_rerun,
     runs_show,
 )
+from wequant.service.schedule import Schedule, ScheduledDay, ScheduleRequest, strategy_schedule
 from wequant.service.screen import ScreenRequest, ScreenResult, screen
 from wequant.service.securities import Securities, SecuritiesRequest, SecurityRow, data_securities
 from wequant.service.status import DataStatus, StatusRequest, TableStatus, data_status
@@ -152,6 +154,14 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "IndexBar",
+    "IndexBars",
+    "IndexBarsRequest",
+    "data_index_bars",
+    "Schedule",
+    "ScheduledDay",
+    "ScheduleRequest",
+    "strategy_schedule",
     "Cleanup",
     "CleanupRequest",
     "DeleteRunRequest",

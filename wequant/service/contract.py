@@ -16,6 +16,7 @@ from wequant.service.check import data_check
 from wequant.service.delistings import data_delistings
 from wequant.service.explain import explain
 from wequant.service.expr import expr_check, expr_eval
+from wequant.service.index_bars import data_index_bars
 from wequant.service.index_check import data_index_check
 from wequant.service.issues import data_issues
 from wequant.service.jobs import jobs_cancel, jobs_list, jobs_result, jobs_show, jobs_start
@@ -23,6 +24,7 @@ from wequant.service.labels import labels
 from wequant.service.names import data_names
 from wequant.service.profile import ProfileReport
 from wequant.service.resolutions import data_resolve_approve, data_resolve_list, data_resolve_reject
+from wequant.service.schedule import strategy_schedule
 from wequant.service.screen import screen
 from wequant.service.securities import data_securities
 from wequant.service.status import data_status
@@ -119,6 +121,7 @@ def schema(request: SchemaRequest, context: Context = Context()) -> ServiceSchem
 OPERATIONS = (
     *(data_status, data_calendar, data_securities, data_bars, data_issues, data_check, data_delistings),
     data_index_check,
+    data_index_bars,
     data_names,
     data_update,
     *(data_use_version, data_pin_version, data_export, data_import),
@@ -127,6 +130,7 @@ OPERATIONS = (
     *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),
     *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
     *(strategy_export, strategy_import),
+    strategy_schedule,
     screen,
     backtest,
     *(runs.runs_list, runs.runs_show, runs.runs_report, runs.runs_rerun, runs.runs_diff, runs.runs_orders),

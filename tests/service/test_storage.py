@@ -88,6 +88,21 @@ def test_a_file_that_is_not_an_export_is_refused(home, tmp_path):
     assert [d.code for d in caught.value.detail] == ["bad_file"]
 
 
+def test_a_data_root_of_links_to_another_store_refuses_cleanup_and_still_reads(home, tmp_path):
+    """The links' targets stay as they were; reading through the links works."""
+    more_versions(home, 6)
+    view = tmp_path / "view"
+    view.mkdir()
+    for path in home.iterdir():
+        (view / path.name).symlink_to(path)
+    before = sorted(p for p in home.rglob("*") if p.is_file())
+    with pytest.raises(ServiceError) as caught:
+        service.storage_cleanup(service.CleanupRequest(), Context(view))
+    status = service.data_status(service.StatusRequest(), Context(view))
+    assert [d.code for d in caught.value.detail] == ["outside_data_root"] and status.current_version == 7
+    assert sorted(p for p in home.rglob("*") if p.is_file()) == before
+
+
 def test_an_update_is_due_once_the_next_trading_day_has_closed(home):
     last = Store(home).read_table("calendar")["date"].max()
     following = last + dt.timedelta(days=3 if last.weekday() == 4 else 1)

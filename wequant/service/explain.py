@@ -13,6 +13,7 @@ from pydantic_core import PydanticCustomError
 from wequant.backtest import Backtest, screen_warnings
 from wequant.backtest.anomalies import screen_uses
 from wequant.panel import Panel
+from wequant.runs.causes import with_causes
 from wequant.runs.run import Run
 from wequant.service.base import Code, Context, ErrorDetail, Model, named, names_of, not_found, read_version
 from wequant.service.details import to_data, usage
@@ -211,7 +212,8 @@ def _with_run(request: ExplainRequest, context: Context) -> Explain:
     reason = action == "sell" and SellReason(
         **{key: decided[f"sell_{key}"] for key in ("kind", "step", "rank", "limit")}
     )
-    orders = run.ledger.orders.filter((pl.col("date") == fill) & code) if fill else run.ledger.orders.clear()
+    caused = with_causes(run)
+    orders = caused.filter((pl.col("date") == fill) & code) if fill else caused.clear()
     uses = run.anomalies.filter(code & pl.col("date").is_in([day, *([fill] if fill else [])]))
     names = names_of(context, [request.code])
     return Explain(
