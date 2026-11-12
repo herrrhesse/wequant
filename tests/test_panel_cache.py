@@ -8,7 +8,7 @@ import pytest
 from tests.test_panel import BARS, A, bar, col, commit, install_stub_rules, seed
 from wequant.data.store import KEEP_VERSIONS
 from wequant.panel import build, load_panel
-from wequant.panel.cache import FORMAT, cache_key
+from wequant.panel.cache import FORMAT, PanelCache, cache_key, keep_only
 
 
 @pytest.fixture
@@ -107,3 +107,29 @@ def test_a_rules_change_rebuilds_only_the_limits(store, cache, builds, monkeypat
     assert np.array_equal(again.limit_locked, locked) and locked.any()
     assert builds == [] and calls == [1, 1]
     assert (cache / "panel" / panel.key / "limits-nextnextnext-r1.npy").exists()
+
+
+def test_a_cleanup_during_a_panel_build_neither_fails_it_nor_removes_the_folder_being_built(store, cache, monkeypatch):
+    """The race the frontend saw: switching the version in use prunes the other panels at the moment a request moves
+    its new array into place. The build still returns its array, and its folder is kept."""
+    commit(store, bars=BARS[1:])  # version 2: the newest; version 1's panel is the one being built
+    building = PanelCache(store, store.manifest(1), cache)
+    replace = os.replace
+
+    def raced(source, target):
+        keep_only(cache, store.manifest(2))  # what data_use_version's tidy does, from another request
+        replace(source, target)
+
+    monkeypatch.setattr(os, "replace", raced)
+    array = building.array("probe", lambda src: np.arange(3.0))
+    assert array.tolist() == [0.0, 1.0, 2.0] and (building.directory / "probe.npy").is_file()
+
+
+def test_a_panel_folder_another_process_removes_mid_write_still_gives_the_array(store, cache, monkeypatch):
+    building = PanelCache(store, store.manifest(), cache)
+
+    def lost(source, target):  # the folder went with its temporary file, as another process's cleanup would do
+        raise FileNotFoundError(source)
+
+    monkeypatch.setattr(os, "replace", lost)
+    assert building.array("probe", lambda src: np.arange(3.0)).tolist() == [0.0, 1.0, 2.0]
