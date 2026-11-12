@@ -61,7 +61,7 @@ def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, st
     and the frontend build at / (static_dir(static)), or a page saying how to build it. Without a job queue in context
     the app opens one over the data root; shutting the app down stops it."""
     if context.jobs is None:
-        jobs = Jobs(context.store().home, KINDS, context.cache, clock=context.clock)
+        jobs = Jobs(context.store().home, KINDS, context.cache, clock=context.clock, context=context)
         context = dataclasses.replace(context, jobs=jobs)
     app = FastAPI(  # no Swagger or ReDoc page: they load scripts from a CDN and are blank offline
         title="WeQuant",

@@ -233,14 +233,17 @@ uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl
 - **Background jobs (S5.2):** `jobs_start` with `{"kind": "backtest", "request": <BacktestRequest>}` queues a job and
   returns its JobInfo (id, state, place in the queue, fraction done, stage code and params, and the stage as one
   Chinese sentence). The request is checked at once (errors located under `request`), and a null `data_version` is
-  pinned to the version current then, so a version committed while the job waits or runs changes nothing. Each job runs
-  in a worker process of its own; one job runs at a time and at most one uses BaoStock, while the others wait in order.
+  pinned to the version current then, so a version committed while the job waits or runs changes nothing. A backtest
+  job runs in a thread of the server and shares its warm panel and expression caches, so it takes as long as
+  `POST /api/backtest`; a kind marked process (the daily update, next) runs in a worker process of its own. One job
+  runs at a time and at most one uses BaoStock, while the others wait in order.
   `GET /api/jobs/{id}/events` streams the job's JobInfo as server-sent events (`event: job`), one per change, and ends
   once the job has finished. `jobs_list`, `jobs_show` and `jobs_cancel` take `{"id": n}` (`jobs_list` none).
   `jobs_result` returns a succeeded job's result byte for byte as the operation run directly would, a failed or
   cancelled job's ErrorBody with its status, and NOT_FOUND `job_unfinished` before then. Cancel stops a queued job
-  before it starts; a running one stops and leaves nothing behind, and its worker is killed if it is still running
-  10 s later. A worker that dies fails its job with its exit code (stage `crashed`). Stopping the server fails the
+  before it starts; a running one stops at its next check and leaves nothing behind, and a worker process still
+  running 10 s later is killed. A worker that dies fails its job with its exit code (stage `crashed`), and an operation
+  that raises fails it with an INTERNAL ErrorBody. Stopping the server fails the
   jobs it leaves unfinished (stage `interrupted`), and so does starting it after a crash. The CLI and the plain
   routes are unchanged. Job records live in `<home>/jobs/`, see `Database/README.md`.
 - **Local only:** `--host` defaults to 127.0.0.1 and any other address prints a warning; there is no CORS. During
