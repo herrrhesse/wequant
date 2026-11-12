@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime as dt
 from collections.abc import Iterator, Mapping
@@ -14,6 +15,7 @@ from wequant.account.ledger import FORCED
 from wequant.analytics import Metric
 from wequant.backtest import Backtest, Cancelled, panel_for
 from wequant.backtest import run as engine_run
+from wequant.data.files import OutsideRoot
 from wequant.data.store import version_name
 from wequant.panel import NotInPanel
 from wequant.runs.archive import RUNS, Archive
@@ -113,7 +115,8 @@ def backtest(request: BacktestRequest, context: Context = Context()) -> Backtest
     if request.save:
         archive = Archive(store.home / RUNS)
         archive.save(run, {"store_version_name": version_name(panel.manifest)})
-        prune_runs(archive, load_settings(store.home)[0], keep=[run.id])  # the oldest unpinned beyond the size limit
+        with contextlib.suppress(OutsideRoot):  # a runs folder linked elsewhere is never pruned
+            prune_runs(archive, load_settings(store.home)[0], keep=[run.id])  # the oldest unpinned beyond the limit
         context.stage("archive_save")
     found = strategy_hash(strategy)
     result = BacktestResult(

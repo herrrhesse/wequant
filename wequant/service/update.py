@@ -15,7 +15,7 @@ from wequant.data.merge import RawDataError, StalePlan
 from wequant.data.sources.baostock import BaoStock, BaoStockError
 from wequant.data.store import StoreLocked
 from wequant.data.update import Outcome, RawRejected, UpdateCancelled, update
-from wequant.service.base import Check, Context, ErrorDetail, Model, manifest, named
+from wequant.service.base import Check, Context, ErrorDetail, Model, guarded, manifest, named
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.labels import update_text
 from wequant.service.storage import tidy
@@ -61,7 +61,7 @@ def data_update(request: UpdateRequest, context: Context = Context()) -> UpdateR
     base = manifest(store)
     now = dt.datetime.fromisoformat(context.clock()) if context.clock else dt.datetime.now(dt.UTC)
     try:
-        with BaoStock() as source:
+        with guarded(), BaoStock() as source:
             outcome = update(store, source, now, context.progress, context.cancel)
     except (RawDataError, RawRejected) as error:
         problems = getattr(error, "problems", [str(error)])

@@ -43,3 +43,23 @@ def atomic_write(path: Path, data: bytes) -> None:
             os.fsync(fd)
         finally:
             os.close(fd)
+
+
+class OutsideRoot(PermissionError):
+    """A path a write or delete would touch resolves outside the data root, through a symbolic link: refused, so that
+    no data elsewhere changes (a data root of links is fine to read)."""
+
+    def __init__(self, path: Path, root: Path) -> None:
+        super().__init__(path, root)
+        self.path, self.root = Path(path), Path(root)
+
+    def __str__(self) -> str:
+        return f"{self.path} resolves outside the data root {self.root}; refusing to write or delete there"
+
+
+def check_inside(root: Path, paths) -> None:
+    """OutsideRoot for the first of paths (existing or not) whose resolved path is not inside root's."""
+    real = Path(os.path.realpath(root))
+    for path in paths:
+        if not Path(os.path.realpath(path)).is_relative_to(real):
+            raise OutsideRoot(path, root)

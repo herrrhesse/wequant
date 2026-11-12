@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 
 from wequant.data import store as store_module
+from wequant.data.files import OutsideRoot
 from wequant.data.schema import TABLES
 from wequant.data.store import Store, StoreLocked, tables_digest, version_name, version_reason
 
@@ -383,3 +384,30 @@ def test_a_file_written_before_a_column_was_added_reads_it_as_null(tmp_path, mon
         store.commit({}, replace={"securities": frame})
     read = store.read_table("securities")
     assert list(read.columns) == list(table.schema) and read["list_date"].to_list() == [None]
+
+
+def files_of(store: Store) -> dict:
+    return {p: p.read_bytes() for p in store.home.rglob("*") if p.is_file() and p.name != ".lock"}
+
+
+def linked_view(tmp_path) -> tuple[Store, Store]:
+    """(a real store at two versions, a data root whose manifests and bars folder link to it)."""
+    real = Store(tmp_path / "real")
+    real.commit(META, replace={"bars": bars([("600000.SH", "2003-01-02", 1000)])})
+    real.commit(META, replace={"bars": bars([("600000.SH", "2003-01-03", 1100)])})
+    view = tmp_path / "view"
+    view.mkdir()
+    for name in ("manifest.json", "manifests", "bars"):
+        (view / name).symlink_to(real.home / name)
+    return real, Store(view)
+
+
+def test_a_data_root_linked_to_another_store_reads_it_but_never_writes_or_cleans_it(tmp_path):
+    real, view = linked_view(tmp_path)
+    before = files_of(real)
+    assert view.read_table("bars").equals(real.read_table("bars"))
+    with pytest.raises(OutsideRoot):
+        view.commit(META, replace={"bars": bars([("600000.SH", "2003-01-06", 1200)])})
+    with pytest.raises(OutsideRoot):
+        view.cleanup(keep=1, dry_run=False)
+    assert files_of(real) == before

@@ -303,6 +303,10 @@ ERROR_CODES = {
     "not_a_trading_day": ("不是交易日", "这一天不是交易日"),
     "not_json": ("不是 JSON", "内容不是合法的 JSON"),
     "out_of_range": ("超出范围", "数值超出允许的范围"),
+    "outside_data_root": (
+        "数据目录指向外部",
+        "数据目录里有文件夹指向数据目录之外，为避免改动其他位置的数据，拒绝写入和清理；只读操作照常可用",
+    ),
     "requires": ("缺少前提", "这个设置需要另一个设置一起出现"),
     "reserved_name": ("保留名称", "这个名称是保留字，不能用"),
     "too_deep": ("嵌套太深", "表达式嵌套层数太多"),
@@ -341,6 +345,25 @@ VERSION_REASONS = {  # code -> (name, template over the reason's params)
     "demo": ("生成演示数据", "生成演示数据"),
     "unspecified": ("未注明原因", "未注明原因"),
     "legacy": ("早期版本", "早期版本"),
+}
+
+ORDER_CAUSES = {  # code -> (name, template over the order's cause_params)
+    "enter": ("新进买入", "新进入持有名单买入（排第 {rank} 名）"),
+    "backup": ("备选递补", "备选递补买入（排第 {rank} 名）"),
+    "rebalance": ("权重调整", "权重偏离目标 {drift:+.1%}，调整到 {weight:.1%}"),
+    "exit_pool": ("调出股票池", "调出股票池卖出（{step}）"),
+    "exit_filter": ("不再满足条件", "不再满足条件卖出（{step}）"),
+    "exit_no_score": ("缺少因子值", "缺少因子值卖出（{step}）"),
+    "exit_rank": ("跌出持有范围", "跌出持有范围卖出（排第 {rank} 名，持有前 {limit} 名）"),
+    "exit_slots": ("名额已满", "持有名额已满，被排名更前的股票替换卖出（排第 {rank} 名，名额 {limit} 个）"),
+    "delisting": ("退市处理", "按退市规则处理"),
+    "unrecorded": ("未记录", "这笔订单没有可对应的决策记录，原因未记录"),
+}
+
+DAY_SOURCES = {
+    "stored": ("交易日", "本地数据里的交易日"),
+    "calendar": ("交易日历", "BaoStock 已公布的交易日"),
+    "estimated": ("估算", "按工作日估算，节假日可能调整"),
 }
 
 JOB_KINDS = {
@@ -456,6 +479,10 @@ class Labels(Model):
     job_stages: list[TemplateLabel]
     update_statuses: list[TemplateLabel]
     """data update's statuses; params: days (merged), last_day, waiting, proposed, unresolved."""
+    order_causes: list[TemplateLabel]
+    """Why an order was placed (OrderRow.cause), filled from its cause_params."""
+    day_sources: list[Label]
+    """Where a scheduled rebalance day comes from (ScheduledDay.source)."""
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -482,6 +509,8 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         job_states=_labels(JOB_STATES),
         job_stages=[_template(code, name, text) for code, (name, text) in JOB_STAGES.items()],
         update_statuses=[_template(code, name, text) for code, (name, text) in UPDATE_STATUSES.items()],
+        order_causes=[_template(code, name, text) for code, (name, text) in ORDER_CAUSES.items()],
+        day_sources=_labels(DAY_SOURCES),
     )
 
 

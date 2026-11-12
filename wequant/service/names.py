@@ -8,7 +8,7 @@ import polars as pl
 from wequant.data.names import basic_rows, with_basic
 from wequant.data.raw import BaoStockRaw
 from wequant.data.store import StoreLocked
-from wequant.service.base import Context, Model, manifest, name_of, named, not_found
+from wequant.service.base import Context, Model, guarded, manifest, name_of, named, not_found
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.storage import tidy
 
@@ -51,7 +51,7 @@ def data_names(request: NamesRequest, context: Context = Context()) -> NamesRepo
         raise not_found("no_stock_basic", f"no {path.relative_to(store.home)}: fetch BaoStock's stock_basic first")
     stock_basic = pl.read_parquet(path)
     try:
-        with store.lock():
+        with guarded(), store.lock():
             found = manifest(store)
             before = store.read_table("securities", manifest=found)
             after = with_basic(before, basic_rows(stock_basic))

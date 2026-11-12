@@ -12,7 +12,7 @@ from wequant.data.store import Store, StoreLocked
 from wequant.rules.book import RuleBook, default_book
 from wequant.rules.check import KIND, missing_issues
 from wequant.rules.tables import CheckResult, check_store, limit_check_current
-from wequant.service.base import Check, Context, Model, manifest, named
+from wequant.service.base import Check, Context, Model, guarded, manifest, named
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.limit_report import report
 from wequant.service.storage import tidy
@@ -59,7 +59,8 @@ def data_check(request: CheckRequest, context: Context = Context()) -> CheckRepo
     store, book = context.store(), default_book()
     manifest(store)  # NOT_FOUND without a store
     try:
-        result = check_store(store, commit=request.commit, book=book)
+        with guarded():
+            result = check_store(store, commit=request.commit, book=book)
     except StoreLocked as error:
         raise ServiceError(Exit.LOCKED, str(error)) from None
     version = result.committed or result.version

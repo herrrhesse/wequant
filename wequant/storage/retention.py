@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
+from wequant.data.files import OutsideRoot, check_inside
 from wequant.data.store import Store
 from wequant.panel.cache import keep_only
 from wequant.runs.archive import Archive
@@ -43,14 +44,21 @@ def runs_over(archive: Archive, settings: Settings, keep: Iterable[str] = ()) ->
 
 
 def prune_runs(archive: Archive, settings: Settings, keep: Iterable[str] = ()) -> list[str]:
-    """Remove runs_over; the removed ids."""
+    """Remove runs_over; the removed ids. OutsideRoot when the archive's folder links out of its data root."""
     doomed = [run for run, _ in runs_over(archive, settings, keep)]
+    if doomed:
+        check_inside(archive.root.parent, [archive.root])
     for run in doomed:
         archive.delete(run)
     return doomed
 
 
 def prune_panels(cache: Path, store: Store, settings: Settings) -> list[Path]:
-    """Remove the panels of every version but the one in use (the newest when none is set)."""
+    """Remove the panels of every version but the one in use (the newest when none is set); none when the cache lies
+    outside the data root, since it may be another store's."""
     in_use = store.manifest(settings.version_in_use) or store.manifest()
+    try:
+        check_inside(store.home, [cache])
+    except OutsideRoot:
+        return []
     return keep_only(cache, in_use) if in_use is not None else []
