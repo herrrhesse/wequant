@@ -159,7 +159,7 @@ function StockView({ code, bars, barsCmd, ma, maCmds, issues, issuesCmd, issuesV
   const data = { code };
 
   return (
-    <main className="page" data-render-ms={renderMs?.chart} data-page-ms={renderMs?.page}>
+    <div className="col stock-view" data-render-ms={renderMs?.chart} data-page-ms={renderMs?.page}>
       <div className="card-head">
         <h1>{data.code}</h1>
         {last && <span className="note">{t.stock.latest(last.date)} · {t.stock.day.close} {show(last.values.close)} · {STATUS[last.status]}</span>}
@@ -226,7 +226,7 @@ function StockView({ code, bars, barsCmd, ma, maCmds, issues, issuesCmd, issuesV
           </Card>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 

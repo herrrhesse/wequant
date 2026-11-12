@@ -323,3 +323,4 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .backend-down { max-width: 720px; margin: 40px auto; gap: 16px; }
 .down-cmd { padding: 8px 12px; border-radius: 10px; background: var(--soft); font-size: 14px; }
 .card-meta .cmd { max-width: min(560px, 60vw); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stock-view { gap: 16px; }
