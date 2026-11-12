@@ -291,6 +291,9 @@ ERROR_CODES = {
     "no_job_queue": ("没有任务队列", "后台任务只在 wequant serve 里运行"),
     "no_resolutions": ("没有裁决文件", "数据目录里没有裁决文件"),
     "no_route": ("没有这个接口", "这个地址上没有操作，操作是 POST /api/<操作名>"),
+    "no_stock_basic": ("没有股票基础信息", "还没有从 BaoStock 取过股票基础信息（stock_basic）"),
+    "source_unreachable": ("连不上 BaoStock", "BaoStock 无法访问或登录失败，数据库没有改动"),
+    "store_busy": ("数据库正在被占用", "另一个写入或 BaoStock 任务正在进行，请稍后再试；数据库没有改动"),
     "no_store": ("没有数据库", "数据目录里还没有数据库"),
     "not_a_choice": ("不在可选值里", "取值不在允许的选项里"),
     "not_a_decision_day": ("不是决策日", "这一天不是这次运行的决策日或成交日"),
@@ -340,6 +343,7 @@ VERSION_REASONS = {  # code -> (name, template over the reason's params)
 
 JOB_KINDS = {
     "backtest": ("回测", "按策略回测一段区间，结果存进运行记录"),
+    "data_update": ("每日更新", "从 BaoStock 补齐本地数据之后已收盘的交易日"),
 }
 
 JOB_STATES = {
@@ -361,6 +365,20 @@ JOB_STAGES = {  # code -> (name, template over the stage's params)
     "cancelled": ("已取消", "已取消，没有留下结果"),
     "crashed": ("进程退出", "任务进程意外退出（退出码 {exit_code}）"),
     "interrupted": ("服务停止", "wequant serve 停止时任务还没有完成"),
+    "update_calendar": ("读取交易日历", "正在读取交易日历"),
+    "update_snapshot": ("下载行情", "正在下载 {day} 的行情（已完成 {done}/{total} 天）"),
+    "update_factors": ("下载复权因子", "正在下载复权因子（已完成 {done}/{total} 只）"),
+    "update_indexes": ("下载指数", "正在下载指数行情"),
+    "update_merge": ("检查合并", "正在检查和合并新数据"),
+    "update_commit": ("写入版本", "正在写入新版本"),
+}
+
+UPDATE_STATUSES = {  # code -> (name, template over update_params)
+    "updated": ("已更新", "更新完成：新增 {days} 个交易日，数据到 {last_day}"),
+    "up_to_date": ("已是最新", "已是最新，没有新的已收盘交易日"),
+    "not_published": ("数据未发布", "{waiting} 的数据还没有发布，请收盘几小时后再试"),
+    "conflicts": ("等待处理", "有 {unresolved} 个冲突需要先在数据页处理（新提议 {proposed} 条），这次没有更新"),
+    "rejected": ("数据未通过检查", "BaoStock 的数据没有通过检查，这次没有更新"),
 }
 
 # ---------------------------------------------------------------- models and the operation
@@ -434,6 +452,8 @@ class Labels(Model):
     job_kinds: list[Label]
     job_states: list[Label]
     job_stages: list[TemplateLabel]
+    update_statuses: list[TemplateLabel]
+    """data update's statuses; params: days (merged), last_day, waiting, proposed, unresolved."""
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -459,6 +479,7 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         job_kinds=_labels(JOB_KINDS),
         job_states=_labels(JOB_STATES),
         job_stages=[_template(code, name, text) for code, (name, text) in JOB_STAGES.items()],
+        update_statuses=[_template(code, name, text) for code, (name, text) in UPDATE_STATUSES.items()],
     )
 
 
@@ -491,6 +512,23 @@ def reason_text(reason: Mapping) -> str:
 def job_text(stage: str, params: Mapping) -> str:
     """The Chinese sentence of a job's stage with its params."""
     return JOB_STAGES[stage][1].format(**params)
+
+
+def update_params(result: Mapping) -> dict:
+    """The params of a data update's status sentence, from the result's fields."""
+    days = result["days"]
+    return {
+        "days": len(days),
+        "last_day": days[-1].isoformat() if days else None,
+        "waiting": result["waiting"] and result["waiting"].isoformat(),
+        "proposed": result["proposed"],
+        "unresolved": result["unresolved"],
+    }
+
+
+def update_text(result: Mapping) -> str:
+    """The Chinese sentence of a data update's status."""
+    return UPDATE_STATUSES[result["status"]][1].format(**update_params(result))
 
 
 def placeholders(template: str) -> list[str]:

@@ -139,9 +139,10 @@ def plan_merge(
     )
 
 
-def apply_merge(store: Store, plan: MergePlan, timeout: float = 0) -> CommitResult:
-    """Commit the plan, code_version added to its block, as one version under the writer lock; StalePlan if the store
-    moved on, UnresolvedConflicts while a conflict lacks an approved resolution."""
+def apply_merge(store: Store, plan: MergePlan, timeout: float = 0, reason: str = "baostock_merge") -> CommitResult:
+    """Commit the plan, code_version added to its block, as one version under the writer lock, made for reason
+    (daily_update: its days only); StalePlan if the store moved on, UnresolvedConflicts while a conflict lacks an
+    approved resolution."""
     if plan.unresolved.height:
         raise UnresolvedConflicts(plan.unresolved)
     with store.lock(timeout):
@@ -150,13 +151,14 @@ def apply_merge(store: Store, plan: MergePlan, timeout: float = 0) -> CommitResu
             raise StalePlan(f"planned on version {plan.base_version}, the store is at version {current}")
         block = {**plan.meta["baostock_merge"], "code_version": code_version()}
         applied = sum(plan.stats["resolutions"]["applied"].values())
+        params = {"days": len(plan.days)} | ({} if reason == "daily_update" else {"resolutions": applied})
         return store.commit(
             {**plan.meta, "baostock_merge": block},
             replace_parts=plan.replace_parts,
             replace=plan.replace,
             upsert=plan.upsert,
-            reason="baostock_merge",
-            reason_params={"days": len(plan.days), "resolutions": applied},
+            reason=reason,
+            reason_params=params,
         )
 
 

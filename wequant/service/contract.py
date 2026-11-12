@@ -20,11 +20,13 @@ from wequant.service.index_check import data_index_check
 from wequant.service.issues import data_issues
 from wequant.service.jobs import jobs_cancel, jobs_list, jobs_result, jobs_show, jobs_start
 from wequant.service.labels import labels
+from wequant.service.names import data_names
 from wequant.service.profile import ProfileReport
 from wequant.service.resolutions import data_resolve_approve, data_resolve_list, data_resolve_reject
 from wequant.service.screen import screen
 from wequant.service.securities import data_securities
 from wequant.service.status import data_status
+from wequant.service.update import data_update
 from wequant.service.verify import data_verify_list, data_verify_submit
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -99,6 +101,8 @@ def schema(request: SchemaRequest, context: Context = Context()) -> ServiceSchem
 OPERATIONS = (
     *(data_status, data_calendar, data_securities, data_bars, data_issues, data_check, data_delistings),
     data_index_check,
+    data_names,
+    data_update,
     *(data_verify_submit, data_verify_list, data_resolve_list, data_resolve_approve, data_resolve_reject),
     *(expr_check, expr_eval),
     *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),

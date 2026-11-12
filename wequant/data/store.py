@@ -11,6 +11,7 @@ Data files are never modified. Commits and deleting cleanups hold the lock; read
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import hashlib
 import json
 import os
@@ -158,7 +159,7 @@ class Store:
         if table.partitioned:
             files = [e for e in files if _year_in(int(e["part"]), start, end)]
         if files:
-            frame = pl.scan_parquet([str(self.home / e["path"]) for e in files])
+            frame = _scan_files([self.home / e["path"] for e in files], table)
         else:
             frame = pl.LazyFrame(schema=table.schema)
         if start is not None:
@@ -373,6 +374,27 @@ def _write_fd(fd: int, text: str) -> None:
     os.lseek(fd, 0, os.SEEK_SET)
     os.write(fd, text.encode("utf-8"))
     os.fsync(fd)
+
+
+def _scan_files(paths: list[Path], table: Table) -> pl.LazyFrame:
+    """The files' rows in the table's columns: a file written before a column was added reads it as null, and one
+    that has a column the table dropped loses it."""
+    if all(_file_schema(path) == table.schema for path in paths):
+        return pl.scan_parquet([str(path) for path in paths])
+    return pl.concat([_conformed(path, table) for path in paths])
+
+
+def _conformed(path: Path, table: Table) -> pl.LazyFrame:
+    present = _file_schema(path)
+    return pl.scan_parquet(path).select(
+        pl.col(c).cast(t) if c in present else pl.lit(None, dtype=t).alias(c) for c, t in table.schema.items()
+    )
+
+
+@functools.lru_cache(maxsize=8192)
+def _file_schema(path: Path) -> dict:
+    """A data file's columns; data files never change, so the answer is kept."""
+    return dict(pl.read_parquet_schema(path))
 
 
 def _date(value: dt.date | str | None) -> dt.date | None:

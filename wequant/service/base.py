@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -162,6 +162,19 @@ def manifest(store: Store, version: int | None = None) -> dict:
 def named(found: dict) -> dict:
     """data_version and data_version_name of a manifest, for a result's fields."""
     return {"data_version": found["version"], "data_version_name": version_name(found)}
+
+
+Names = dict[str, str | None]  # code -> stock name, null when no source gave one
+
+
+def names_of(context: Context, codes: Iterable[str]) -> Names:
+    """Each code's stock name as the newest store version has it: today's name, not the one of the day shown."""
+    store = context.store()
+    newest = store.manifest()
+    if newest is None:
+        return {}
+    found = store.scan("securities", columns=["code", "name"], codes=set(codes), manifest=newest).collect()
+    return dict(found.iter_rows())
 
 
 def name_of(store: Store, version: int) -> str | None:

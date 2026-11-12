@@ -5,5 +5,6 @@ from tests.service.conftest import (  # noqa: F401  the service tests' synthetic
     library_home,
     limits_home,
     market_home,
+    named_home,
     no_real_home,
 )

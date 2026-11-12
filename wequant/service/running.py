@@ -8,11 +8,13 @@ from collections.abc import Callable
 from typing import get_type_hints
 
 from wequant.backtest import Progress
+from wequant.data.update import STAGES as UPDATE_STAGES
+from wequant.data.update import Step
 from wequant.service.base import Context, ErrorBody, error_body
 from wequant.service.errors import Exit, ServiceError
 
 log = logging.getLogger("wequant")
-STAGES = ("load", "backtest")  # the stages a running operation reports; the queue has its own
+STAGES = ("load", "backtest", *UPDATE_STAGES)  # the stages a running operation reports; the queue has its own
 
 
 def imported(path: str) -> Callable:
@@ -34,7 +36,10 @@ def outcome(operation: Callable, request: dict, context: Context) -> dict:
     return {"result": result.model_dump_json()}
 
 
-def progress_message(state: Progress) -> dict:
-    """A backtest's progress report as a message: the day it closed, of all its run days, and the equity then."""
+def progress_message(state: Progress | Step) -> dict:
+    """A progress report as a message: an update's step as it is, a backtest's the day it closed, of all its run
+    days, and the equity then."""
+    if isinstance(state, Step):
+        return state._asdict()
     params = {"day": state.day.isoformat(), "done": state.done, "total": state.total, "equity": state.equity}
     return {"stage": "backtest", "fraction": state.done / state.total if state.total else 1.0, "params": params}

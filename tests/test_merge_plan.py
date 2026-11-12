@@ -78,7 +78,8 @@ def test_end_to_end(world):
     assert store.read_table("daily_status").filter(bj).is_empty()
 
     securities = store.read_table("securities")
-    assert securities.filter(pl.col("code") == "600849.SH").row(0) == ("600849.SH", "SH", "main", D1, D3, None, SOURCE)
+    added = ("600849.SH", "SH", "main", D1, D3, None, None, None, SOURCE)  # no official dates or name yet
+    assert securities.filter(pl.col("code") == "600849.SH").row(0) == added
     assert rows_of(store, "adj_factor", "600849.SH", ["ex_date"]) == []
     assert rows_of(store, "adj_factor", "600006.SH", ["ex_date", "factor"]) == [(C1, 3.7), (D2, 3.8)]
 

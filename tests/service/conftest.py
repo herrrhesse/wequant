@@ -1,9 +1,14 @@
+import datetime as dt
+
+import polars as pl
 import pytest
 
 from tests.backtest.market import build_store, business_days
+from tests.baostock_fake import stock_basic
 from tests.test_panel import BARS, bar, commit, seed
 from tests.test_rules_tables import META, tables_v1
 from wequant.cli import main
+from wequant.data.raw import BaoStockRaw, raw_frame
 from wequant.data.store import Store
 from wequant.service import Context
 from wequant.strategy import Strategy
@@ -19,6 +24,18 @@ def no_real_home(monkeypatch, tmp_path):
 def home(tmp_path):
     """tests.test_panel's store at v1: every day status, B's free listing days, a voided day, 7 data_issues rows."""
     return seed(tmp_path / "home").home
+
+
+@pytest.fixture
+def named_home(home):
+    """home with tests.baostock_fake's stock_basic in its raw layer: it names 600000.SH and 300001.SZ."""
+    fields, rows = stock_basic()
+    frame = pl.DataFrame(rows, schema={f: pl.String for f in fields}, orient="row")
+    raw = BaoStockRaw.at(home)
+    raw.write(
+        raw.stock_basic, raw_frame(frame, "query_stock_basic()", "0.9.4", dt.datetime(2026, 11, 12, tzinfo=dt.UTC))
+    )
+    return home
 
 
 @pytest.fixture

@@ -90,6 +90,8 @@ def securities_table(old: pl.DataFrame, spans: pl.DataFrame, source: str) -> tup
     added = spans.join(old, on="code", how="anti").with_columns(
         exchange=pl.col("code").str.slice(-2),
         board=pl.col("code").map_elements(codemod.board, return_dtype=pl.String),
+        list_date=pl.lit(None, dtype=pl.Date),
+        delist_date=pl.lit(None, dtype=pl.Date),
         name=pl.lit(None, dtype=pl.String),
         source=pl.lit(source),
     )

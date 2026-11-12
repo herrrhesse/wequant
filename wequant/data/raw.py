@@ -5,6 +5,8 @@
     raw/baostock/meta/stock_industry.parquet
     raw/baostock/daily/<YYYY>/<YYYY-MM-DD>.parquet
     raw/baostock/adjust_factor/<code>.parquet           code as 600000.SH
+    raw/baostock/daily_factor/<YYYY>/<YYYY-MM-DD>.parquet   the day's adjustment events of every code
+    raw/baostock/index/<code>/<first>_<last>.parquet      an index's daily bars over a range
 
 Every response field is a string column, untouched. Three columns are added: _request, _fetched_at (UTC)
 and _baostock_version. A file that exists is complete (wequant.data.files.atomic_write).
@@ -62,8 +64,17 @@ class BaoStockRaw:
     def adjust_factor(self, code: str) -> Path:
         return self.root / "adjust_factor" / f"{code}.parquet"
 
+    def daily_factor(self, day: dt.date) -> Path:
+        return self.root / "daily_factor" / f"{day.year}" / f"{day.isoformat()}.parquet"
+
+    def index(self, code: str, first: dt.date, last: dt.date) -> Path:
+        return self.root / "index" / code / f"{first.isoformat()}_{last.isoformat()}.parquet"
+
     def daily_days(self) -> set[dt.date]:
         return {dt.date.fromisoformat(p.stem) for p in (self.root / "daily").glob("*/*.parquet")}
+
+    def daily_factor_files(self) -> list[Path]:
+        return sorted((self.root / "daily_factor").glob("*/*.parquet"))
 
     def adjust_factor_codes(self) -> set[str]:
         return {p.stem for p in (self.root / "adjust_factor").glob("*.parquet")}
