@@ -3,16 +3,18 @@ import { lazy, Suspense, useSyncExternalStore } from "react";
 import { backendState } from "./api/http";
 import { Header } from "./components/Header";
 import { BackendDown } from "./components/Problem";
-import { t } from "./i18n";
+import { setBook, useLabels } from "./labels";
 import { usePrefs } from "./prefs";
 import { useRoute } from "./router";
+import { tx } from "./text";
+import { UiContext } from "./ui";
+import { TodayPage } from "./pages/today/TodayPage";
 
-// One chunk per page: klinecharts loads with the stock page, echarts with a run's page.
-const DataPage = lazy(() => import("./pages/DataPage").then((m) => ({ default: m.DataPage })));
-const StockPage = lazy(() => import("./pages/StockPage").then((m) => ({ default: m.StockPage })));
-const PicksPage = lazy(() => import("./pages/PicksPage").then((m) => ({ default: m.PicksPage })));
-const RunPage = lazy(() => import("./pages/runs/RunPage").then((m) => ({ default: m.RunPage })));
-const RunsListPage = lazy(() => import("./pages/runs/RunsListPage").then((m) => ({ default: m.RunsListPage })));
+// One chunk per page: klinecharts loads with the stock and picks pages, echarts with the backtest page.
+const DataPage = lazy(() => import("./pages/data/DataPage").then((m) => ({ default: m.DataPage })));
+const StockPage = lazy(() => import("./pages/stock/StockPage").then((m) => ({ default: m.StockPage })));
+const PicksPage = lazy(() => import("./pages/picks/PicksPage").then((m) => ({ default: m.PicksPage })));
+const BacktestPage = lazy(() => import("./pages/backtest/BacktestPage").then((m) => ({ default: m.BacktestPage })));
 const StrategyPage = lazy(() => import("./pages/strategy/StrategyPage").then((m) => ({ default: m.StrategyPage })));
 
 export function App() {
@@ -20,33 +22,35 @@ export function App() {
   const route = useRoute();
   const down = useSyncExternalStore(backendState.subscribe, backendState.get);
   const client = useQueryClient();
-  const look = `${prefs.theme}/${prefs.conv}`;
+  setBook(useLabels());
   const retry = () => {
     backendState.reset();
     void client.resetQueries();
   };
   return (
-    <div className="app">
-      <Header route={route} {...prefs} />
-      {down ? (
-        <BackendDown onRetry={retry} />
-      ) : (
-        <Suspense fallback={<main className="page"><p className="note">{t.app.loading}</p></main>}>
-          {route.page === "strategy" ? (
-            <StrategyPage key={`${route.id}/${route.n}`} id={route.id} n={route.n} />
-          ) : route.page === "picks" ? (
-            <PicksPage route={route} look={look} />
-          ) : route.page === "backtest" ? (
-            <RunsListPage cmp={route.cmp} />
-          ) : route.page === "run" ? (
-            <RunPage key={route.id} id={route.id} day={route.day} look={look} conv={prefs.conv} />
-          ) : route.page === "stock" ? (
-            <StockPage key={route.code} route={route} look={look} />
-          ) : (
-            <DataPage key={`${route.code}/${route.date}`} focusCode={route.code} focusDate={route.date} />
-          )}
-        </Suspense>
-      )}
-    </div>
+    <UiContext.Provider value={{ dev: prefs.dev, conv: prefs.conv, look: `${prefs.theme}/${prefs.conv}` }}>
+      <div className="app">
+        <Header page={route.page} {...prefs} />
+        {down ? (
+          <BackendDown onRetry={retry} />
+        ) : (
+          <Suspense fallback={<main className="page"><p className="note">{tx.app.loading}</p></main>}>
+            {route.page === "today" ? (
+              <TodayPage />
+            ) : route.page === "strategy" ? (
+              <StrategyPage route={route} />
+            ) : route.page === "picks" ? (
+              <PicksPage route={route} />
+            ) : route.page === "backtest" ? (
+              <BacktestPage route={route} />
+            ) : route.page === "stock" ? (
+              <StockPage key={route.code} route={route} />
+            ) : (
+              <DataPage key={`${route.code}/${route.date}`} route={route} />
+            )}
+          </Suspense>
+        )}
+      </div>
+    </UiContext.Provider>
   );
 }

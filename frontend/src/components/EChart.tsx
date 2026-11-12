@@ -8,6 +8,7 @@ import { useEffect, useRef } from "react";
 echarts.use([LineChart, BarChart, HeatmapChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, VisualMapComponent, MarkLineComponent, CanvasRenderer]);
 
 export type ChartOption = echarts.EChartsCoreOption;
+export { echarts };
 
 /** A CSS custom property of the page (theme tokens), for chart colours. */
 export function cssVar(name: string): string {

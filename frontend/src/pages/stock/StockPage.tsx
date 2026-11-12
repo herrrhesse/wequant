@@ -1,18 +1,35 @@
 import { useCallback, useMemo, useState } from "react";
-import { BAR_FIELDS, commandOf, MA_WINDOWS, useCall, type PriceMode, type Request } from "../api/client";
-import { ApiError } from "../api/http";
-import type { Bars, EvalResult, IssueRow, Row } from "../api/types.gen";
-import { Card } from "../components/Card";
-import { Coded } from "../components/Coded";
-import { Command } from "../components/Command";
-import { KChart, MA_COLORS } from "../components/KChart";
-import { Problem } from "../components/Problem";
-import { show } from "../format";
-import { t } from "../i18n";
-import { useDebounced } from "../hooks";
-import { href, type Route } from "../router";
+import { BAR_FIELDS, commandOf, MA_WINDOWS, useCall, type PriceMode, type Request } from "../../api/client";
+import { ApiError } from "../../api/http";
+import type { Bars, EvalResult, IssueRow, Row } from "../../api/types.gen";
+import { Card } from "../../components/Card";
+import { Command } from "../../components/Command";
+import { KChart, MA_COLORS } from "../../components/KChart";
+import { Problem } from "../../components/Problem";
+import { show } from "../../format";
+import { t } from "../../i18n";
+import { href, type Route } from "../../router";
+import { StatusBar } from "../../components/StatusBar";
+import { Seg } from "../../components/Seg";
+import { lb } from "../../labels";
+import { useUi } from "../../ui";
+
+const RANGES: [string, string][] = [
+  ["0.25", "3 个月"],
+  ["0.5", "半年"],
+  ["1", "1 年"],
+  ["3", "3 年"],
+  ["all", "全部"],
+];
 
 type StockRoute = Extract<Route, { page: "stock" }>;
+
+/** ISO date `months` before `iso` (the requested range only). */
+function monthsBefore(iso: string, months: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() - months);
+  return d.toISOString().slice(0, 10);
+}
 
 /** ISO date `years` before `iso` (the requested range only; never applied to results). */
 function yearsBefore(iso: string, years: number): string {
@@ -23,13 +40,16 @@ function yearsBefore(iso: string, years: number): string {
 
 /** The stock page: daily K-line in raw or back-adjusted prices, backend moving averages, limits, halts, ST, issues,
  * and optionally a run's orders of this code. The range is the two years up to the focus day or the last trading day. */
-export function StockPage({ route, look }: { route: StockRoute; look: string }) {
-  const status = useCall("data_status", {}, { staleTime: 0 });
+export function StockPage({ route }: { route: StockRoute }) {
+  const { look } = useUi();
+  const [range, setRange] = useState("1");
+  const status = useCall("data_status", {});
+  const calendar = useCall("data_calendar", {});
   const last = status.data?.last_trade_date ?? null;
   // A focus day sits a year before the range end when the data allows.
   const ahead = route.date ? yearsBefore(route.date, -1) : null;
   const end = last && ahead && ahead < last ? ahead : last;
-  const start = end ? yearsBefore(end, 2) : null;
+  const start = end ? (range === "all" ? (calendar.data?.first ?? null) : monthsBefore(end, Number(range) * 12)) : null;
   const [mode, setMode] = useState<PriceMode>("raw");
   const barsReq: Request<"data_bars"> | null = end ? { codes: [route.code], start, end, fields: [...BAR_FIELDS] } : null;
   const bars = useCall("data_bars", barsReq);
@@ -52,7 +72,11 @@ export function StockPage({ route, look }: { route: StockRoute; look: string }) 
   const error = status.error ?? bars.error;
   return (
     <main className="page">
-      <StockSearch code={route.code} />
+      <StatusBar />
+      <div className="row">
+        <Seg label="区间" value={range} options={RANGES} onChange={setRange} />
+        <span className="small muted">滚轮缩放 · 拖动平移</span>
+      </div>
       {route.from && (
         <span className="note">
           {t.stock.from(t.stock.fromNames[route.from] ?? route.from)} ·{" "}
@@ -93,38 +117,6 @@ export function StockPage({ route, look }: { route: StockRoute; look: string }) 
   );
 }
 
-/** Open any code: suggestions from data securities (code prefix, or part of a name where the store has names). */
-function StockSearch({ code }: { code: string }) {
-  const [value, setValue] = useState(code);
-  const query = useDebounced(value.trim(), 200);
-  const found = useCall("data_securities", query ? { query, limit: 20 } : null, { placeholderData: (prev) => prev });
-  return (
-    <form
-      className="filters"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const c = value.trim().toUpperCase();
-        if (c) location.hash = href.stock(c);
-      }}
-    >
-      <label className="field">
-        {t.stock.search}
-        <input value={value} list="stock-suggest" onChange={(e) => setValue(e.target.value)} placeholder="600000.SH" />
-        <datalist id="stock-suggest">
-          {(found.data?.rows ?? []).map((s) => (
-            <option key={s.code} value={s.code}>
-              {[s.name, s.board, `${s.first_date} ~ ${s.last_date}`].filter(Boolean).join(" · ")}
-            </option>
-          ))}
-        </datalist>
-      </label>
-      <button type="submit" className="cmd">
-        {t.nav.jumpGo}
-      </button>
-      <span className="note">{t.stock.searchNote}</span>
-    </form>
-  );
-}
 
 const STATUS: Record<Row["status"], string> = {
   traded: t.stock.day.traded,
@@ -224,8 +216,8 @@ function StockView({ code, bars, barsCmd, ma, maCmds, issues, issuesCmd, issuesV
             {issues.map((is) => (
               <div key={`${is.table}/${is.date}/${is.kind}`} className="issue-item">
                 <span className="num">{is.date}</span>
-                <Coded code={is.kind} names={t.data.kinds} />
-                <Coded code={is.action} names={t.data.actions} />
+                <span>{lb().of("issue_kinds", is.kind)}</span>
+                <span className="muted">{lb().of("issue_actions", is.action)}</span>
                 <a className="link" href={href.data(data.code, is.date)}>
                   {t.stock.issueGoto}
                 </a>

@@ -3,7 +3,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation, type Request } from "../../api/client";
-import type { DailyRow, OrderRow, RunDetail } from "../../api/types.gen";
+import type { OrderRow, RunDetail } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { Card } from "../../components/Card";
 import { Command } from "../../components/Command";
@@ -12,10 +12,11 @@ import { VirtualTable } from "../../components/VirtualTable";
 import { localTime } from "../../format";
 import { useRunningSeconds } from "../../hooks";
 import { t } from "../../i18n";
+import { lb } from "../../labels";
 import { href } from "../../router";
 import { metricShown, percent, shares } from "../../runs/display";
-import { Chain } from "../PicksPage";
-import { AnomalyTable, WarningList } from "./shared";
+import { ChainView } from "../../components/ChainView";
+import { AnomalyTable } from "./shared";
 
 const r = t.runs;
 const pct = (v: number | null | undefined) => (typeof v === "number" ? percent(v) : t.common.none);
@@ -42,54 +43,7 @@ const KPIS = [
   "capacity_unknown_fills",
 ];
 
-export function RunPage({ id, day, look, conv }: { id: string; day: string | null; look: string; conv: "cn" | "intl" }) {
-  const show = useCall("runs_show", { id });
-  if (show.error)
-    return (
-      <main className="page">
-        <a className="link" href={href.backtest()}>
-          {r.back}
-        </a>
-        <Problem error={show.error} />
-      </main>
-    );
-  if (!show.data) return <main className="page"><p className="note">{t.app.loading}</p></main>;
-  return <RunView run={show.data} day={day} look={look} conv={conv} />;
-}
-
-function RunView({ run, day, look, conv }: { run: RunDetail; day: string | null; look: string; conv: "cn" | "intl" }) {
-  const pick = (d: string) => (location.hash = href.run(run.id, d));
-  return (
-    <main className="page">
-      <a className="link" href={href.backtest()}>
-        {r.back}
-      </a>
-      <div className="card-head">
-        <h1>{r.detailTitle(run.id)}</h1>
-        <span className="note num">
-          {run.start} ~ {run.end}
-        </span>
-      </div>
-      <Info run={run} command={commandOf("runs_show", { id: run.id })} />
-      <Kpis run={run} />
-      <Curves daily={run.daily} look={look} onPick={pick} selected={day} />
-      <Periods run={run} look={look} conv={conv} />
-      <Orders run={run} />
-      <Delisted run={run} />
-      <Anomalies run={run} />
-      <Card title={r.warnings}>
-        <WarningList warnings={run.warnings} empty={t.picks.noWarnings} />
-      </Card>
-      <Day run={run} day={day} onPick={pick} />
-      <div className="row2">
-        <Rerun id={run.id} />
-        <Report id={run.id} />
-      </div>
-    </main>
-  );
-}
-
-function Info({ run, command }: { run: RunDetail; command: string }) {
+export function Info({ run, command }: { run: RunDetail; command: string }) {
   const ex = run.execution;
   return (
     <Card title={r.info} version={run.store_version} command={command}>
@@ -173,15 +127,15 @@ function Item({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function Kpis({ run }: { run: RunDetail }) {
+export function Kpis({ run }: { run: RunDetail }) {
   const others = Object.keys(run.metrics).filter((k) => !KPIS.includes(k));
   const tile = (k: string) => {
     const m = metricShown(run.metrics[k]);
     return (
       <div key={k} className="stat">
-        <span className="stat-l">{r.metrics[k] ?? k}</span>
+        <span className="stat-l">{lb().of("metrics", k)}</span>
         <span className="stat-v num">{m.text}</span>
-        {m.reason && <span className="stat-s">{m.reason}</span>}
+        {m.reason && <span className="stat-s">{lb().of("metric_reasons", m.reason)}</span>}
       </div>
     );
   };
@@ -197,78 +151,7 @@ function Kpis({ run }: { run: RunDetail }) {
   );
 }
 
-/** inverse: the y axis grows downward (drawdown is drawn below its zero line without changing the backend's values). */
-function lineOption(
-  daily: DailyRow[],
-  series: { name: string; data: (number | null)[]; color: string; area?: boolean; percent?: boolean; axis?: number; bar?: boolean }[],
-  selected: string | null,
-  twoAxes = false,
-  inverse = false,
-): ChartOption {
-  const ink = cssVar("--sub");
-  const line = cssVar("--line");
-  const axis = (fmt: (v: number) => string) => ({ type: "value", scale: true, axisLabel: { color: ink, formatter: fmt }, splitLine: { lineStyle: { color: line } } });
-  return {
-    animation: false,
-    grid: { left: 60, right: twoAxes ? 60 : 20, top: 30, bottom: 30 },
-    legend: { textStyle: { color: ink }, top: 0 },
-    tooltip: { trigger: "axis" },
-    xAxis: { type: "category", data: daily.map((d) => d.date), axisLabel: { color: ink }, axisLine: { lineStyle: { color: line } } },
-    yAxis: twoAxes
-      ? [axis((v) => String(v)), { ...axis((v) => `${Math.round(v * 100)}%`), splitLine: { show: false } }]
-      : { ...axis((v) => (series[0]?.percent ? `${(v * 100).toFixed(0)}%` : v.toFixed(2))), inverse },
-    series: series.map((s, i) => ({
-      name: s.name,
-      type: s.bar ? "bar" : "line",
-      data: s.data,
-      yAxisIndex: s.axis ?? 0,
-      showSymbol: false,
-      lineStyle: { width: 1.5, color: s.color },
-      itemStyle: { color: s.color },
-      areaStyle: s.area ? { color: s.color, opacity: 0.15 } : undefined,
-      markLine: i === 0 && selected ? { symbol: "none", silent: true, data: [{ xAxis: selected }], lineStyle: { color: cssVar("--acc") }, label: { show: false } } : undefined,
-    })),
-  };
-}
-
-function Curves({ daily, look, onPick, selected }: { daily: DailyRow[]; look: string; onPick: (d: string) => void; selected: string | null }) {
-  const options = useMemo(() => {
-    const acc = cssVar("--acc");
-    const sub = cssVar("--muted");
-    const ink = cssVar("--ink");
-    return {
-      nav: lineOption(daily, [
-        { name: r.nav, data: daily.map((d) => d.nav), color: acc },
-        { name: r.benchmarkNav, data: daily.map((d) => d.benchmark_nav), color: sub },
-      ], selected),
-      excess: lineOption(daily, [{ name: r.excess, data: daily.map((d) => d.excess), color: ink, percent: true }], selected),
-      drawdown: lineOption(daily, [{ name: r.drawdown, data: daily.map((d) => d.drawdown), color: acc, area: true, percent: true }], selected, false, true),
-      holdings: lineOption(
-        daily,
-        [
-          { name: r.positions, data: daily.map((d) => d.positions), color: sub, bar: true },
-          { name: r.exposure, data: daily.map((d) => d.exposure), color: acc, axis: 1 },
-        ],
-        selected,
-        true,
-      ),
-    };
-    // look: re-read the theme colours.
-  }, [daily, selected, look]);
-  return (
-    <Card title={r.curves}>
-      <span className="note">{r.curvesNote}</span>
-      <EChart option={options.nav} height={300} look={look} onPick={onPick} label={r.nav} />
-      <div className="row2">
-        <EChart option={options.excess} height={200} look={look} onPick={onPick} label={r.excess} />
-        <EChart option={options.drawdown} height={200} look={look} onPick={onPick} label={r.drawdown} />
-      </div>
-      <EChart option={options.holdings} height={200} look={look} onPick={onPick} label={r.positions} />
-    </Card>
-  );
-}
-
-function Periods({ run, look, conv }: { run: RunDetail; look: string; conv: "cn" | "intl" }) {
+export function Periods({ run, look, conv }: { run: RunDetail; look: string; conv: "cn" | "intl" }) {
   const option = useMemo<ChartOption>(() => {
     const months = run.periods.month;
     // Layout only: "2024-03" is placed at row 2024, column 03.
@@ -337,7 +220,7 @@ type OrderFilter = { status: "all" | "rejected"; reason: string };
 /** Rows per page of runs orders (its limit is at most 500). */
 const ORDERS_PAGE = 500;
 
-function Orders({ run }: { run: RunDetail }) {
+export function Orders({ run }: { run: RunDetail }) {
   const counts = run.orders;
   const [filter, setFilter] = useState<OrderFilter>({ status: "all", reason: "" });
   const [offset, setOffset] = useState(0);
@@ -351,7 +234,7 @@ function Orders({ run }: { run: RunDetail }) {
       { header: r.ocols.date, accessorKey: "date", meta: { className: "num" } },
       { header: r.ocols.code, accessorKey: "code" },
       { header: r.ocols.side, id: "side", cell: (c) => r.sides[c.row.original.side] },
-      { header: r.ocols.status, id: "status", cell: (c) => <span className={c.row.original.status === "rejected" ? "badge warn" : "badge"}>{r.statuses[c.row.original.status]}</span> },
+      { header: r.ocols.status, id: "status", cell: (c) => <span className={c.row.original.status === "rejected" ? "badge warn" : "badge"}>{lb().of("order_statuses", c.row.original.status)}</span> },
       { header: r.ocols.requested, id: "requested", meta: { className: "r num" }, cell: (c) => (c.row.original.requested === null ? r.wholeHolding : c.row.original.requested.toLocaleString("zh-CN")) },
       { header: r.ocols.shares, id: "shares", meta: { className: "r num" }, cell: (c) => c.row.original.shares.toLocaleString("zh-CN") },
       { header: r.ocols.price, id: "price", meta: { className: "r num" }, cell: (c) => yuan(c.row.original.price) },
@@ -365,7 +248,7 @@ function Orders({ run }: { run: RunDetail }) {
           return <span title={`佣金 ${o.commission} · 印花税 ${o.stamp_tax} · 过户费 ${o.transfer_fee} · 滑点 ${o.slippage}`}>{`${o.commission} / ${o.stamp_tax} / ${o.transfer_fee} / ${o.slippage}`}</span>;
         },
       },
-      { header: r.ocols.reason, id: "reason", cell: (c) => (c.row.original.reason ? (r.reasons[c.row.original.reason] ?? c.row.original.reason) : "") },
+      { header: r.ocols.reason, id: "reason", cell: (c) => (c.row.original.reason ? lb().of("order_reasons", c.row.original.reason) : "") },
     ],
     [],
   );
@@ -375,13 +258,13 @@ function Orders({ run }: { run: RunDetail }) {
       <p className="note">
         {r.rejectedBy}：
         {Object.entries(counts.rejected_by_reason)
-          .map(([k, n]) => `${r.reasons[k] ?? k} ${n}`)
+          .map(([k, n]) => `${lb().of("order_reasons", k)} ${n}`)
           .join(" · ") || t.common.none}
       </p>
       <p className="note">
         {r.forced}：
         {Object.entries(counts.forced)
-          .map(([k, n]) => `${r.reasons[k] ?? k} ${n}`)
+          .map(([k, n]) => `${lb().of("order_reasons", k)} ${n}`)
           .join(" · ") || r.noForced}
       </p>
       <div className="filters">
@@ -405,7 +288,7 @@ function Orders({ run }: { run: RunDetail }) {
             <option value="">{r.reasonAll}</option>
             {[...Object.keys(counts.rejected_by_reason), ...Object.keys(counts.forced)].map((k) => (
               <option key={k} value={k}>
-                {r.reasons[k] ?? k}
+                {lb().of("order_reasons", k)}
               </option>
             ))}
           </select>
@@ -435,7 +318,7 @@ function Orders({ run }: { run: RunDetail }) {
   );
 }
 
-function Delisted({ run }: { run: RunDetail }) {
+export function Delisted({ run }: { run: RunDetail }) {
   const approx = run.warnings.some((w) => w.code === "delisting_approximate");
   return (
     <Card title={r.delisted}>
@@ -462,7 +345,7 @@ function Delisted({ run }: { run: RunDetail }) {
                   {approx && <span className="badge approx">{t.data.delistings.approximate}</span>}
                 </td>
                 <td>{d.code}</td>
-                <td>{r.treatments[d.treatment]}</td>
+                <td>{lb().of("delisting_treatments", d.treatment)}</td>
                 <td className="r num" title={String(d.shares)}>{shares(d.shares).text}</td>
                 <td className="r num">{yuan(d.value)}</td>
                 <td className="r num">{yuan(d.cash)}</td>
@@ -475,7 +358,7 @@ function Delisted({ run }: { run: RunDetail }) {
   );
 }
 
-function Anomalies({ run }: { run: RunDetail }) {
+export function Anomalies({ run }: { run: RunDetail }) {
   const a = run.anomalies;
   const request: Request<"runs_anomalies"> = { id: run.id, limit: 500 };
   const page = useCall("runs_anomalies", a ? request : null);
@@ -488,7 +371,7 @@ function Anomalies({ run }: { run: RunDetail }) {
           <div className="grid">
             {(["error", "suspicious", "notice"] as const).map((lv) => (
               <div key={lv} className={`stat level-${lv}`}>
-                <span className="stat-l">{r.levels[lv]}</span>
+                <span className="stat-l">{lb().of("anomaly_levels", lv)}</span>
                 <span className="stat-v num">{a.levels[lv]}</span>
               </div>
             ))}
@@ -496,7 +379,7 @@ function Anomalies({ run }: { run: RunDetail }) {
           <p className="note">
             {r.anomalySummary(a.codes, a.cells, a.decisions, a.fills)} ·{" "}
             {Object.entries(a.kinds)
-              .map(([k, n]) => `${t.data.kinds[k] ?? k} ${n}`)
+              .map(([k, n]) => `${lb().of("issue_kinds", k)} ${n}`)
               .join(" · ")}
           </p>
           <AnomalyTable rows={rows} />
@@ -509,7 +392,7 @@ function Anomalies({ run }: { run: RunDetail }) {
   );
 }
 
-function Day({ run, day, onPick }: { run: RunDetail; day: string | null; onPick: (d: string) => void }) {
+export function Day({ run, day, onPick }: { run: RunDetail; day: string | null; onPick: (d: string) => void }) {
   const id = run.id;
   const shown = day;
   const request: Request<"runs_day"> | null = shown ? { id, date: shown } : null;
@@ -593,7 +476,7 @@ function Day({ run, day, onPick }: { run: RunDetail; day: string | null; onPick:
                         <td>
                           <span className="link">{d.code}</span>
                         </td>
-                        <td>{t.picks.roles[d.role]}</td>
+                        <td>{lb().of("funnel_kinds", d.role === "target" ? "targets" : d.role === "backup" ? "backups" : "scored")}</td>
                         <td className="r num">{d.rank ?? "—"}</td>
                         <td className="r num">{d.score === null ? "—" : d.score.toFixed(3)}</td>
                         <td className="r num">{pct(d.weight)}</td>
@@ -601,7 +484,7 @@ function Day({ run, day, onPick }: { run: RunDetail; day: string | null; onPick:
                         <td>{r.actions[d.action]}</td>
                         <td>
                           {d.sell_reason &&
-                            `${r.sellKinds[d.sell_reason.kind] ?? d.sell_reason.kind}${d.sell_reason.step ? ` · ${d.sell_reason.step}` : ""}${d.sell_reason.rank !== null ? ` · ${d.sell_reason.rank}/${d.sell_reason.limit ?? ""}` : ""}`}
+                            `${lb().of("sell_kinds", d.sell_reason.kind) ?? d.sell_reason.kind}${d.sell_reason.step ? ` · ${d.sell_reason.step}` : ""}${d.sell_reason.rank !== null ? ` · ${d.sell_reason.rank}/${d.sell_reason.limit ?? ""}` : ""}`}
                         </td>
                       </tr>
                     ))}
@@ -630,12 +513,12 @@ function Day({ run, day, onPick }: { run: RunDetail; day: string | null; onPick:
                   <tr key={`${o.code}/${o.side}/${i}`}>
                     <td>{o.code}</td>
                     <td>{r.sides[o.side]}</td>
-                    <td>{r.statuses[o.status]}</td>
+                    <td>{lb().of("order_statuses", o.status)}</td>
                     <td className="r num">{o.requested === null ? r.wholeHolding : o.requested.toLocaleString("zh-CN")}</td>
                     <td className="r num">{o.shares.toLocaleString("zh-CN")}</td>
                     <td className="r num">{yuan(o.price)}</td>
                     <td className="r num">{yuan(o.value)}</td>
-                    <td>{o.reason ? (r.reasons[o.reason] ?? o.reason) : ""}</td>
+                    <td>{o.reason ? lb().of("order_reasons", o.reason) : ""}</td>
                   </tr>
                 ))}
               </tbody>
@@ -658,12 +541,12 @@ function RunExplain({ id, date, code }: { id: string; date: string; code: string
       <h3 className="sub-h">
         {r.explain} · {code}
       </h3>
-      {q.error ? <Problem error={q.error} /> : q.data ? <Chain explain={q.data} command={commandOf("explain", request)} /> : <span className="note">{t.app.loading}</span>}
+      {q.error ? <Problem error={q.error} /> : q.data ? <ChainView e={q.data} /> : <span className="note">{t.app.loading}</span>}
     </div>
   );
 }
 
-function Rerun({ id }: { id: string }) {
+export function Rerun({ id }: { id: string }) {
   const rerun = useCallMutation("runs_rerun");
   const seconds = useRunningSeconds(rerun.isPending);
   const result = rerun.data;
@@ -695,7 +578,7 @@ function Rerun({ id }: { id: string }) {
   );
 }
 
-function Report({ id }: { id: string }) {
+export function Report({ id }: { id: string }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const report = useCall("runs_report", open ? { id } : null);

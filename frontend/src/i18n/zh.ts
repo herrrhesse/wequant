@@ -1,11 +1,9 @@
-import { explainNotes, picks, problem, runs, warningLabels } from "./runs.zh";
+import { picks, problem, runs } from "./runs.zh";
 // Every Chinese string the UI shows. Pages read t.*, so adding English later means adding a second file.
 export const zh = {
   picks,
   runs,
-  warningLabels,
   problem,
-  explainNotes,
   app: { brand: "WeQuant", loading: "正在读取…", error: "读取失败" },
   synthetic: {
     banner: "示例数据：没有本地 fixture，页面显示的是合成数据，代码、日期和数值都是编的。",
@@ -98,44 +96,6 @@ export const zh = {
       clear: "清除",
       openStock: "打开个股页",
     },
-    /** Interim names for data_issues kinds and actions, until the backend provides them (F-19). Unknown codes show as is. */
-    kinds: {
-      off_scale: "价格量级异常",
-      removed_security: "证券已移除",
-      adj_blip: "复权因子跳点",
-      invalid_member_code: "成分股代码无效",
-      bar_added: "新增 K 线",
-      duplicate_code: "代码重复",
-      price_mismatch: "价格与另一来源不一致",
-      average_price: "均价超出最高最低价",
-      volume_mismatch: "成交量与另一来源不一致",
-      amount_mismatch: "成交额与另一来源不一致",
-      preclose_mismatch: "前收盘价与另一来源不一致",
-      tradestatus_conflict: "交易状态冲突",
-      event_added: "新增除权事件",
-      event_missing: "缺少除权事件",
-      no_bars: "没有 K 线",
-      limit_breach: "价格超出涨跌停价",
-    } as Record<string, string>,
-    actions: {
-      row_dropped: "丢弃该行",
-      security_removed: "移除该证券",
-      excluded_from_adj_factor_and_preclose: "不计入复权因子和前收",
-      span_dropped: "丢弃该区间",
-      row_added: "新增该行",
-      duplicate_dropped: "丢弃重复项",
-      value_replaced: "替换数值",
-      bar_kept: "保留 K 线",
-      no_bar: "不生成 K 线",
-      status_dropped: "丢弃交易状态",
-      event_dropped: "丢弃除权事件",
-      event_added: "新增除权事件",
-      flagged: "仅标记，未改动",
-      limits_voided: "当日涨跌停作废",
-      resolved_baostock: "按裁决采用 BaoStock",
-      resolved_seed: "按裁决采用种子数据",
-      resolved_null: "按裁决置为空值",
-    } as Record<string, string>,
     resolve: {
       title: "裁决待批准",
       pending: "wequant data resolve 在 S2.4b 收尾时提供",
@@ -147,8 +107,6 @@ export const zh = {
       approxNote: "S2.3 之前没有官方摘牌日：处理日按数据里最后有成交的日子近似，标为“近似”，可能早于实际摘牌日。",
       overrides: "数据目录里有人工覆盖表 overrides/delisting.toml，覆盖表里的条目优先于规则。",
       all: "全部",
-      kinds: { forced: "强制退市", merger: "合并类", suspension: "长期停牌", unknown: "未知" } as Record<string, string>,
-      treatments: { write_down: "减记", exit: "按最后价折现", hold: "照旧持有" } as Record<string, string>,
       by: { rule: "规则", override: "覆盖表条目" } as Record<string, string>,
       code: "代码",
       name: "名称",
@@ -328,7 +286,6 @@ export const zh = {
     },
     metric: {
       label: "指标",
-      kinds: { field: "字段", change: "N 日涨跌幅", avg: "N 日均值", volatility: "N 日波动率", vs_ma: "收盘相对 N 日均线", from_high: "距 N 日最高价" } as Record<string, string>,
       n: "N",
       fieldNames: {
         open: "开盘价", high: "最高价", low: "最低价", close: "收盘价", preclose: "前收盘价", volume: "成交量", amount: "成交额",
