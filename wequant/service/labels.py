@@ -281,12 +281,14 @@ ERROR_CODES = {
     "duplicate_value": ("取值重复", "列表里有重复的值"),
     "future_function": ("用到未来数据", "这个写法会读到决策日之后的数据"),
     "hash_mismatch": ("文件被改动", "保存后的策略版本文件被手工改过"),
+    "job_unfinished": ("任务还没完成", "任务完成后才有结果"),
     "missing_key": ("缺少字段", "缺少必填字段"),
     "needs_condition": ("需要条件表达式", "这里需要一个真或假的条件"),
     "needs_integer": ("需要整数", "这里需要一个整数"),
     "needs_series": ("需要序列", "这里需要一个随日期变化的序列"),
     "negative_window": ("窗口不能为负", "窗口长度不能是负数"),
     "no_data": ("没有数据", "所选范围内没有数据"),
+    "no_job_queue": ("没有任务队列", "后台任务只在 wequant serve 里运行"),
     "no_resolutions": ("没有裁决文件", "数据目录里没有裁决文件"),
     "no_route": ("没有这个接口", "这个地址上没有操作，操作是 POST /api/<操作名>"),
     "no_store": ("没有数据库", "数据目录里还没有数据库"),
@@ -303,6 +305,7 @@ ERROR_CODES = {
     "undetermined": ("无法批准", "这条处理需要外部证据，不能直接批准"),
     "unknown_code": ("没有这只股票", "数据里没有这个代码"),
     "unknown_field": ("没有这个字段", "表达式里用了不存在的字段"),
+    "unknown_job": ("没有这个任务", "没有这个任务，或者它已经被清理"),
     "unknown_key": ("多余的字段", "出现了不认识的字段"),
     "unknown_operator": ("没有这个函数", "表达式里用了不存在的函数"),
     "unknown_run": ("没有这次运行", "运行记录里没有这个编号"),
@@ -333,6 +336,31 @@ VERSION_REASONS = {  # code -> (name, template over the reason's params)
     "demo": ("生成演示数据", "生成演示数据"),
     "unspecified": ("未注明原因", "未注明原因"),
     "legacy": ("早期版本", "早期版本"),
+}
+
+JOB_KINDS = {
+    "backtest": ("回测", "按策略回测一段区间，结果存进运行记录"),
+}
+
+JOB_STATES = {
+    "queued": ("排队中", "等前面的任务结束后开始"),
+    "running": ("进行中", "任务正在执行，可以取消"),
+    "succeeded": ("已完成", "任务完成，可以查看结果"),
+    "failed": ("失败", "任务没有完成，原因见说明"),
+    "cancelled": ("已取消", "任务被取消，没有留下结果"),
+}
+
+JOB_STAGES = {  # code -> (name, template over the stage's params)
+    "queued": ("排队中", "排队中，排在第 {position} 位"),
+    "start": ("启动中", "正在启动"),
+    "load": ("读取数据", "正在读取数据"),
+    "backtest": ("回测中", "正在回测 {day}：第 {done}/{total} 个交易日，总资产 {equity:,.2f} 元"),
+    "cancelling": ("取消中", "正在取消，没做完的部分不会保存"),
+    "done": ("已完成", "已完成"),
+    "failed": ("失败", "失败：{reason}"),
+    "cancelled": ("已取消", "已取消，没有留下结果"),
+    "crashed": ("进程退出", "任务进程意外退出（退出码 {exit_code}）"),
+    "interrupted": ("服务停止", "wequant serve 停止时任务还没有完成"),
 }
 
 # ---------------------------------------------------------------- models and the operation
@@ -383,7 +411,8 @@ class WarningLabel(TemplateLabel):
 
 
 class Labels(Model):
-    """The Chinese of every code: warnings, data issues, metrics, funnel, orders, delistings, anomalies, errors."""
+    """The Chinese of every code: warnings, data issues, metrics, funnel, orders, delistings, anomalies, errors,
+    versions and jobs."""
 
     warnings: list[WarningLabel]
     issue_kinds: list[IssueKindLabel]
@@ -402,6 +431,9 @@ class Labels(Model):
     error_codes: list[Label]
     exits: list[Label]
     version_reasons: list[TemplateLabel]
+    job_kinds: list[Label]
+    job_states: list[Label]
+    job_stages: list[TemplateLabel]
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -424,6 +456,9 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         error_codes=_labels(ERROR_CODES),
         exits=_labels(EXITS),
         version_reasons=[_template(code, name, text) for code, (name, text) in VERSION_REASONS.items()],
+        job_kinds=_labels(JOB_KINDS),
+        job_states=_labels(JOB_STATES),
+        job_stages=[_template(code, name, text) for code, (name, text) in JOB_STAGES.items()],
     )
 
 
@@ -451,6 +486,11 @@ def reason_text(reason: Mapping) -> str:
         return template.format(**reason.get("params", {}))
     except (KeyError, IndexError):
         return name
+
+
+def job_text(stage: str, params: Mapping) -> str:
+    """The Chinese sentence of a job's stage with its params."""
+    return JOB_STAGES[stage][1].format(**params)
 
 
 def placeholders(template: str) -> list[str]:

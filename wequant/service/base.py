@@ -6,7 +6,7 @@ import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
@@ -18,6 +18,9 @@ from wequant.expr import Cache
 from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.errors import Exit, ServiceError
 from wequant.strategy.library import Library
+
+if TYPE_CHECKING:
+    from wequant.service.queue import Jobs
 
 
 class Model(BaseModel):
@@ -115,7 +118,8 @@ class PanelRequest(DataRequest):
 @dataclass(frozen=True)
 class Context:
     """The caller's settings for one call, never part of a request: the data root, the panel cache root, a resident
-    process's expression cache, a long run's progress and cancel callbacks, and a stage timer's mark."""
+    process's expression cache, a long run's progress and cancel callbacks, a stage timer's mark and the server's job
+    queue."""
 
     home: Path | None = None  # None: $WEQUANT_HOME, else ~/.wequant
     cache: Path | None = None  # panels go under <cache>/panel/; None: <home>/cache
@@ -124,6 +128,7 @@ class Context:
     cancel: Callable[[], bool] | None = None  # asked whether to stop a long run
     mark: Callable[[str], None] | None = None  # told as each stage of the call ends (--profile)
     clock: Callable[[], str] | None = None  # stamps what the call writes; None: now (the demo home fixes it)
+    jobs: Jobs | None = None  # wequant serve's job queue; None: no background jobs
 
     @classmethod
     def resident(cls, home: Path | None = None, cache: Path | None = None, cache_bytes: int = 8 << 30) -> Context:
