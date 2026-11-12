@@ -37,6 +37,11 @@ export interface Operations {
   runs_day: { request: M.RunDayRequest; result: M.RunDay };
   runs_anomalies: { request: M.AnomaliesRequest; result: M.AnomaliesPage };
   explain: { request: M.ExplainRequest; result: M.Explain };
+  jobs_start: { request: M.JobStartRequest; result: M.JobInfo };
+  jobs_list: { request: M.JobsListRequest; result: M.JobList };
+  jobs_show: { request: M.JobRef; result: M.JobInfo };
+  jobs_cancel: { request: M.JobRef; result: M.JobInfo };
+  jobs_result: { request: M.JobRef; result: M.JobOutput };
   labels: { request: M.LabelsRequest; result: M.Labels };
   schema: { request: M.SchemaRequest; result: M.ServiceSchema };
 }
@@ -79,6 +84,11 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   runs_day: { method: "POST", path: "/api/runs_day" },
   runs_anomalies: { method: "POST", path: "/api/runs_anomalies" },
   explain: { method: "POST", path: "/api/explain" },
+  jobs_start: { method: "POST", path: "/api/jobs_start" },
+  jobs_list: { method: "POST", path: "/api/jobs_list" },
+  jobs_show: { method: "POST", path: "/api/jobs_show" },
+  jobs_cancel: { method: "POST", path: "/api/jobs_cancel" },
+  jobs_result: { method: "POST", path: "/api/jobs_result" },
   labels: { method: "POST", path: "/api/labels" },
   schema: { method: "POST", path: "/api/schema" },
 };

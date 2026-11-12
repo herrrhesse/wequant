@@ -64,6 +64,12 @@ export interface ServiceModels {
   IssueRow?: IssueRow;
   Issues?: Issues;
   IssuesRequest?: IssuesRequest;
+  JobInfo?: JobInfo;
+  JobList?: JobList;
+  JobOutput?: JobOutput;
+  JobRef?: JobRef;
+  JobStartRequest?: JobStartRequest;
+  JobsListRequest?: JobsListRequest;
   JsonValue?: JsonValue;
   Label?: Label;
   Labels?: Labels;
@@ -1893,6 +1899,150 @@ export interface IssuesRequest {
   limit?: number;
 }
 /**
+ * Where one job is.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobInfo".
+ */
+export interface JobInfo {
+  id: number;
+  /**
+   * A code of labels.job_kinds.
+   */
+  kind: string;
+  state: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  /**
+   * The request as the job runs it, data_version pinned.
+   */
+  request: {
+    [k: string]: JsonValue;
+  };
+  data_version: number | null;
+  /**
+   * Null once that version is no longer kept.
+   */
+  data_version_name: string | null;
+  /**
+   * Place in the queue, 1 = next to start; null unless queued.
+   */
+  position: number | null;
+  /**
+   * Done, from 0 to 1.
+   */
+  fraction: number;
+  /**
+   * A code of labels.job_stages; its template filled from params is text.
+   */
+  stage: string;
+  params: {
+    [k: string]: number | string | null;
+  };
+  /**
+   * The stage in one Chinese sentence.
+   */
+  text: string;
+  /**
+   * Why a failed or cancelled job has no result; null otherwise.
+   */
+  error: ErrorBody | null;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  /**
+   * Counts the job's changes.
+   */
+  seq: number;
+}
+/**
+ * Running and queued jobs first, in queue order, then finished ones, newest first.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobList".
+ */
+export interface JobList {
+  jobs: JobInfo[];
+  /**
+   * Jobs that run at a time; the others wait.
+   */
+  limit: number;
+}
+/**
+ * A succeeded job's result: what its operation run directly returns.
+ */
+export interface JobOutput {
+  run_id: string;
+  /**
+   * Archived (also when an identical run was already).
+   */
+  saved: boolean;
+  data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
+  strategy_hash: string;
+  saved_as: SavedRef[];
+  start: string;
+  end: string;
+  /**
+   * Trading days after the base day.
+   */
+  run_days: number;
+  /**
+   * Decision days in the run.
+   */
+  decisions: number;
+  /**
+   * In compute_metrics' order.
+   */
+  metrics: {
+    [k: string]: MetricOut;
+  };
+  orders: OrderCounts;
+  /**
+   * Delisted holdings the run handled, by date.
+   */
+  delisted: DelistedRow[];
+  anomalies: DataAnomaly | null;
+  warnings: Warning[];
+  /**
+   * Markdown; null unless asked for.
+   */
+  report: string | null;
+}
+/**
+ * One job.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobRef".
+ */
+export interface JobRef {
+  id: number;
+}
+/**
+ * A job to start: its kind and its operation's request.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobStartRequest".
+ */
+export interface JobStartRequest {
+  kind: "backtest";
+  /**
+   * The request the operation takes (backtest: a BacktestRequest); a null data_version is pinned to the version
+   * current now, so a version committed while the job waits or runs changes nothing.
+   */
+  request?: {
+    [k: string]: JsonValue;
+  };
+}
+/**
+ * Every job kept.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobsListRequest".
+ */
+export interface JobsListRequest {}
+/**
  * One code's Chinese name and sentence.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -1910,7 +2060,8 @@ export interface Label {
   help: string;
 }
 /**
- * The Chinese of every code: warnings, data issues, metrics, funnel, orders, delistings, anomalies, errors.
+ * The Chinese of every code: warnings, data issues, metrics, funnel, orders, delistings, anomalies, errors,
+ * versions and jobs.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "Labels".
@@ -1933,6 +2084,9 @@ export interface Labels {
   error_codes: Label[];
   exits: Label[];
   version_reasons: TemplateLabel[];
+  job_kinds: Label[];
+  job_states: Label[];
+  job_stages: TemplateLabel[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -3148,4 +3302,51 @@ export interface VerifySubmitResult {
  */
 export interface VersionsRequest {
   id: string;
+}
+/**
+ * A finished run's identity, metrics, orders, delisted holdings, anomalies and warnings.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobOutput".
+ */
+export interface BacktestResult1 {
+  run_id: string;
+  /**
+   * Archived (also when an identical run was already).
+   */
+  saved: boolean;
+  data_version: number;
+  /**
+   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   */
+  data_version_name: string;
+  strategy_hash: string;
+  saved_as: SavedRef[];
+  start: string;
+  end: string;
+  /**
+   * Trading days after the base day.
+   */
+  run_days: number;
+  /**
+   * Decision days in the run.
+   */
+  decisions: number;
+  /**
+   * In compute_metrics' order.
+   */
+  metrics: {
+    [k: string]: MetricOut;
+  };
+  orders: OrderCounts;
+  /**
+   * Delisted holdings the run handled, by date.
+   */
+  delisted: DelistedRow[];
+  anomalies: DataAnomaly | null;
+  warnings: Warning[];
+  /**
+   * Markdown; null unless asked for.
+   */
+  report: string | null;
 }
