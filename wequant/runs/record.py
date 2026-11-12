@@ -54,10 +54,10 @@ def now() -> str:
     return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 
 
-def provenance(run: Run) -> bytes:
-    """provenance.json: code_version, created_at, python, numpy, polars, numba."""
+def provenance(run: Run, notes: dict | None = None) -> bytes:
+    """provenance.json: code_version, created_at, python, numpy, polars, numba, and the notes given."""
     made = {"code_version": run.code_version, "created_at": now(), "python": platform.python_version()}
-    return document(made | {name: version(name) for name in LIBRARIES})
+    return document(made | {name: version(name) for name in LIBRARIES} | (notes or {}))
 
 
 def read_run(directory: Path) -> Run:

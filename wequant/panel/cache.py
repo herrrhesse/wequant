@@ -52,6 +52,15 @@ class PanelCache:
         atomic_write(path, buffer.getvalue())
 
 
+def keep_only(root: Path, manifest: dict) -> list[Path]:
+    """Remove the panels under root/panel of every version but manifest's; the removed directories."""
+    directory, key = Path(root) / "panel", cache_key(manifest)
+    doomed = [p for p in directory.iterdir() if _KEY.fullmatch(p.name) and p.name != key] if directory.is_dir() else []
+    for path in doomed:
+        shutil.rmtree(path, ignore_errors=True)
+    return doomed
+
+
 def _prune(root: Path, version: int) -> None:
     """Remove sibling directories of another FORMAT or of versions the store no longer keeps."""
     for path in root.iterdir():

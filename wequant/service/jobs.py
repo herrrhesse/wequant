@@ -11,7 +11,17 @@ from typing import Literal, get_type_hints
 from pydantic import ConfigDict, Field, JsonValue, RootModel
 
 from wequant.service.backtest import BacktestResult
-from wequant.service.base import Context, DataRequest, ErrorBody, ErrorDetail, Model, manifest, name_of, not_found
+from wequant.service.base import (
+    Context,
+    DataRequest,
+    ErrorBody,
+    ErrorDetail,
+    Model,
+    manifest,
+    name_of,
+    not_found,
+    read_version,
+)
 from wequant.service.details import usage, validated
 from wequant.service.errors import ServiceError
 from wequant.service.labels import EXITS, job_text
@@ -180,7 +190,7 @@ def _pinned(request: JobStartRequest, kind: Kind, context: Context) -> dict:
         raise usage([_under_request(d) for d in error.detail], error.complete) from None
     pinned = parsed.model_dump(mode="json", exclude_unset=True)
     if isinstance(parsed, DataRequest) and parsed.data_version is None:
-        pinned["data_version"] = manifest(context.store())["version"]
+        pinned["data_version"] = manifest(context.store(), read_version(context, None))["version"]
     return pinned
 
 

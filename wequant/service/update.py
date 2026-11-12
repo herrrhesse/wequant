@@ -18,6 +18,7 @@ from wequant.data.update import Outcome, RawRejected, UpdateCancelled, update
 from wequant.service.base import Check, Context, ErrorDetail, Model, manifest, named
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.labels import update_text
+from wequant.service.storage import tidy
 
 log = logging.getLogger(__name__)
 Status = Literal["updated", "up_to_date", "not_published", "conflicts", "rejected"]
@@ -77,6 +78,8 @@ def data_update(request: UpdateRequest, context: Context = Context()) -> UpdateR
     else:
         problems = []
     log.info("update: %s, %d days, %d requests", outcome.status, len(outcome.days), outcome.requests)
+    if outcome.version is not None:
+        tidy(context)
     return result(outcome, problems, context)
 
 

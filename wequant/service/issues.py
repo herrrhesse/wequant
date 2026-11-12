@@ -7,7 +7,7 @@ import datetime as dt
 import polars as pl
 from pydantic import Field
 
-from wequant.service.base import Context, DataRequest, Model, manifest, named
+from wequant.service.base import Context, DataRequest, Model, manifest, named, read_version
 
 
 class IssuesRequest(DataRequest):
@@ -62,7 +62,7 @@ class Issues(Model):
 def data_issues(request: IssuesRequest, context: Context = Context()) -> Issues:
     """The data_issues rows of one store version that match every given filter."""
     store = context.store()
-    pinned = manifest(store, request.data_version)
+    pinned = manifest(store, read_version(context, request.data_version))
     scan = store.scan("data_issues", start=request.start, end=request.end, codes=request.codes, manifest=pinned)
     for column in ("table", "kind"):
         if (value := getattr(request, column)) is not None:

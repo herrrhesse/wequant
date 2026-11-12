@@ -9,7 +9,7 @@ from typing import Literal
 from wequant.account.delisting import TREATMENTS, delisting_plan
 from wequant.data.delistings import KINDS, SOURCES, overrides_text
 from wequant.panel import load_panel
-from wequant.service.base import Context, DataRequest, Model, manifest, named
+from wequant.service.base import Context, DataRequest, Model, manifest, named, read_version
 from wequant.service.details import to_execution
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.specs import ExecutionSpec
@@ -75,9 +75,9 @@ def data_delistings(request: DelistingsRequest, context: Context = Context()) ->
     """Every delisted code of a store version: its classification and the basis for it, and the treatment a holding of
     it gets under the execution block."""
     store = context.store()
-    manifest(store, request.data_version)
+    manifest(store, read_version(context, request.data_version))
     execution = to_execution(request.execution)
-    panel = load_panel(version=request.data_version, store=store, cache_dir=context.cache)
+    panel = load_panel(version=read_version(context, request.data_version), store=store, cache_dir=context.cache)
     try:
         plan = delisting_plan(panel, execution)
     except ValueError as error:  # a malformed overrides file names its entry

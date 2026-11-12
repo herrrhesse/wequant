@@ -15,6 +15,7 @@ from wequant.rules.tables import CheckResult, check_store, limit_check_current
 from wequant.service.base import Check, Context, Model, manifest, named
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.limit_report import report
+from wequant.service.storage import tidy
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ def data_check(request: CheckRequest, context: Context = Context()) -> CheckRepo
     counts = result.frame.height, result.issues.height, result.missing.height, result.stale.height
     log.info("checked store v%d: %d bars, %d breaches, %d missing, %d stale", result.version, *counts)
     path = _write(store, version, text) if request.commit else None
+    if result.committed:
+        tidy(context)
     current = limit_check_current(store.manifest(version), book)
     return CheckReport(
         ok=current and (request.commit or result.missing.height == result.stale.height == 0),
