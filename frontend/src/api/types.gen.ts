@@ -12,6 +12,14 @@ export type JsonValue = unknown;
  * via the `definition` "Exit".
  */
 export type Exit = 0 | 1 | 2 | 3 | 4 | 5 | 70 | 130;
+/**
+ * A succeeded job's result: what its operation run directly returns (backtest: BacktestResult, data_update:
+ * UpdateResult).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "JobOutput".
+ */
+export type JobOutput = BacktestResult | UpdateResult;
 
 export interface ServiceModels {
   AnomaliesPage?: AnomaliesPage;
@@ -79,6 +87,8 @@ export interface ServiceModels {
   MetricDiff?: MetricDiff;
   MetricOut?: MetricOut;
   MetricSpecModel?: MetricSpecModel1;
+  NamesReport?: NamesReport;
+  NamesRequest?: NamesRequest;
   OperationModels?: OperationModels;
   OrderCounts?: OrderCounts;
   OrderRow?: OrderRow;
@@ -140,6 +150,8 @@ export interface ServiceModels {
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
   TemplateLabel?: TemplateLabel;
+  UpdateRequest?: UpdateRequest;
+  UpdateResult?: UpdateResult;
   VerificationIn?: VerificationIn;
   VerificationOut?: VerificationOut;
   VerifiedCell?: VerifiedCell;
@@ -693,6 +705,12 @@ export interface Bars {
     | "st_known"
     | "list_days"
   )[];
+  /**
+   * Each code's stock name today (newest store version); null when no source gave one.
+   */
+  names: {
+    [k: string]: string | null;
+  };
   rows: Row[];
 }
 /**
@@ -1121,6 +1139,10 @@ export interface DecisionRequest {
  */
 export interface DecisionRow {
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   role: "target" | "backup" | "none";
   /**
    * null: no score.
@@ -1423,6 +1445,10 @@ export interface Explain {
   date: string;
   next_day: string | null;
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   strategy_hash: string;
   run_id: string | null;
   pool: PoolCheck[];
@@ -1556,6 +1582,10 @@ export interface OrderRow {
    */
   date: string;
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   side: "buy" | "sell";
   status: "filled" | "partial" | "rejected";
   /**
@@ -1967,48 +1997,60 @@ export interface JobList {
   limit: number;
 }
 /**
- * A succeeded job's result: what its operation run directly returns.
+ * What the update did; ok unless conflicts or rejected rows stopped it (the store is then unchanged).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UpdateResult".
  */
-export interface JobOutput {
-  run_id: string;
+export interface UpdateResult {
   /**
-   * Archived (also when an identical run was already).
+   * True when the check found nothing to act on.
    */
-  saved: boolean;
+  ok: boolean;
+  status: "updated" | "up_to_date" | "not_published" | "conflicts" | "rejected";
+  /**
+   * The outcome in one Chinese sentence (labels.update_statuses filled from this result).
+   */
+  text: string;
   data_version: number;
   /**
-   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
+   * The current version afterwards: the new one when updated.
    */
   data_version_name: string;
-  strategy_hash: string;
-  saved_as: SavedRef[];
-  start: string;
-  end: string;
+  previous_version: number;
   /**
-   * Trading days after the base day.
+   * Days merged; with conflicts, the days held back.
    */
-  run_days: number;
+  days: string[];
   /**
-   * Decision days in the run.
+   * The first day BaoStock has not published yet; null when every closed day is in.
    */
-  decisions: number;
+  waiting: string | null;
   /**
-   * In compute_metrics' order.
+   * Resolutions proposed for conflicts, waiting for approval on the data page.
    */
-  metrics: {
-    [k: string]: MetricOut;
+  proposed: number;
+  unresolved: number;
+  /**
+   * This update's data_issues rows by kind.
+   */
+  issues: {
+    [k: string]: number;
   };
-  orders: OrderCounts;
   /**
-   * Delisted holdings the run handled, by date.
+   * Index rows added, by code.
    */
-  delisted: DelistedRow[];
-  anomalies: DataAnomaly | null;
-  warnings: Warning[];
+  indexes: {
+    [k: string]: number;
+  };
   /**
-   * Markdown; null unless asked for.
+   * Why BaoStock's rows were rejected; empty otherwise.
    */
-  report: string | null;
+  problems: string[];
+  /**
+   * Requests to BaoStock, the login included.
+   */
+  requests: number;
 }
 /**
  * One job.
@@ -2026,10 +2068,11 @@ export interface JobRef {
  * via the `definition` "JobStartRequest".
  */
 export interface JobStartRequest {
-  kind: "backtest";
+  kind: "backtest" | "data_update";
   /**
-   * The request the operation takes (backtest: a BacktestRequest); a null data_version is pinned to the version
-   * current now, so a version committed while the job waits or runs changes nothing.
+   * The request the operation takes (backtest: a BacktestRequest, data_update: {}); a null data_version is pinned to
+   * the version current now, so a version committed while the job waits or runs changes nothing. An update builds on
+   * the version current when it plans and commits nothing if the store moved on meanwhile.
    */
   request?: {
     [k: string]: JsonValue;
@@ -2087,6 +2130,10 @@ export interface Labels {
   job_kinds: Label[];
   job_states: Label[];
   job_stages: TemplateLabel[];
+  /**
+   * data update's statuses; params: days (merged), last_day, waiting, proposed, unresolved.
+   */
+  update_statuses: TemplateLabel[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -2157,6 +2204,58 @@ export interface MetricSpecModel1 {
   periods_per_year?: number;
   risk_free_rate?: number;
   tail_fraction?: number;
+}
+/**
+ * What the stock_basic file gives the current version's securities.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "NamesReport".
+ */
+export interface NamesReport {
+  data_version: number;
+  /**
+   * The version read.
+   */
+  data_version_name: string;
+  /**
+   * The new version; null without commit or when nothing changes.
+   */
+  committed: number | null;
+  committed_name: string | null;
+  /**
+   * Codes in securities.
+   */
+  codes: number;
+  /**
+   * Codes with an official listing date afterwards: those stock_basic lists, and any that had one.
+   */
+  listed: number;
+  named_before: number;
+  named_after: number;
+  /**
+   * Codes whose stored name changes.
+   */
+  renamed: number;
+  /**
+   * Codes with an official delisting date afterwards.
+   */
+  delisted: number;
+  /**
+   * When the stock_basic file was fetched.
+   */
+  fetched_at: string | null;
+}
+/**
+ * Names and official dates of the current version's codes from raw/baostock/meta/stock_basic.parquet.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "NamesRequest".
+ */
+export interface NamesRequest {
+  /**
+   * Write them in a new version (reason "names") under the writer lock; otherwise only count.
+   */
+  commit?: boolean;
 }
 /**
  * One operation, the names of its request and result models, and its HTTP route.
@@ -2279,6 +2378,10 @@ export interface PoolSpec1 {
  */
 export interface PositionRow {
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   shares: number;
   value: number;
   /**
@@ -2319,6 +2422,10 @@ export interface Stage {
  */
 export interface Reject {
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   step: string;
   kind: "listed" | "bar" | "universe" | "pool" | "condition" | "group" | "scored" | "targets" | "backups";
   /**
@@ -2779,6 +2886,10 @@ export interface ScreenResult {
  */
 export interface ScreenRow {
   code: string;
+  /**
+   * The stock's name today (newest store version); null when no source gave one.
+   */
+  name: string | null;
   rank: number;
   /**
    * In (0, 1].
@@ -3120,6 +3231,13 @@ export interface VersionInfo1 {
   current: boolean;
 }
 /**
+ * Fetch BaoStock's trading days after the store's last one and merge them as one version.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UpdateRequest".
+ */
+export interface UpdateRequest {}
+/**
  * One checked cell, as submitted.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -3302,51 +3420,4 @@ export interface VerifySubmitResult {
  */
 export interface VersionsRequest {
   id: string;
-}
-/**
- * A finished run's identity, metrics, orders, delisted holdings, anomalies and warnings.
- *
- * This interface was referenced by `ServiceModels`'s JSON-Schema
- * via the `definition` "JobOutput".
- */
-export interface BacktestResult1 {
-  run_id: string;
-  /**
-   * Archived (also when an identical run was already).
-   */
-  saved: boolean;
-  data_version: number;
-  /**
-   * The version's display name, YYYYMMDD.N: its last trade date, then which version of that day.
-   */
-  data_version_name: string;
-  strategy_hash: string;
-  saved_as: SavedRef[];
-  start: string;
-  end: string;
-  /**
-   * Trading days after the base day.
-   */
-  run_days: number;
-  /**
-   * Decision days in the run.
-   */
-  decisions: number;
-  /**
-   * In compute_metrics' order.
-   */
-  metrics: {
-    [k: string]: MetricOut;
-  };
-  orders: OrderCounts;
-  /**
-   * Delisted holdings the run handled, by date.
-   */
-  delisted: DelistedRow[];
-  anomalies: DataAnomaly | null;
-  warnings: Warning[];
-  /**
-   * Markdown; null unless asked for.
-   */
-  report: string | null;
 }

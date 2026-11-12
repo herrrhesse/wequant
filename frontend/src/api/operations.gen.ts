@@ -11,6 +11,8 @@ export interface Operations {
   data_check: { request: M.CheckRequest; result: M.CheckReport };
   data_delistings: { request: M.DelistingsRequest; result: M.Delistings };
   data_index_check: { request: M.IndexCheckRequest; result: M.IndexCheck };
+  data_names: { request: M.NamesRequest; result: M.NamesReport };
+  data_update: { request: M.UpdateRequest; result: M.UpdateResult };
   data_verify_submit: { request: M.VerifySubmitRequest; result: M.VerifySubmitResult };
   data_verify_list: { request: M.VerifyListRequest; result: M.VerifyPage };
   data_resolve_list: { request: M.ResolveListRequest; result: M.ResolvePage };
@@ -58,6 +60,8 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_check: { method: "POST", path: "/api/data_check" },
   data_delistings: { method: "POST", path: "/api/data_delistings" },
   data_index_check: { method: "POST", path: "/api/data_index_check" },
+  data_names: { method: "POST", path: "/api/data_names" },
+  data_update: { method: "POST", path: "/api/data_update" },
   data_verify_submit: { method: "POST", path: "/api/data_verify_submit" },
   data_verify_list: { method: "POST", path: "/api/data_verify_list" },
   data_resolve_list: { method: "POST", path: "/api/data_resolve_list" },
