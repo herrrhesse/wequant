@@ -3,7 +3,7 @@
 export const tx = {
   app: { brand: "WeQuant", loading: "正在读取…" },
   nav: { label: "主导航", today: "今日", strategy: "策略", picks: "选股", backtest: "回测", data: "数据" },
-  search: { label: "搜索股票", placeholder: "股票代码，如 600036", none: "没有匹配的股票" },
+  search: { label: "搜索股票", placeholder: "代码或名称，如 600036 或 招商", none: "没有匹配的股票" },
   prefs: {
     conv: "涨跌颜色",
     cn: "红涨绿跌",

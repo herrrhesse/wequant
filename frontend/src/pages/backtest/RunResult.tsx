@@ -1,5 +1,6 @@
 // 回测 → 运行详情: runs show, orders, anomalies, a day, rerun and the report, each a backend request. Every number and
 // curve is a backend column (daily, periods, metrics); the page converts units and lays out, nothing more.
+import { Stock } from "../../components/Stock";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation, type Request } from "../../api/client";
@@ -232,7 +233,7 @@ export function Orders({ run }: { run: RunDetail }) {
   const columns = useMemo<ColumnDef<OrderRow, unknown>[]>(
     () => [
       { header: r.ocols.date, accessorKey: "date", meta: { className: "num" } },
-      { header: r.ocols.code, accessorKey: "code" },
+      { header: r.ocols.code, id: "code", cell: (c) => <Stock code={c.row.original.code} name={c.row.original.name} /> },
       { header: r.ocols.side, id: "side", cell: (c) => r.sides[c.row.original.side] },
       { header: r.ocols.status, id: "status", cell: (c) => <span className={c.row.original.status === "rejected" ? "badge warn" : "badge"}>{lb().of("order_statuses", c.row.original.status)}</span> },
       { header: r.ocols.requested, id: "requested", meta: { className: "r num" }, cell: (c) => (c.row.original.requested === null ? r.wholeHolding : c.row.original.requested.toLocaleString("zh-CN")) },
@@ -438,7 +439,7 @@ export function Day({ run, day, onPick }: { run: RunDetail; day: string | null; 
                       <tr key={p.code}>
                         <td>
                           <a className="link" href={href.stock(p.code, { date: shown, run: id, from: "day" })}>
-                            {p.code}
+                            <Stock code={p.code} name={p.name} />
                           </a>
                         </td>
                         <td className="r num" title={s.title}>
@@ -474,7 +475,7 @@ export function Day({ run, day, onPick }: { run: RunDetail; day: string | null; 
                     {q.data.decisions.map((d) => (
                       <tr key={d.code} className="clickable" aria-selected={explained === d.code || undefined} onClick={() => setExplained(d.code)}>
                         <td>
-                          <span className="link">{d.code}</span>
+                          <span className="link"><Stock code={d.code} name={d.name} /></span>
                         </td>
                         <td>{lb().of("funnel_kinds", d.role === "target" ? "targets" : d.role === "backup" ? "backups" : "scored")}</td>
                         <td className="r num">{d.rank ?? "—"}</td>
@@ -511,7 +512,7 @@ export function Day({ run, day, onPick }: { run: RunDetail; day: string | null; 
               <tbody>
                 {q.data.orders.map((o, i) => (
                   <tr key={`${o.code}/${o.side}/${i}`}>
-                    <td>{o.code}</td>
+                    <td><Stock code={o.code} name={o.name} /></td>
                     <td>{r.sides[o.side]}</td>
                     <td>{lb().of("order_statuses", o.status)}</td>
                     <td className="r num">{o.requested === null ? r.wholeHolding : o.requested.toLocaleString("zh-CN")}</td>

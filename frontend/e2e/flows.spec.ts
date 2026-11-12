@@ -147,3 +147,15 @@ test("ordinary pages show no developer details: no curl, hashes, decision number
     expect(text, at).not.toMatch(/\b[a-z]+_[a-z_]+\b/);
   }
 });
+
+test("search: a stock found by part of its name opens its page, and pages show names beside codes", async ({ page, request }) => {
+  const found = await (await request.post("api/data_securities", { data: { query: "600030", limit: 1 } })).json();
+  const name = found.rows[0]?.name as string | null;
+  test.skip(!name, "the demo home has no names");
+  await page.goto("#/");
+  await page.getByLabel("搜索股票").fill(name!.slice(0, -1));
+  await page.getByRole("option", { name: new RegExp(name!) }).click();
+  await expect(page).toHaveURL(/#\/stock\/600030\.SH/);
+  await page.goto(`#/picks?id=${preset}`);
+  await expect(page.locator(".picks-main .stock-ref b").first()).not.toHaveText(/^\d{6}\.(SH|SZ)$/);
+});

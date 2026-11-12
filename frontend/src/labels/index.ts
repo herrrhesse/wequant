@@ -7,7 +7,7 @@ import { fill } from "./fill";
 
 export { fill } from "./fill";
 
-type Table = Exclude<keyof Labels, "warnings" | "version_reasons" | "job_stages">;
+type Table = Exclude<keyof Labels, "warnings" | "version_reasons" | "job_stages" | "update_statuses">;
 
 export interface LabelBook {
   ready: boolean;
@@ -23,6 +23,8 @@ export interface LabelBook {
   reason: (code: string, params: Record<string, number | string | null>) => string;
   /** A background job's stage as a sentence. */
   stage: (code: string, params: Record<string, number | string | null>) => string;
+  /** A data update's outcome as a sentence. */
+  updateStatus: (code: string, params: Record<string, number | string | null>) => string;
 }
 
 export function makeBook(labels: Labels | undefined): LabelBook {
@@ -37,6 +39,7 @@ export function makeBook(labels: Labels | undefined): LabelBook {
   const warnings = new Map((labels?.warnings ?? []).map((w) => [w.code, w]));
   const reasons = new Map((labels?.version_reasons ?? []).map((r) => [r.code, r]));
   const stages = new Map((labels?.job_stages ?? []).map((r) => [r.code, r]));
+  const updates = new Map((labels?.update_statuses ?? []).map((r) => [r.code, r]));
   return {
     ready: labels !== undefined,
     of: (table, code) => (code ? (index.get(table)?.get(code)?.label ?? "") : ""),
@@ -52,6 +55,10 @@ export function makeBook(labels: Labels | undefined): LabelBook {
     },
     stage: (code, params) => {
       const label = stages.get(code);
+      return label ? fill(label, params) : "";
+    },
+    updateStatus: (code, params) => {
+      const label = updates.get(code);
       return label ? fill(label, params) : "";
     },
   };

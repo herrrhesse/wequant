@@ -1,6 +1,7 @@
 // 选股: one decision day of a saved strategy or of the strategy page's draft (wequant screen). Temporary changes to
 // the scope and the factor weights make an "未保存的变体" that can be reset or saved as a new strategy. Every number
 // is the backend's; the page selects and lays out.
+import { Stock } from "../../components/Stock";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
@@ -256,7 +257,7 @@ function Scored({ r, pick }: { r: ScreenResult; pick: (c: string) => void }) {
               {r.rows.map((x: ScreenRow) => (
                 <tr key={x.code} className="clickable" onClick={() => pick(x.code)}>
                   <td className="num muted">{x.rank}</td>
-                  <td className="b">{x.code}</td>
+                  <td><Stock code={x.code} name={x.name} /></td>
                   <td>
                     <span className={`role ${x.role}`}>{x.role === "none" ? "有分未入选" : L.of("funnel_kinds", ROLE_STEP[x.role])}</span>
                   </td>
@@ -321,7 +322,7 @@ function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string
           <tbody>
             {rows.map((x) => (
               <tr key={x.code} className="clickable" onClick={() => pick(x.code)}>
-                <td className="b">{x.code}</td>
+                <td><Stock code={x.code} name={x.name} /></td>
                 <td>{stepName(x.step, x.kind, L.of)}</td>
                 <td className="sub num">{why(x, units)}</td>
               </tr>
@@ -343,7 +344,7 @@ function Side({ code, date, subject, row, close }: { code: string; date: string;
   return (
     <aside className="card picks-side" aria-label={code}>
       <div className="row">
-        <span className="b big">{code}</span>
+        <span className="big"><Stock code={code} name={row?.name ?? ex.data?.name} /></span>
         {row && (
           <span className="small sub">
             {row.role === "none" ? "有分未入选" : L.of("funnel_kinds", ROLE_STEP[row.role])} · 第 {row.rank} 名

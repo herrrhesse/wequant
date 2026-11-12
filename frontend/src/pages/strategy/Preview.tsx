@@ -1,6 +1,7 @@
 // The right column of the strategy editor: the funnel of the draft on the latest trading day, the picked stocks with
 // their judgment chain, "查股票" and the latest backtest of this strategy. Everything shown comes from screen,
 // explain and the run records; the panel fades while a newer preview is on its way instead of jumping.
+import { Stock } from "../../components/Stock";
 import { useState } from "react";
 import { useCall } from "../../api/client";
 import { cancelJob } from "../../api/jobs";
@@ -119,7 +120,7 @@ function Picks({ spec, screen, fading, blocked }: Props) {
               {rows.map((r) => (
                 <tr key={r.code} className="clickable" aria-selected={open === r.code} onClick={() => setOpen(open === r.code ? null : r.code)}>
                   <td className="num muted">{r.rank}</td>
-                  <td className="b">{r.code}</td>
+                  <td><Stock code={r.code} name={r.name} /></td>
                   <td className="num r">{(r.score * 100).toFixed(1)}</td>
                   {r.factors.map((f) => (
                     <td key={f.name} className="num r muted">
@@ -204,7 +205,7 @@ function Lookup({ screen, blocked }: Props) {
       <input className="input" aria-label={st.preview.lookup} placeholder={st.preview.lookupPlaceholder} value={q} onChange={(e) => setQ(e.target.value)} />
       {s && row && (
         <div className="inner lookup ok-bg">
-          <span className="b">{st.preview.picked(row.code, L.of("funnel_kinds", ROLE_STEP[row.role]))}</span>
+          <span className="b">{st.preview.picked(row.name ?? row.code, L.of("funnel_kinds", ROLE_STEP[row.role]))}</span>
           <span className="small">{st.preview.pickedLine((row.score * 100).toFixed(1), row.rank)}</span>
         </div>
       )}

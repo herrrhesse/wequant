@@ -1,6 +1,7 @@
 // The today page: fixed blocks top to bottom (the data status strip, followed strategies, recent backtests, data
 // problems waiting for a decision). "自定义" on the status strip picks which blocks show; kept in this browser.
 // Index quotes join when the backend serves them (round 2, chunk 5); until then the block and its checkbox are absent.
+import { Stock } from "../../components/Stock";
 import { useState } from "react";
 import { useCall } from "../../api/client";
 import type { ScreenRow, StrategyInfo } from "../../api/types.gen";
@@ -149,7 +150,7 @@ function FollowCard({ s }: { s: StrategyInfo }) {
           {picked.map((r) => (
             <div key={r.code} className="line compact">
               <span className="num muted">{r.rank}</span>
-              <span className="b">{r.code}</span>
+              <span className="ellipsis"><Stock code={r.code} name={r.name} /></span>
               <span className="num r">{(r.score * 100).toFixed(1)}</span>
               <span className="r">
                 <span className={`role ${r.role}`}>{L.of("funnel_kinds", r.role === "target" ? "targets" : "backups")}</span>

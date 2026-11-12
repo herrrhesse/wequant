@@ -72,7 +72,7 @@ function NewBacktest() {
   const running = !!job && (job.state === "queued" || job.state === "running");
   const result = useCall("jobs_result", job?.state === "succeeded" ? { id: job.id } : null);
   useEffect(() => {
-    if (result.data) location.hash = href.backtest({ run: result.data.run_id });
+    if (result.data && "run_id" in result.data) location.hash = href.backtest({ run: result.data.run_id });
   }, [result.data]);
   const run = async () => {
     if (!request) return;
