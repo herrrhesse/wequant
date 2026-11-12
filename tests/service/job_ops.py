@@ -34,6 +34,11 @@ def wait(request: Nothing, context: Context) -> Done:
     raise ServiceError(Exit.INTERRUPTED, "run cancelled")
 
 
+def boom(request: Nothing, context: Context) -> Done:
+    """Fail as a bug would."""
+    raise ValueError("boom")
+
+
 def stubborn(request: Nothing, context: Context) -> Done:
     """Report one step, then never stop by itself."""
     context.progress(Progress(1, 2, dt.date(2024, 1, 2), 1000.0))

@@ -8,7 +8,6 @@ the process prints goes to standard error, so every line on standard output is a
 
 from __future__ import annotations
 
-import importlib
 import json
 import logging
 import os
@@ -17,14 +16,9 @@ import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import get_type_hints
 
-from wequant.backtest import Progress
-from wequant.service.base import Context, ErrorBody, error_body
-from wequant.service.errors import Exit, ServiceError
-
-log = logging.getLogger("wequant")
-STAGES = ("load", "backtest")  # the stages a worker reports; the queue has its own
+from wequant.service.base import Context
+from wequant.service.running import imported, outcome, progress_message
 
 
 def main() -> None:
@@ -38,26 +32,7 @@ def main() -> None:
     progress = lambda state: say(**progress_message(state))  # noqa: E731
     home, cache = (order[key] and Path(order[key]) for key in ("home", "cache"))
     context = Context(home, cache, progress=progress, cancel=stop.is_set)
-    say(**outcome(_imported(order["operation"]), order["request"], context))
-
-
-def outcome(operation: Callable, request: dict, context: Context) -> dict:
-    """{result: JSON} of operation on request, or {error: ErrorBody} of its failure."""
-    try:
-        result = operation(get_type_hints(operation)["request"].model_validate(request), context)
-    except ServiceError as error:
-        return {"error": error_body(error).model_dump(mode="json")}
-    except Exception as error:
-        log.exception("internal error in %s", operation.__name__)
-        body = ErrorBody(exit=Exit.INTERNAL, name=Exit.INTERNAL.name, message=f"{type(error).__name__}: {error}")
-        return {"error": body.model_dump(mode="json")}
-    return {"result": result.model_dump_json()}
-
-
-def progress_message(state: Progress) -> dict:
-    """A backtest's progress report as a message: the day it closed, of all its run days, and the equity then."""
-    params = {"day": state.day.isoformat(), "done": state.done, "total": state.total, "equity": state.equity}
-    return {"stage": "backtest", "fraction": state.done / state.total if state.total else 1.0, "params": params}
+    say(**outcome(imported(order["operation"]), order["request"], context))
 
 
 def _messages() -> Callable[..., None]:
@@ -80,11 +55,6 @@ def _listen(stop: threading.Event) -> None:
         if line.strip() == "cancel":
             break
     stop.set()
-
-
-def _imported(path: str) -> Callable:
-    module, name = path.split(":")
-    return getattr(importlib.import_module(module), name)
 
 
 if __name__ == "__main__":
