@@ -79,7 +79,7 @@ export function StockPage({ route }: { route: StockRoute }) {
       </div>
       {route.from && (
         <span className="note">
-          {t.stock.from(t.stock.fromNames[route.from] ?? route.from)} ·{" "}
+          {t.stock.fromNames[route.from] && <>{t.stock.from(t.stock.fromNames[route.from]!)} · </>}
           <a className="link" href="#" onClick={(e) => (e.preventDefault(), history.back())}>
             {t.stock.back}
           </a>
@@ -161,7 +161,15 @@ function StockView({ code, bars, barsCmd, ma, maCmds, issues, issuesCmd, issuesV
   return (
     <div className="col stock-view" data-render-ms={renderMs?.chart} data-page-ms={renderMs?.page}>
       <div className="card-head">
-        <h1>{data.code}</h1>
+        <h1 className="stock-title">
+          {bars.names?.[code] ? (
+            <>
+              {bars.names[code]} <span className="stock-code">{code}</span>
+            </>
+          ) : (
+            code
+          )}
+        </h1>
         {last && <span className="note">{t.stock.latest(last.date)} · {t.stock.day.close} {show(last.values.close)} · {STATUS[last.status]}</span>}
       </div>
       <div className="row2 stock-row">

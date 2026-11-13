@@ -1,13 +1,11 @@
 // The strategy page: a one-page editor (scope, filters, ranking, trading on the left; a live preview on the right),
 // the change history drawer and "我的策略". Every edit re-checks the draft (strategy validate) and re-screens it on the
 // latest trading day (about 300 ms after the last change); an older answer never replaces a newer one.
-import { jobView } from "../../api/jobstate";
-import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
 import { ApiError } from "../../api/http";
-import { useJob } from "../../api/jobs";
-import type { JobInfo, StrategySpec, SummaryPart } from "../../api/types.gen";
+import type { StrategySpec, SummaryPart } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
 import { useDebounced } from "../../hooks";
@@ -15,7 +13,7 @@ import { useLabels } from "../../labels";
 import { follows, setFollow } from "../../local";
 import { href, type Route } from "../../router";
 import { strategyLoc } from "../../strategy/locate";
-import { blank, counts as countsOf, deltas as deltasOf, type Counts } from "../../strategy/model";
+import { blank } from "../../strategy/model";
 import { summarySegments } from "../../strategy/summary";
 import { useUi } from "../../ui";
 import { FactorsCard, FiltersCard, ScopeCard, TradeCard, type Err } from "./Editor";
@@ -70,7 +68,6 @@ function storedDraft(origin: Origin | null): { spec: StrategySpec; name: string 
 function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: StrategySpec }) {
   const ui = useUi();
   const L = useLabels();
-  const client = useQueryClient();
   const [initial] = useState(() => storedDraft(origin));
   const [spec, setSpec] = useState<StrategySpec>(initial?.spec ?? savedSpec);
   const [name, setName] = useState(initial?.name ?? origin?.name ?? st.newName);
@@ -79,7 +76,6 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const [note, setNote] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [showJson, setShowJson] = useState(false);
-  const [jobId, setJobId] = useState<number | null>(null);
   const [narrow, setNarrow] = useState(() => window.innerWidth < 900);
   const [drawer, setDrawer] = useState(false);
   const followed = follows.use();
@@ -108,33 +104,26 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
     setSpec(next);
   };
 
-  // Check, summary and preview follow the draft about 300 ms after the last change.
+  // Check, summary and preview follow the draft about 300 ms after the last change. Until the draft has an enabled
+  // factor there is nothing to rank: the preview asks for the stages it can compute (no hold count), and the page
+  // shows how to go on instead of an error.
   const settled = useDebounced(spec, 300);
-  const check = useCall("strategy_validate", { strategy: settled }, { placeholderData: keepPreviousData });
+  const noFactors = !(settled.factors ?? []).some((f) => f.enabled !== false);
+  const asked = useMemo(() => (noFactors ? { ...settled, top_n: null, backups: 0, hold_rank: null } : settled), [settled, noFactors]);
+  const check = useCall("strategy_validate", { strategy: asked }, { placeholderData: keepPreviousData });
   const apiErr = check.error instanceof ApiError ? check.error : null;
   const errors: Err[] = (apiErr?.status === 422 ? (apiErr.body.detail ?? []) : []).map((d) => ({
     loc: strategyLoc(d.loc ?? []),
     text: [L.of("error_codes", d.code), L.help("error_codes", d.code)].filter(Boolean).join("：") || d.message,
   }));
-  const valid = check.isSuccess && !check.isPlaceholderData;
-  const summary = useCall("strategy_summary", check.isSuccess ? { strategy: settled } : null, { placeholderData: keepPreviousData });
-  const screen = useCall("screen", check.isSuccess ? { strategy: settled } : null, { placeholderData: keepPreviousData });
-  const schedule = useCall("strategy_schedule", check.isSuccess ? { strategy: settled, count: 3 } : null, { placeholderData: keepPreviousData });
+  const summary = useCall("strategy_summary", check.isSuccess && !noFactors ? { strategy: asked } : null, { placeholderData: keepPreviousData });
+  const screen = useCall("screen", check.isSuccess ? { strategy: asked } : null, { placeholderData: keepPreviousData });
+  const schedule = useCall("strategy_schedule", check.isSuccess ? { strategy: asked, count: 3 } : null, { placeholderData: keepPreviousData });
   const blocked = errors.length > 0 || (check.isError && !apiErr);
-
-  // Flash how each row's count changed when a new preview arrives.
-  const prevCounts = useRef<Counts | null>(null);
-  const [flash, setFlash] = useState<Map<string, string>>(new Map());
-  const current = useMemo(() => (screen.data && !blocked ? countsOf(screen.data.funnel) : null), [screen.data, blocked]);
-  useEffect(() => {
-    if (!current || screen.isPlaceholderData) return;
-    const d = deltasOf(prevCounts.current, current);
-    prevCounts.current = current;
-    if (d.size === 0) return;
-    setFlash(d);
-    const t = setTimeout(() => setFlash(new Map()), 1700);
-    return () => clearTimeout(t);
-  }, [current, screen.isPlaceholderData]);
+  // Updating from the moment of the edit (not only once the debounce ends) until the newest preview has arrived.
+  const updating = !blocked && (spec !== settled || check.isFetching || screen.isFetching || check.isPlaceholderData || screen.isPlaceholderData);
+  const st0 = screen.data?.warnings.find((w) => w.code === "st_unknown");
+  const stNone = !!st0 && Number(st0.params.known_share) === 0;
 
   const dirty = check.data ? !origin || !check.data.saved_as.some((s) => s.id === origin.id) || name !== origin.name : spec !== savedSpec;
   const state = errors.length ? "errors" : !origin ? "never" : dirty ? "dirty" : "saved";
@@ -156,17 +145,6 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
     setNote(r.created ? st.saved : st.unchanged);
   };
 
-  const start = useCallMutation("jobs_start", ["jobs_list"]);
-  const job = useJob(jobId);
-  const runJob = async () => {
-    const request = origin && !dirty ? { saved: { id: origin.id }, save: true } : { strategy: spec, save: true };
-    const j: JobInfo = await start.mutateAsync({ kind: "backtest", request });
-    setJobId(j.id);
-  };
-  useEffect(() => {
-    if (job?.state === "succeeded") void client.invalidateQueries({ queryKey: ["runs_list"] });
-  }, [job?.state, client]);
-
   const nT = screen.data?.rows.filter((r) => r.role === "target").length ?? 0;
   const nB = screen.data?.rows.filter((r) => r.role === "backup").length ?? 0;
   const following = origin ? followed.includes(origin.id) : false;
@@ -177,10 +155,8 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
     document.getElementById(`loc-${loc.join("-")}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  const props = { spec, edit, counts: current, deltas: flash, errors, hl };
-  const preview = (
-    <Preview spec={settled} screen={screen.data} fading={screen.isFetching || !valid} blocked={blocked} hl={hl} setHl={setHl} strategyId={origin?.id ?? null} draftHash={check.data?.strategy_hash ?? null} job={job} />
-  );
+  const props = { spec, edit, errors, hl, setHl, stNone };
+  const preview = <Preview spec={asked} screen={screen.data} updating={updating} errors={errors.length} blocked={blocked} noFactors={noFactors} hl={hl} setHl={setHl} />;
 
   return (
     <main className="page">
@@ -225,10 +201,10 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
             >
               {st.undo}
             </button>
-            <button type="button" className="btn" disabled={blocked || !name.trim() || (!dirty && !!origin) || save.isPending} onClick={() => void doSave(false)}>
+            <button type="button" className="btn" title={noFactors ? st.factors.empty : undefined} disabled={blocked || noFactors || !name.trim() || (!dirty && !!origin) || save.isPending} onClick={() => void doSave(false)}>
               {st.save}
             </button>
-            <button type="button" className="btn soft" disabled={blocked || save.isPending} onClick={() => void doSave(true)}>
+            <button type="button" className="btn soft" title={noFactors ? st.factors.empty : undefined} disabled={blocked || noFactors || save.isPending} onClick={() => void doSave(true)}>
               {st.saveAs}
             </button>
             <button type="button" className="btn soft" aria-pressed={showHistory} disabled={!origin} onClick={() => setShowHistory(!showHistory)}>
@@ -237,9 +213,15 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
             <a className="btn soft" href={href.strategy(origin?.id, true)}>
               {st.mine}
             </a>
-            <button type="button" className="btn acc" disabled={blocked || start.isPending || !jobView(job).canStart} onClick={() => void runJob()}>
-              {st.run}
-            </button>
+            {blocked || noFactors ? (
+              <button type="button" className="btn soft" disabled title={noFactors ? st.factors.empty : undefined}>
+                {st.backtest}
+              </button>
+            ) : (
+              <a className="btn soft" href={href.backtest({ use: origin && !dirty ? origin.id : "draft" })} title={st.backtestTitle}>
+                {st.backtest}
+              </a>
+            )}
           </div>
         </div>
         {!blocked && summary.data && (
@@ -268,7 +250,6 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
           </span>
         )}
         {save.isError && <Problem error={save.error} />}
-        {start.isError && <Problem error={start.error} />}
         {check.isError && !apiErr && <Problem error={check.error} />}
         {ui.dev && (
           <div className="dev-row">

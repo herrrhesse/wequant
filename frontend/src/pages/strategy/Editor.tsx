@@ -11,7 +11,6 @@ import {
   autoName,
   boxes,
   exprOf,
-  cutAlone,
   factorMetric,
   isGroup,
   METRIC_PRESETS,
@@ -24,7 +23,6 @@ import {
   uniqueName,
   UNIT_TEXT,
   writeCondition,
-  type Counts,
   type Mode,
   type Row,
 } from "../../strategy/model";
@@ -40,25 +38,17 @@ export interface Err {
 export interface EditorProps {
   spec: StrategySpec;
   edit: (fn: (d: StrategySpec) => void) => void;
-  counts: Counts | null;
-  deltas: Map<string, string>;
   errors: Err[];
-  /** The funnel step highlighted from the preview. */
+  /** The funnel step highlighted: from the preview, or while the pointer is over a row here. */
   hl: string | null;
+  setHl: (step: string | null) => void;
+  /** The data has no ST records at all (the backend's st_unknown warning with a known share of 0). */
+  stNone: boolean;
 }
 
 /** Whether a name is the automatic one (or it with a number added to keep it unique). */
 const isAuto = (name: string, auto: string) => name === auto || new RegExp(`^${auto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\d+$`).test(name);
 const errsAt = (errors: Err[], at: Loc) => errors.filter((e) => concerns(e.loc, at));
-const show = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n);
-
-function Delta({ text }: { text: string | undefined }) {
-  return text ? (
-    <span key={text} className="delta">
-      {text}
-    </span>
-  ) : null;
-}
 
 function ErrText({ errors }: { errors: Err[] }) {
   return errors.length ? <span className="err-text">{errors.map((e) => e.text).join(" ")}</span> : null;
@@ -66,9 +56,8 @@ function ErrText({ errors }: { errors: Err[] }) {
 
 /* ---------- 1 · scope ---------- */
 
-export function ScopeCard({ spec, edit, counts, deltas, errors, hl }: EditorProps) {
+export function ScopeCard({ spec, edit, errors, hl, setHl, stNone }: EditorProps) {
   const pool = spec.pool ?? {};
-  const left = (step: string, fallback: string | null) => counts?.left.get(step) ?? (fallback ? counts?.left.get(fallback) : undefined) ?? counts?.scope ?? null;
   const setPool = (fn: (p: NonNullable<StrategySpec["pool"]>) => void) =>
     edit((d) => {
       d.pool = { ...(d.pool ?? {}) };
@@ -77,25 +66,20 @@ export function ScopeCard({ spec, edit, counts, deltas, errors, hl }: EditorProp
   const boards = ["main", "chinext", "star"] as const;
   const onBoards = pool.boards ?? [...boards];
   const universeDefault = JSON.stringify(spec.universe ?? ["NOT", "exchange@BJ"]) === JSON.stringify(["NOT", "exchange@BJ"]);
-  const row = (key: string, label: string, body: ReactNode, n: number | null, path: Loc) => {
+  const row = (key: string, label: string, body: ReactNode, path: Loc) => {
     const errs = errsAt(errors, path);
     return (
-      <>
-        <span id={`loc-${path.join("-")}`} className={`scope-label ${hl === key ? "hl" : ""} ${errs.length ? "has-err" : ""}`}>
+      <div className={`scope-row ${hl === key ? "hl" : ""}`} data-step={key} onMouseEnter={() => setHl(key)} onMouseLeave={() => setHl(null)}>
+        <span id={`loc-${path.join("-")}`} className={`scope-label ${errs.length ? "has-err" : ""}`}>
           {label}
         </span>
         <div className="col tight">
           {body}
           <ErrText errors={errs} />
         </div>
-        <span className="scope-left num">
-          {st.scope.left} <b>{show(n)}</b> {st.scope.unit}
-          <Delta text={deltas.get(key)} />
-        </span>
-      </>
+      </div>
     );
   };
-  const lastPool = pool.index ? "index" : null;
   return (
     <section className="card" aria-label="范围">
       <div className="card-head">
@@ -114,7 +98,6 @@ export function ScopeCard({ spec, edit, counts, deltas, errors, hl }: EditorProp
               </button>
             ))}
           </div>,
-          left("index", null),
           ["pool", "index"],
         )}
         {row(
@@ -137,17 +120,18 @@ export function ScopeCard({ spec, edit, counts, deltas, errors, hl }: EditorProp
               </label>
             ))}
           </div>,
-          left("boards", lastPool),
           ["pool", "boards"],
         )}
         {row(
           "exclude_st",
           st.scope.st,
+          <>
           <label className="check">
             <input type="checkbox" checked={pool.exclude_st ?? false} onChange={() => setPool((p) => void (p.exclude_st = !(pool.exclude_st ?? false)))} />
             {st.scope.stText}
-          </label>,
-          left("exclude_st", pool.boards ? "boards" : lastPool),
+          </label>
+          {stNone && <span className="warn-text small">{st.scope.stNone}</span>}
+          </>,
           ["pool", "exclude_st"],
         )}
         {row(
@@ -158,7 +142,6 @@ export function ScopeCard({ spec, edit, counts, deltas, errors, hl }: EditorProp
             <NumInput aria-label={st.scope.ipo} style={{ width: 64 }} value={pool.min_list_days ?? null} onValue={(v) => setPool((p) => void (p.min_list_days = v))} />
             {st.scope.ipoAfter}
           </span>,
-          counts?.pool ?? null,
           ["pool", "min_list_days"],
         )}
       </div>
@@ -169,7 +152,7 @@ export function ScopeCard({ spec, edit, counts, deltas, errors, hl }: EditorProp
 
 /* ---------- 2 · filters ---------- */
 
-export function FiltersCard({ spec, edit, counts, deltas, errors, hl }: EditorProps) {
+export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
   const [adding, setAdding] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const list = boxes(spec);
@@ -248,8 +231,8 @@ export function FiltersCard({ spec, edit, counts, deltas, errors, hl }: EditorPr
         const any = b.mode === "any" && enabled > 1;
         const groupStep = b.group !== null ? (spec.filters![b.group] as GroupSpec).name : null;
         return (
-          <div key={bi} className="fgroup">
-            <div className="row small">
+          <div key={bi} className={`fgroup ${groupStep && hl === groupStep ? "hl" : ""}`} data-step={groupStep ?? undefined}>
+            <div className="row small" onMouseEnter={() => groupStep && setHl(groupStep)} onMouseLeave={() => groupStep && setHl(null)}>
               {bi > 0 && <span className="tag">{st.filters.and}</span>}
               <span>{st.filters.before}</span>
               <select
@@ -272,12 +255,6 @@ export function FiltersCard({ spec, edit, counts, deltas, errors, hl }: EditorPr
                 <option value="any">{st.filters.any}</option>
               </select>
               <span>{st.filters.after}</span>
-              {groupStep && (
-                <span className="sub">
-                  {st.filters.groupLeft} <b className="num">{show(counts?.left.get(groupStep))}</b> 只
-                  <Delta text={deltas.get(groupStep)} />
-                </span>
-              )}
               {list.length > 1 && (
                 <button
                   type="button"
@@ -300,8 +277,7 @@ export function FiltersCard({ spec, edit, counts, deltas, errors, hl }: EditorPr
                 c={c}
                 any={any}
                 inGroup={b.group !== null}
-                counts={counts}
-                delta={deltas.get(c.name)}
+                setHl={setHl}
                 errors={errsAt(errors, path)}
                 hl={hl === c.name || (any && hl === groupStep)}
                 taken={namesIn(spec)}
@@ -353,8 +329,7 @@ interface CondProps {
   c: ConditionSpec;
   any: boolean;
   inGroup: boolean;
-  counts: Counts | null;
-  delta: string | undefined;
+  setHl: (step: string | null) => void;
   errors: Err[];
   hl: boolean;
   taken: Set<string>;
@@ -362,7 +337,7 @@ interface CondProps {
   remove: () => void;
 }
 
-function CondRow({ path, c, any, inGroup, counts, delta, errors, hl, taken, update, remove }: CondProps) {
+function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProps) {
   const row = readCondition(c.expr);
   const off = c.enabled === false;
   const auto = autoName(row);
@@ -380,21 +355,20 @@ function CondRow({ path, c, any, inGroup, counts, delta, errors, hl, taken, upda
         x.name = uniqueName(autoName(next), others);
       }
     });
-  const poolN = counts?.pool ?? null;
   let hint = "";
   if (!row.custom && (row.mode === "topn" || row.mode === "toppct")) {
     const side = row.dir === "high" ? st.filters.high : st.filters.low;
-    const k = row.mode === "toppct" && poolN !== null ? Math.ceil((poolN * Number(row.value)) / 100) : "—";
-    hint = st.filters.rankBase(show(poolN), side, row.mode === "topn" ? st.filters.topN(row.value) : st.filters.topPct(row.value, k));
+    hint = st.filters.rankBase(side, row.mode === "topn" ? st.filters.topN(row.value) : st.filters.topPct(row.value));
   } else if (row.custom) hint = st.filters.customHint;
-  const passed = counts?.passed.get(c.name);
-  const left = counts?.left.get(c.name);
-  const cut = cutAlone(counts ?? { left: new Map(), passed: new Map(), pool: null, scope: null }, c.name, "condition");
-  const countA = off ? "" : any ? st.filters.hit(show(passed)) : !inGroup ? st.filters.left(show(left)) : st.filters.cut(show(cut));
-  const countB = off || any || inGroup ? "" : st.filters.cut(show(cut));
   const metrics = row.custom ? [] : METRIC_PRESETS.some((m) => metricKey(m) === metricKey(row.metric)) ? METRIC_PRESETS : [row.metric, ...METRIC_PRESETS];
   return (
-    <div id={`loc-${path.join("-")}`} className={`cond ${hl ? "hl" : ""} ${errors.length ? "has-err" : ""} ${off ? "off" : ""}`}>
+    <div
+      id={`loc-${path.join("-")}`}
+      data-step={c.name}
+      className={`cond ${hl ? "hl" : ""} ${errors.length ? "has-err" : ""} ${off ? "off" : ""}`}
+      onMouseEnter={() => setHl(c.name)}
+      onMouseLeave={() => setHl(null)}
+    >
       <div className="cond-grid">
         <input type="checkbox" checked={!off} aria-label={st.filters.enable} onChange={() => update((x) => void (x.enabled = off ? true : false))} />
         {row.custom ? (
@@ -436,11 +410,6 @@ function CondRow({ path, c, any, inGroup, counts, delta, errors, hl, taken, upda
             </div>
           </>
         )}
-        <div className="cond-count">
-          <span>{countA}</span>
-          <span className="muted">{countB}</span>
-          <Delta text={off || any ? undefined : delta} />
-        </div>
         <div className="row nowrap push">
           {off && <span className="tag">{st.filters.off}</span>}
           <button type="button" className="icon-btn" aria-label={st.filters.remove} onClick={remove}>

@@ -50,8 +50,12 @@ export function PicksPage({ route }: { route: PicksRoute }) {
   const L = useLabels();
   const list = useCall("strategy_list", {});
   const calendar = useCall("data_calendar", {});
-  const d = route.draft ? draft() : null;
-  const id = route.draft ? null : (route.id ?? list.data?.rows[0]?.id ?? null);
+  const stored = draft();
+  // What is computed is what the selector shows: the draft when asked for, or when nothing is saved yet.
+  const useDraft = !!stored && (route.draft || (!route.id && list.isSuccess && list.data.rows.length === 0));
+  const d = useDraft ? stored : null;
+  const id = useDraft ? null : (route.id ?? list.data?.rows[0]?.id ?? null);
+  const nothing = list.isSuccess && list.data.rows.length === 0 && !stored && !route.id;
   const saved = useCall("strategy_show", id ? { id, n: route.n } : null);
   const base: StrategySpec | null = d?.spec ?? saved.data?.strategy ?? null;
   const baseName = d?.name ?? saved.data?.name ?? "";
@@ -81,7 +85,20 @@ export function PicksPage({ route }: { route: PicksRoute }) {
     fn(next);
     setVariant(next);
   };
-  const stored = draft();
+  if (nothing)
+    return (
+      <main className="page">
+        <StatusBar />
+        <section className="card" aria-label="选股设置">
+          <div className="empty">
+            <span>还没有策略。先在策略页新建一个策略，这里就能看到它在某一天选出的股票。</span>
+            <a className="btn push" href={href.newStrategy()}>
+              去策略页新建
+            </a>
+          </div>
+        </section>
+      </main>
+    );
 
   return (
     <main className="page">
@@ -90,7 +107,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
         <div className="row picks-bar">
           <label className="field">
             策略
-            <select className="select" value={route.draft ? "__draft" : (id ?? "")} onChange={(e) => (e.target.value === "__draft" ? go({ draft: true }) : go({ id: e.target.value }))}>
+            <select className="select" aria-label="策略" value={useDraft ? "__draft" : (id ?? "")} onChange={(e) => (e.target.value === "__draft" ? go({ draft: true }) : go({ id: e.target.value }))}>
               {stored && <option value="__draft">策略页的草稿：{stored.name}</option>}
               {(list.data?.rows ?? []).map((s) => (
                 <option key={s.id} value={s.id}>
@@ -103,7 +120,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
             决策日
             <input className="input" type="date" value={date || r?.date || ""} min={calendar.data?.first ?? undefined} max={calendar.data?.last ?? undefined} onChange={(e) => setDate(e.target.value)} />
           </label>
-          <button type="button" className="btn acc" onClick={() => go({ id, draft: route.draft, date: date || null })}>
+          <button type="button" className="btn acc" onClick={() => go({ id, draft: useDraft, date: date || null })}>
             选股
           </button>
           <button type="button" className="btn soft" aria-pressed={tweak} onClick={() => setTweak(!tweak)}>

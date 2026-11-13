@@ -8,8 +8,8 @@ import { tx } from "../text";
 const NAV: [Exclude<Page, "stock">, string, string][] = [
   ["today", tx.nav.today, href.today()],
   ["strategy", tx.nav.strategy, href.strategy()],
-  ["picks", tx.nav.picks, href.picks()],
   ["backtest", tx.nav.backtest, href.backtest()],
+  ["picks", tx.nav.picks, href.picks()],
   ["data", tx.nav.data, href.data()],
 ];
 

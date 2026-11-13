@@ -2,14 +2,14 @@ import { useEffect, useState } from "react";
 
 /** Hash routes keep every page's state in the URL, so the built files work from any path and back/forward restore it:
  * #/ (today), #/data[?code&date], #/stock/CODE[?date&run&from], #/strategy[?id&view=list],
- * #/picks[?id&n&draft&date], #/backtest[?run&cmp=A,B&day]. */
+ * #/picks[?id&n&draft&date], #/backtest[?use&run&cmp=A,B&day]. */
 export type Route =
   | { page: "today" }
   | { page: "data"; code: string | null; date: string | null }
   | { page: "stock"; code: string; date: string | null; run: string | null; from: string | null }
   | { page: "strategy"; id: string | null; list: boolean; fresh: boolean }
   | { page: "picks"; id: string | null; n: number | null; draft: boolean; date: string | null }
-  | { page: "backtest"; run: string | null; cmp: string[]; day: string | null };
+  | { page: "backtest"; run: string | null; cmp: string[]; day: string | null; use: string | null };
 
 export type Page = Route["page"];
 
@@ -21,7 +21,7 @@ export function parse(hash: string): Route {
   if (path === "/strategy") return { page: "strategy", id: q.get("id"), list: q.get("view") === "list", fresh: q.get("new") === "1" };
   if (path === "/picks") return { page: "picks", id: q.get("id"), n: int(q.get("n")), draft: q.get("draft") === "1", date: q.get("date") };
   if (path === "/backtest")
-    return { page: "backtest", run: q.get("run"), cmp: (q.get("cmp") ?? "").split(",").filter(Boolean).slice(0, 3), day: q.get("day") };
+    return { page: "backtest", run: q.get("run"), cmp: (q.get("cmp") ?? "").split(",").filter(Boolean).slice(0, 3), day: q.get("day"), use: q.get("use") };
   const stock = path.match(/^\/stock\/([^/]+)$/);
   if (stock?.[1]) return { page: "stock", code: decodeURIComponent(stock[1]).toUpperCase(), date: q.get("date"), run: q.get("run"), from: q.get("from") };
   if (path === "/data") return { page: "data", code: q.get("code"), date: q.get("date") };
@@ -44,8 +44,9 @@ export const href = {
     `#/stock/${encodeURIComponent(code)}${qs({ date: opts.date, run: opts.run, from: opts.from })}`,
   picks: (opts: { id?: string | null; n?: number | null; draft?: boolean; date?: string | null } = {}) =>
     `#/picks${qs({ id: opts.id, n: opts.n, draft: opts.draft ? 1 : null, date: opts.date })}`,
-  backtest: (opts: { run?: string | null; cmp?: string[]; day?: string | null } = {}) =>
-    `#/backtest${qs({ run: opts.run, cmp: (opts.cmp ?? []).join(","), day: opts.day })}`,
+  /** use: a strategy id, or "draft" for the strategy page's draft, preselected in "新建回测". */
+  backtest: (opts: { run?: string | null; cmp?: string[]; day?: string | null; use?: string | null } = {}) =>
+    `#/backtest${qs({ use: opts.use, run: opts.run, cmp: (opts.cmp ?? []).join(","), day: opts.day })}`,
 };
 
 export function useRoute(): Route {
