@@ -174,9 +174,10 @@ test("backtest: default settings run; metrics show a value or a reason; a picked
   // The form is first and the run records are last, with the results between them.
   await expect(page.getByRole("region", { name: "回测结果" })).toBeVisible();
   const order = await page.locator("main > section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
-  expect(order[0]).toBe("新建回测");
-  expect(order.indexOf("回测结果")).toBeGreaterThan(0);
-  expect(order[order.length - 1]).toBe("运行记录");
+  const blocks = order.filter((l) => l !== "数据状态");
+  expect(blocks[0]).toBe("新建回测");
+  expect(blocks.indexOf("回测结果")).toBeGreaterThan(0);
+  expect(blocks[blocks.length - 1]).toBe("运行记录");
   const tiles = page.locator(".kpis").first().locator(".stat");
   await expect(tiles.first()).toBeVisible();
   for (const tile of await tiles.all()) {
