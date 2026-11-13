@@ -24,7 +24,7 @@ export function Problem({ error, onRetry }: { error: unknown; onRetry?: () => vo
         <ul className="serrors">
           {b.detail.map((d, i) => (
             <li key={i}>
-              {[L.of("error_codes", d.code), L.help("error_codes", d.code)].filter(Boolean).join("：")}
+              {L.detail(d)}
               {dev && <span className="mono"> · {d.code} · {(d.loc ?? []).join(".")} · {d.message}</span>}
             </li>
           ))}

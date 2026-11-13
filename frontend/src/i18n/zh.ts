@@ -132,7 +132,7 @@ export const zh = {
   },
   stock: {
     from: (where: string) => `从${where}打开`,
-    fromNames: { picks: "选股", run: "回测", data: "数据问题", delistings: "退市处理", day: "回测的某一天" } as Record<string, string>,
+    fromNames: { today: "今日", strategy: "策略", picks: "选股", backtest: "回测", run: "回测", data: "数据", delistings: "退市处理", day: "回测的某一天", stock: "个股" } as Record<string, string>,
     back: "返回",
     notFound: (code: string) => `没有这只股票：${code}`,
     noBars: "这段时间没有行情",

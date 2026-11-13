@@ -1,18 +1,17 @@
-// The right column of the strategy editor: the funnel of the draft on the latest trading day, the picked stocks with
-// their judgment chain, "查股票" and the latest backtest of this strategy. Everything shown comes from screen,
-// explain and the run records; the panel fades while a newer preview is on its way instead of jumping.
-import { jobView } from "../../api/jobstate";
-import { Stock } from "../../components/Stock";
-import { useState } from "react";
+// The right column of the strategy editor: every number about the draft lives here, not in the editing column.
+// A status line says when the preview is being updated (from the moment of the edit), when it has been updated, or
+// that the editing column has something to fix. Then the funnel of the latest trading day (each step's count, its
+// cut and the cut it makes on its own), the picked stocks with their judgment chain, and "查股票".
+import { useEffect, useRef, useState } from "react";
 import { useCall } from "../../api/client";
-import { cancelJob } from "../../api/jobs";
-import type { JobInfo, ScreenResult, StrategySpec } from "../../api/types.gen";
-import { fixed, pct, tone } from "../../format";
+import type { ScreenResult, StrategySpec } from "../../api/types.gen";
+import { ChainView } from "../../components/ChainView";
+import { Stock } from "../../components/Stock";
 import { useLabels } from "../../labels";
 import { href } from "../../router";
+import { counts, cutAlone } from "../../strategy/model";
 import { tx } from "../../text";
 import { POOL_STEP_NAMES, st } from "./text";
-import { ChainView } from "../../components/ChainView";
 
 const OPS: Record<string, string> = { gt: ">", ge: "≥", lt: "<", le: "≤", eq: "=", between: "介于" };
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
@@ -26,50 +25,101 @@ export function stepName(step: string, kind: string, of: (t: "funnel_kinds", c: 
 interface Props {
   spec: StrategySpec;
   screen: ScreenResult | undefined;
-  fading: boolean;
+  /** An edit is waiting for its preview (from the moment of the edit until the newest answer arrives). */
+  updating: boolean;
+  /** How many places in the editing column need fixing. */
+  errors: number;
   blocked: boolean;
+  /** No enabled factor yet: the funnel shows the stages it can compute, and the picks how to go on. */
+  noFactors: boolean;
   hl: string | null;
   setHl: (s: string | null) => void;
-  strategyId: string | null;
-  draftHash: string | null;
-  job: JobInfo | null;
 }
 
 export function Preview(props: Props) {
+  const fading = props.updating ? "pending strong" : "";
   return (
     <>
-      <Funnel {...props} />
-      <Picks {...props} />
+      <Funnel {...props} fading={fading} />
+      <Picks {...props} fading={fading} />
       <Lookup {...props} />
-      <LastRun {...props} />
     </>
   );
 }
 
-function Funnel({ screen, fading, blocked, hl, setHl }: Props) {
-  const L = useLabels();
-  const steps = screen?.funnel ?? [];
-  const top = steps[0]?.left || 1;
+/** Scroll the editing column to the row of a funnel step, or to the first marked error. */
+function locate(step: string | null) {
+  const el = step ? document.querySelector(`[data-step="${CSS.escape(step)}"]`) : document.querySelector(".has-err");
+  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function Status({ updating, errors, blocked, screen }: Props) {
+  const [fresh, setFresh] = useState(false);
+  const was = useRef(updating);
+  useEffect(() => {
+    if (was.current && !updating) {
+      setFresh(true);
+      const t = setTimeout(() => setFresh(false), 2500);
+      was.current = updating;
+      return () => clearTimeout(t);
+    }
+    was.current = updating;
+  }, [updating]);
+  if (errors > 0 || blocked)
+    return (
+      <button type="button" className="pv-status err" onClick={() => locate(null)}>
+        {st.preview.fix(errors)}
+      </button>
+    );
+  if (updating)
+    return (
+      <span className="pv-status busy" role="status">
+        <span className="spinner" aria-hidden="true" />
+        {st.preview.updating}
+      </span>
+    );
+  if (!screen) return null;
   return (
-    <section className={`card ${fading ? "pending" : ""}`} aria-label={st.preview.funnel}>
+    <span className={`pv-status ${fresh ? "done" : "idle"}`} role="status">
+      {fresh ? st.preview.updated(screen.date) : st.preview.date(screen.date)}
+    </span>
+  );
+}
+
+function Funnel(props: Props & { fading: string }) {
+  const { screen, blocked, noFactors, hl, setHl, fading } = props;
+  const L = useLabels();
+  const steps = (screen?.funnel ?? []).filter((s) => !noFactors || (s.kind !== "scored" && s.kind !== "targets" && s.kind !== "backups"));
+  const top = steps[0]?.left || 1;
+  const c = counts(screen?.funnel);
+  return (
+    <section className="card" aria-label={st.preview.funnel}>
       <div className="card-head">
         <h2>{st.preview.title}</h2>
-        {screen && <span className="push small muted">{st.preview.date(screen.date)}</span>}
+        <span className="push" />
+        <Status {...props} />
       </div>
-      {blocked && <span className="note">{st.preview.blocked}</span>}
       {!blocked && screen && (
-        <ol className="funnel">
+        <ol className={`funnel ${fading}`}>
           {steps.map((s, i) => {
             const n = s.left ?? s.passed;
             const prev = steps.slice(0, i).reverse().find((x) => x.chain && x.left !== null);
             const out = s.chain && s.left !== null && prev?.left != null && s.kind !== "targets" && s.kind !== "backups" ? prev.left - s.left : 0;
+            const alone = s.kind === "pool" || s.kind === "condition" ? cutAlone(c, s.step, s.kind) : null;
             return (
               <li key={`${s.step}/${i}`} className={s.chain ? "" : "off-chain"}>
-                <button type="button" aria-pressed={hl === s.step} onClick={() => setHl(hl === s.step ? null : s.step)}>
+                <button
+                  type="button"
+                  aria-pressed={hl === s.step}
+                  onMouseEnter={() => setHl(s.step)}
+                  onMouseLeave={() => setHl(null)}
+                  onClick={() => locate(s.step)}
+                >
                   <span className="funnel-name">
                     {s.chain ? "" : "└ "}
                     {stepName(s.step, s.kind, L.of)}
                     {s.left === null ? "（命中）" : ""}
+                    {alone !== null && s.left !== null && <span className="tiny muted funnel-alone">{st.filters.cut(alone)}</span>}
                   </span>
                   <span className="funnel-bar">
                     <span style={{ width: `${Math.max(1, (n / top) * 100)}%` }} />
@@ -86,15 +136,21 @@ function Funnel({ screen, fading, blocked, hl, setHl }: Props) {
   );
 }
 
-function Picks({ spec, screen, fading, blocked }: Props) {
+function Picks({ spec, screen, fading, blocked, noFactors }: Props & { fading: string }) {
   const L = useLabels();
   const [open, setOpen] = useState<string | null>(null);
+  if (noFactors)
+    return (
+      <section className="card" aria-label="入选名单">
+        <div className="empty">{st.factors.empty}</div>
+      </section>
+    );
   if (blocked || !screen) return null;
   const rows = [...screen.rows.filter((r) => r.role === "target"), ...screen.rows.filter((r) => r.role === "backup")];
   const nT = screen.rows.filter((r) => r.role === "target").length;
   const factors = rows[0]?.factors.map((f) => f.name) ?? [];
   return (
-    <section className={`card ${fading ? "pending" : ""}`} aria-label="入选名单">
+    <section className={`card ${fading}`} aria-label="入选名单">
       <div className="card-head">
         <h2>{st.preview.picks(nT, rows.length - nT)}</h2>
         <a className="link small push" href={href.picks({ draft: true })}>
@@ -200,75 +256,3 @@ function Lookup({ screen, blocked }: Props) {
   );
 }
 
-function LastRun({ spec, strategyId, draftHash, job }: Props) {
-  const L = useLabels();
-  const runs = useCall("runs_list", strategyId ? { limit: 100 } : null);
-  const last = runs.data?.rows.find((r) => r.saved_as.some((s) => s.id === strategyId) || r.strategy_hash === draftHash) ?? null;
-  const detail = useCall("runs_show", last ? { id: last.id } : null);
-  const stale = !!last && !!draftHash && last.strategy_hash !== draftHash;
-  const daily = detail.data?.daily ?? [];
-  const curve = (key: "nav" | "benchmark_nav") => {
-    const vs = daily.map((d) => d[key]).filter((v): v is number => v !== null);
-    const all = daily.flatMap((d) => [d.nav, d.benchmark_nav]).filter((v): v is number => v !== null);
-    const lo = Math.min(...all);
-    const hi = Math.max(...all);
-    return vs.map((v, i) => `${i ? "L" : "M"}${((i / Math.max(1, vs.length - 1)) * 300).toFixed(1)} ${(54 - ((v - lo) / (hi - lo || 1)) * 52).toFixed(1)}`).join(" ");
-  };
-  const years = last ? (Date.parse(last.end) - Date.parse(last.start)) / (365.25 * 864e5) : 0;
-  const running = jobView(job).active;
-  return (
-    <section className="card" aria-label={st.preview.lastRun}>
-      <div className="card-head">
-        <h2>{st.preview.lastRun}</h2>
-        {last && (
-          <a className="link small push" href={href.backtest({ run: last.id })}>
-            {st.preview.full}
-          </a>
-        )}
-      </div>
-      {running && job && (
-        <div className="inner">
-          <div className="row small">
-            <span className="b">{L.of("job_states", job.state)}</span>
-            <span className="sub grow">{L.stage(job.stage, job.params)}</span>
-            <button type="button" className="btn sm ghost" onClick={() => void cancelJob(job.id)}>
-              {st.runs.cancel}
-            </button>
-          </div>
-          <div className="progress">
-            <span style={{ width: `${Math.round(job.fraction * 100)}%` }} />
-          </div>
-        </div>
-      )}
-      {job?.state === "failed" && <span className="problem">{L.stage(job.stage, job.params)}</span>}
-      {!last && !running && <span className="note">{st.preview.noRun}</span>}
-      {last && (
-        <div className={stale ? "pending col" : "col"}>
-          <span className="small sub">
-            {last.start} 至 {last.end}
-          </span>
-          <div className="row">
-            <span className="kv">
-              {st.runs.ann} <b className={`num ${tone(last.annual_return)}`}>{pct(last.annual_return, 1, true)}</b>
-            </span>
-            <span className="kv">
-              {st.runs.mdd} <b className="num">{pct(last.max_drawdown, 1)}</b>
-            </span>
-            <span className="kv">
-              {st.runs.sharpe} <b className="num">{fixed(last.sharpe)}</b>
-            </span>
-          </div>
-          {daily.length > 1 && (
-            <svg viewBox="0 0 300 56" preserveAspectRatio="none" className="mini-curve" aria-hidden="true">
-              <path d={curve("benchmark_nav")} className="bench" />
-              <path d={curve("nav")} className="nav" />
-            </svg>
-          )}
-        </div>
-      )}
-      {stale && <span className="warnbox">{st.preview.stale}</span>}
-      {last && years < 5 && <span className="note">{st.preview.shortRange(years.toFixed(1))}</span>}
-      {(spec.top_n ?? 0) > 0 && (spec.top_n ?? 0) < 5 && <span className="note">{st.preview.fewHold(spec.top_n ?? 0)}</span>}
-    </section>
-  );
-}

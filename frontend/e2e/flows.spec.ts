@@ -26,8 +26,13 @@ const blur = (page: Page) => page.keyboard.press("Tab");
 
 test("strategy: a wrong field is located on its row, the fix brings the summary, saving twice keeps one history entry", async ({ page }) => {
   await page.goto("#/strategy?new=1");
+  // A new strategy opens without errors: no marks, and the preview says how to go on.
+  await expect(page.locator(".strat-aside .funnel")).toBeVisible();
+  await expect(page.locator(".has-err")).toHaveCount(0);
+  await expect(page.locator(".strat-aside").getByText("添加一个打分因子")).toBeVisible();
   await page.getByLabel("策略名称").fill(NAME);
   await page.getByRole("button", { name: "＋ 添加因子" }).click();
+  await expect(page.locator(".strat-aside table tbody tr").first()).toBeVisible();
   await page.getByRole("button", { name: "＋ 添加条件", exact: true }).click();
   await page.getByRole("button", { name: /自定义表达式/ }).click();
   await page.getByLabel("表达式").fill('["GT", ["MA", "amout", 5], ["MA", "amount", 20]]');
@@ -49,19 +54,81 @@ test("strategy: a wrong field is located on its row, the fix brings the summary,
   await expect(page.locator(".hist-list button")).toHaveCount(1);
 });
 
-test("strategy preview: changing a threshold changes the row's 剩余 and the funnel together, and they agree", async ({ page }) => {
+test("strategy preview: an edit shows updating at once and updated after; results stay on the right; rows and funnel steps light each other", async ({ page }) => {
   await page.goto(`#/strategy?id=${preset}`);
   const row = page.locator("#loc-filters-0");
-  const left = row.locator(".cond-count span").first();
-  const funnelN = () => page.locator(".strat-aside .funnel button", { hasText: "20 日平均成交额" }).locator(".num.b");
-  await expect(left).toHaveText(/剩余 \d+ 只/);
-  const before = (await left.textContent()) ?? "";
-  await expect(funnelN()).toHaveText(before.replace(/\D/g, ""));
+  const status = page.locator(".strat-aside .pv-status");
+  await expect(page.locator(".strat-aside .funnel")).toBeVisible();
+  await expect(status).not.toHaveText(/正在更新/);
+  // The editing column carries no result numbers.
+  await expect(page.locator(".strat-main")).not.toContainText(/剩余 \d+ 只|单独剔除|命中 \d+ 只|剩 \d+ 只/);
   await row.getByLabel("数值").fill("3");
-  await expect(left).not.toHaveText(before);
-  await expect(left).toHaveText(/剩余 \d+ 只/);
-  const after = (await left.textContent()) ?? "";
-  await expect(funnelN()).toHaveText(after.replace(/\D/g, ""));
+  await expect(status).toHaveText("正在更新预览…");
+  await expect(status).toHaveText(/已更新/);
+  await expect(page.locator(".strat-main")).not.toContainText(/剩余 \d+ 只|单独剔除|命中 \d+ 只|剩 \d+ 只/);
+  await row.hover();
+  await expect(page.locator(".strat-aside .funnel button[aria-pressed=true]")).toContainText("20 日平均成交额");
+});
+
+test("strategy: the backend's no-ST warning shows a note beside 剔除 ST", async ({ page }) => {
+  await page.route("**/api/screen", async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    body.warnings = [...(body.warnings ?? []), { code: "st_unknown", text: "", params: { known_share: 0 } }];
+    await route.fulfill({ response: res, json: body });
+  });
+  await page.goto(`#/strategy?id=${preset}`);
+  await expect(page.locator("[data-step=exclude_st]")).toContainText("这份数据没有 ST 记录");
+});
+
+test("strategy to backtest: no run button or last run here; 回测 opens the form with this strategy and filled dates, and the run opens", async ({ page, request }) => {
+  const cal = await (await request.post("api/data_calendar", { data: {} })).json();
+  await page.goto(`#/strategy?id=${preset}`);
+  await expect(page.locator(".strat-aside .funnel")).toBeVisible();
+  await expect(page.getByRole("button", { name: "运行回测" })).toHaveCount(0);
+  await expect(page.getByText("最近一次回测")).toHaveCount(0);
+  // Unchanged: the saved strategy is chosen.
+  await page.locator(".strat-bar").getByRole("link", { name: "回测" }).click();
+  await expect(page.getByLabel("策略", { exact: true })).toHaveValue(preset);
+  await page.goBack();
+  // Changed and unsaved: the draft is chosen, with the note.
+  await page.locator("#loc-filters-0").getByLabel("数值").fill("0.5");
+  await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
+  await page.locator(".strat-bar").getByRole("link", { name: "回测" }).click();
+  await expect(page.getByLabel("策略", { exact: true })).toHaveValue("__draft");
+  await expect(page.getByText("未保存的改动也会用于这次回测")).toBeVisible();
+  await expect(page.getByLabel("开始日")).toHaveValue(cal.first);
+  await expect(page.getByLabel("结束日")).toHaveValue(cal.last);
+  await expect(page.getByLabel("初始资金")).not.toHaveValue("");
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await expect(page).toHaveURL(/#\/backtest\?run=[0-9a-f]+/, { timeout: 90_000 });
+  await expect(page.locator(".current-tag")).toHaveCount(1);
+});
+
+test("backtest: a running job's card stays across pages and shows 已取消 after cancel", async ({ page }) => {
+  // The job's states come from the backend's job list; here they are played back so the run stays in progress.
+  let state = "running";
+  const job = () => ({
+    id: 990001, kind: "backtest", state, request: { saved: { id: preset } }, data_version: 1, data_version_name: "", position: null,
+    fraction: 0.4, stage: state === "running" ? "backtest" : "cancelled", params: { day: "2024-06-28", done: 120, total: 300, equity: 1000000 },
+    text: "", error: null, created_at: new Date().toISOString(), started_at: new Date().toISOString(), ended_at: null, seq: 1,
+  });
+  await page.route("**/api/jobs_list", (r) => r.fulfill({ json: { jobs: [job()], limit: 1 } }));
+  await page.route("**/api/jobs_show", (r) => r.fulfill({ json: job() }));
+  await page.route("**/api/jobs/990001/events", (r) => r.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: `event: job\ndata: ${JSON.stringify(job())}\n\n` }));
+  await page.route("**/api/jobs_cancel", (r) => {
+    state = "cancelled";
+    return r.fulfill({ json: job() });
+  });
+  await page.goto("#/backtest");
+  const card = page.getByRole("region", { name: "正在回测" });
+  await expect(card).toContainText("正在回测");
+  await page.goto("#/data");
+  await page.goto("#/backtest");
+  await expect(card).toContainText("正在回测");
+  await expect(card.locator(".progress")).toBeVisible();
+  await card.getByRole("button", { name: "取消" }).click();
+  await expect(card).toContainText("已取消");
 });
 
 test("today: a strategy shown on today appears there; hiding a block keeps it hidden after a reload", async ({ page }) => {
@@ -104,6 +171,11 @@ test("backtest: default settings run; metrics show a value or a reason; a picked
   await page.getByLabel("策略", { exact: true }).selectOption(preset);
   await page.getByRole("button", { name: "开始回测" }).click();
   await expect(page).toHaveURL(/#\/backtest\?run=[0-9a-f]+/, { timeout: 90_000 });
+  // The form and the run records come before the results.
+  await expect(page.getByRole("region", { name: "回测结果" })).toBeVisible();
+  const order = await page.locator("main > section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+  expect(order.indexOf("新建回测")).toBeLessThan(order.indexOf("运行记录"));
+  expect(order.indexOf("运行记录")).toBeLessThan(order.indexOf("回测结果"));
   const tiles = page.locator(".kpis").first().locator(".stat");
   await expect(tiles.first()).toBeVisible();
   for (const tile of await tiles.all()) {
@@ -116,7 +188,9 @@ test("backtest: default settings run; metrics show a value or a reason; a picked
   await page.mouse.click(box.x + box.width * 0.6, box.y + 100);
   await expect(page).toHaveURL(/day=\d{4}-\d{2}-\d{2}/);
   await expect(page.getByTestId("day")).toBeVisible();
-  await page.getByRole("button", { name: /运行信息/ }).click();
+  await page.getByRole("tab", { name: "订单" }).click();
+  await expect(page.getByRole("region", { name: "订单" })).toBeVisible();
+  await page.getByRole("tab", { name: "运行信息" }).click();
   await page.getByRole("button", { name: "重跑并逐字节比对" }).click();
   await expect(page.getByTestId("rerun")).toContainText("逐字节一致", { timeout: 90_000 });
 });
@@ -148,16 +222,40 @@ test("ordinary pages show no developer details: no curl, hashes, decision number
   }
 });
 
-test("search: a stock found by part of its name opens its page, and pages show names beside codes", async ({ page, request }) => {
+test("search: from every page a stock found by part of its name opens with its name in the title and no English page name", async ({ page, request }) => {
   const found = await (await request.post("api/data_securities", { data: { query: "600030", limit: 1 } })).json();
   const name = found.rows[0]?.name as string | null;
   test.skip(!name, "the demo home has no names");
-  await page.goto("#/");
-  await page.getByLabel("搜索股票").fill(name!.slice(0, -1));
-  await page.getByRole("option", { name: new RegExp(name!) }).click();
-  await expect(page).toHaveURL(/#\/stock\/600030\.SH/);
+  for (const at of ["#/", `#/strategy?id=${preset}`, "#/backtest", `#/picks?id=${preset}`, "#/data"]) {
+    await page.goto(at);
+    await page.getByLabel("搜索股票").fill(name!.slice(0, -1));
+    await page.getByRole("option", { name: new RegExp(name!) }).click();
+    await expect(page).toHaveURL(/#\/stock\/600030\.SH/);
+    await expect(page.locator(".stock-title")).toContainText(name!);
+    await expect(page.locator("body")).not.toContainText(/从[a-z]+打开/);
+  }
   await page.goto(`#/picks?id=${preset}`);
   await expect(page.locator(".picks-main .stock-ref b").first()).not.toHaveText(/^\d{6}\.(SH|SZ)$/);
+});
+
+test("picks with no saved strategy: the draft is computed; with no draft either, an empty state", async ({ page }) => {
+  await page.route("**/api/strategy_list", (r) => r.fulfill({ json: { rows: [] } }));
+  await page.addInitScript((s) => localStorage.setItem("wequant.strategy.draft", JSON.stringify({ id: null, name: "草稿", spec: s })), spec);
+  await page.goto("#/picks");
+  await expect(page.getByLabel("策略", { exact: true })).toHaveValue("__draft");
+  await expect(page.locator(".picks-main tbody tr").first()).toBeVisible();
+  await page.evaluate(() => localStorage.removeItem("wequant.strategy.draft"));
+  await page.context().clearCookies();
+  const fresh = await page.context().newPage();
+  await fresh.route("**/api/strategy_list", (r) => r.fulfill({ json: { rows: [] } }));
+  await fresh.goto("#/picks");
+  await expect(fresh.getByText("还没有策略")).toBeVisible();
+  await fresh.close();
+});
+
+test("navigation order: 今日, 策略, 回测, 选股, 数据", async ({ page }) => {
+  await page.goto("#/");
+  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link")).toHaveText(["今日", "策略", "回测", "选股", "数据"]);
 });
 
 test("storage: an old version in use is announced and one click goes back; a pinned version says so; a run exports and imports", async ({ page }) => {

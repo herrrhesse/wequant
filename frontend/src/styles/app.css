@@ -336,3 +336,26 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .spark path { fill: none; stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke: var(--muted); }
 .spark.up path { stroke: var(--up); }
 .spark.down path { stroke: var(--down); }
+.stock-title { margin: 0; font-size: 28px; font-weight: 700; }
+.stock-code { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+.pending.strong { opacity: 0.4; }
+.pv-status { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 10px; border-radius: 9px; font-size: 12px; font-weight: 600; border: 0; }
+.pv-status.busy { background: var(--soft); color: var(--sub); }
+.pv-status.done { background: var(--green-t); color: var(--green); transition: background 0.6s, color 0.6s; }
+.pv-status.idle { background: transparent; color: var(--muted); font-weight: 500; transition: background 0.6s, color 0.6s; }
+.pv-status.err { background: var(--acc-t); color: var(--acc); cursor: pointer; }
+.spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--track); border-top-color: var(--acc); animation: wqspin 0.8s linear infinite; }
+@keyframes wqspin { to { transform: rotate(360deg); } }
+.funnel-alone { display: block; font-weight: 400; }
+.scope-grid { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+.scope-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 6px 12px; align-items: center; padding: 2px 0; border-radius: 10px; }
+.scope-row.hl .scope-label, .fgroup.hl { background: var(--acc-t); }
+.cond-grid { grid-template-columns: 24px minmax(0, 1fr) 170px 64px; }
+.current-tag { margin-left: 8px; font-size: 11px; }
+.result-tabs { gap: 14px; }
+.seg.tabs button { min-height: 36px; padding: 0 16px; font-size: 13px; position: relative; }
+.tab-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.result-tabs .card { padding: 0; background: transparent; }
+.result-tabs .card.inset { padding: 14px 16px; background: var(--soft2); }
+.running { border: 2px solid var(--acc-t); }
+.running.cancelled, .running.failed { border-color: var(--warn-t); }
