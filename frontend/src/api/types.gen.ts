@@ -1474,6 +1474,11 @@ export interface ErrorDetail {
    * Where inside an expression form ([name, arg0, arg1, ...]: argument i at index i + 1); empty for all of it.
    */
   path?: number[];
+  /**
+   * The broken rule in one Chinese sentence: what is missing and how to fix it; null: the general sentence of the
+   * code in labels.error_codes says it.
+   */
+  hint?: string | null;
 }
 /**
  * A form evaluated for a few codes over a date range.
