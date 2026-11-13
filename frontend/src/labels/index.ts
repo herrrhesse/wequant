@@ -25,6 +25,8 @@ export interface LabelBook {
   stage: (code: string, params: Record<string, number | string | null>) => string;
   /** A data update's outcome as a sentence. */
   updateStatus: (code: string, params: Record<string, number | string | null>) => string;
+  /** An error detail in Chinese: the backend's hint (the broken rule and how to fix it), else the code's label. */
+  detail: (d: { code: string; hint?: string | null }) => string;
   /** Why an order was placed, as a sentence. */
   cause: (code: string | null | undefined, params: Record<string, number | string | null> | null | undefined) => string;
 }
@@ -64,6 +66,7 @@ export function makeBook(labels: Labels | undefined): LabelBook {
       const label = updates.get(code);
       return label ? fill(label, params) : "";
     },
+    detail: (d) => d.hint || [index.get("error_codes")?.get(d.code)?.label, index.get("error_codes")?.get(d.code)?.help].filter(Boolean).join("："),
     cause: (code, params) => {
       const label = code ? causes.get(code) : undefined;
       return label ? fill(label, params ?? {}) : "";

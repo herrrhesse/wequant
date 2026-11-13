@@ -114,7 +114,7 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const apiErr = check.error instanceof ApiError ? check.error : null;
   const errors: Err[] = (apiErr?.status === 422 ? (apiErr.body.detail ?? []) : []).map((d) => ({
     loc: strategyLoc(d.loc ?? []),
-    text: [L.of("error_codes", d.code), L.help("error_codes", d.code)].filter(Boolean).join("：") || d.message,
+    text: L.detail(d),
   }));
   const summary = useCall("strategy_summary", check.isSuccess && !noFactors ? { strategy: asked } : null, { placeholderData: keepPreviousData });
   const screen = useCall("screen", check.isSuccess ? { strategy: asked } : null, { placeholderData: keepPreviousData });

@@ -203,7 +203,7 @@ function jobName(job: JobInfo, names: Map<string, string>): string {
 /** Why a job failed, in words a user reads: the error's Chinese labels, else the stage sentence. */
 function failure(L: LabelBook, job: JobInfo): string {
   const e = job.error as ErrorBody | null;
-  const details = (e?.detail ?? []).map((d) => [L.of("error_codes", d.code), L.help("error_codes", d.code)].filter(Boolean).join("：")).filter(Boolean);
+  const details = (e?.detail ?? []).map((d) => L.detail(d)).filter(Boolean);
   if (details.length) return details.join("；");
   return (e && L.help("exits", e.name)) || L.stage(job.stage, job.params) || "回测没有完成";
 }
