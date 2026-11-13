@@ -213,7 +213,12 @@ function Running({ started, names }: { started: number | null; names: Map<string
   const L = useLabels();
   const jobs = useCall("jobs_list", {}, { staleTime: 0 });
   const live = jobs.data?.jobs.find((j) => j.kind === "backtest" && !finished(j)) ?? null;
-  const id = live?.id ?? started;
+  // Keep following the job seen running here, so its end (cancelled, failed) stays on the card.
+  const [followed, setFollowed] = useState<number | null>(null);
+  useEffect(() => {
+    if (live) setFollowed(live.id);
+  }, [live]);
+  const id = live?.id ?? started ?? followed;
   const job = useJob(id);
   const view = jobView(job);
   const since = job?.started_at ? Date.parse(job.started_at) : job?.created_at ? Date.parse(job.created_at) : null;
