@@ -222,8 +222,11 @@ A failure's `ErrorBody` holds `exit`, `name`, `message`, `detail` and `complete`
 `future_function`, the NOT_FOUND codes `no_store`, `version_not_kept`, `unknown_code`, `not_a_trading_day`,
 `unknown_strategy`, `unknown_version`, `unknown_run`, `no_stock_basic`, and `source_unreachable`, `store_busy`; `wequant
 labels` gives each its Chinese), its `loc` in the request (e.g. `["strategy", "filters", 2,
-"expr"]`) and, inside an expression, its `path`. One failure reports every field error at once; `complete` is false
-when rules that relate fields to each other could not run yet because a field failed.
+"expr"]`), inside an expression its `path`, and a `hint`: the broken rule in one Chinese sentence that says what is
+missing and how to fix it (e.g. `requires` at `top_n`: a held count needs an enabled factor), for the codes that cover
+several rules (`wequant/service/hints.py`); `hint` is null when the code's general sentence in `wequant labels` says it.
+One failure reports every field error at once; `complete` is false when rules that relate fields to each other could
+not run yet because a field failed.
 
 ## The HTTP API (`wequant serve`)
 
