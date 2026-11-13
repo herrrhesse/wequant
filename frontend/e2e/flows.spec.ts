@@ -171,11 +171,13 @@ test("backtest: default settings run; metrics show a value or a reason; a picked
   await page.getByLabel("策略", { exact: true }).selectOption(preset);
   await page.getByRole("button", { name: "开始回测" }).click();
   await expect(page).toHaveURL(/#\/backtest\?run=[0-9a-f]+/, { timeout: 90_000 });
-  // The form and the run records come before the results.
+  // The form is first and the run records are last, with the results between them.
   await expect(page.getByRole("region", { name: "回测结果" })).toBeVisible();
   const order = await page.locator("main > section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
-  expect(order.indexOf("新建回测")).toBeLessThan(order.indexOf("运行记录"));
-  expect(order.indexOf("运行记录")).toBeLessThan(order.indexOf("回测结果"));
+  const blocks = order.filter((l) => l !== "数据状态");
+  expect(blocks[0]).toBe("新建回测");
+  expect(blocks.indexOf("回测结果")).toBeGreaterThan(0);
+  expect(blocks[blocks.length - 1]).toBe("运行记录");
   const tiles = page.locator(".kpis").first().locator(".stat");
   await expect(tiles.first()).toBeVisible();
   for (const tile of await tiles.all()) {

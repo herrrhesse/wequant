@@ -214,11 +214,11 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
               {st.mine}
             </a>
             {blocked || noFactors ? (
-              <button type="button" className="btn soft" disabled title={noFactors ? st.factors.empty : undefined}>
+              <button type="button" className="btn acc" disabled title={noFactors ? st.factors.empty : undefined}>
                 {st.backtest}
               </button>
             ) : (
-              <a className="btn soft" href={href.backtest({ use: origin && !dirty ? origin.id : "draft" })} title={st.backtestTitle}>
+              <a className="btn acc" href={href.backtest({ use: origin && !dirty ? origin.id : "draft" })} title={st.backtestTitle}>
                 {st.backtest}
               </a>
             )}
