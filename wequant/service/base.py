@@ -19,6 +19,7 @@ from wequant.data.store import Store, version_name
 from wequant.expr import Cache
 from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.errors import Exit, ServiceError
+from wequant.service.hints import hint as rule_hint
 from wequant.storage.settings import load as load_settings
 from wequant.strategy.library import Library
 
@@ -50,6 +51,9 @@ class ErrorDetail(Model):
     """Where in the request, pydantic style: e.g. ["strategy", "filters", 2, "expr"]; empty for the whole request."""
     path: list[int] = []
     """Where inside an expression form ([name, arg0, arg1, ...]: argument i at index i + 1); empty for all of it."""
+    hint: str | None = Field(default_factory=rule_hint)
+    """The broken rule in one Chinese sentence: what is missing and how to fix it; null: the general sentence of the
+    code in labels.error_codes says it."""
 
 
 class ErrorBody(Model):
