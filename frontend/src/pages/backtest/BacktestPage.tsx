@@ -1,7 +1,7 @@
 // 回测, top to bottom: "新建回测" (strategy, dates, cash and benchmark filled with what will be used; the strategy
 // page's "回测" button opens it with that strategy chosen), the card of a running backtest (read from the backend's
-// job list, so it survives leaving the page or reloading), the run records, the comparison of ticked runs, and the
-// shown run's results.
+// job list, so it survives leaving the page or reloading), the comparison of ticked runs, the shown run's results,
+// and the run records at the bottom.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { commandOf, modelDefaults, useCall, useCallMutation } from "../../api/client";
 import { poolIndexCodes } from "../../api/contract-info";
@@ -16,7 +16,7 @@ import { href, type Route } from "../../router";
 import { useUi } from "../../ui";
 import { st as strategyText } from "../strategy/text";
 import { ResultView } from "./ResultView";
-import { RunList, type NameOf } from "./RunList";
+import { Compare, RunList, type NameOf } from "./RunList";
 
 type BacktestRoute = Extract<Route, { page: "backtest" }>;
 const DRAFT = "wequant.strategy.draft";
@@ -44,8 +44,9 @@ export function BacktestPage({ route }: { route: BacktestRoute }) {
       <NewBacktest use={route.use} onStarted={setStarted} />
       <Running started={started} names={names} />
       {runs.isError && <Problem error={runs.error} />}
-      {runs.data && <RunList rows={runs.data.rows} selected={id} cmp={route.cmp} nameOf={nameOf} />}
+      {route.cmp.length >= 2 && <Compare ids={route.cmp} nameOf={nameOf} />}
       {id && <ResultView key={id} id={id} day={route.day} nameOf={nameOf} />}
+      {runs.data && <RunList rows={runs.data.rows} selected={id} cmp={route.cmp} nameOf={nameOf} />}
     </main>
   );
 }
@@ -129,7 +130,7 @@ function NewBacktest({ use, onStarted }: { use: string | null; onStarted: (id: n
         <button
           ref={go}
           type="button"
-          className="btn acc"
+          className="btn acc push"
           disabled={!request || begin.isPending}
           onClick={async () => {
             if (!request) return;

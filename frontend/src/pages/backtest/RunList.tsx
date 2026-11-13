@@ -130,12 +130,11 @@ export function RunList({ rows, selected, cmp, nameOf }: { rows: RunRow[]; selec
           </button>
         )}
       </section>
-      {cmp.length >= 2 && <Compare ids={cmp} nameOf={nameOf} />}
     </>
   );
 }
 
-function Compare({ ids, nameOf }: { ids: string[]; nameOf: NameOf }) {
+export function Compare({ ids, nameOf }: { ids: string[]; nameOf: NameOf }) {
   const ui = useUi();
   const L = useLabels();
   const a = useCall("runs_show", ids[0] ? { id: ids[0] } : null);
