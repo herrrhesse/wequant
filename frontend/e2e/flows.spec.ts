@@ -226,13 +226,17 @@ test("search: from every page a stock found by part of its name opens with its n
   const found = await (await request.post("api/data_securities", { data: { query: "600030", limit: 1 } })).json();
   const name = found.rows[0]?.name as string | null;
   test.skip(!name, "the demo home has no names");
+  // Five stock pages in a row; on a cold machine each may build its panels first.
+  test.setTimeout(120_000);
   for (const at of ["#/", `#/strategy?id=${preset}`, "#/backtest", `#/picks?id=${preset}`, "#/data"]) {
     await page.goto(at);
     await page.getByLabel("搜索股票").fill(name!.slice(0, -1));
-    await page.getByRole("option", { name: new RegExp(name!) }).click();
-    await expect(page).toHaveURL(/#\/stock\/600030\.SH/);
-    await expect(page.locator(".stock-title")).toContainText(name!);
-    await expect(page.locator("body")).not.toContainText(/从[a-z]+打开/);
+    // Every wait has its own limit, so a failure names the step and the page it started from.
+    await expect(page.getByRole("listbox", { name: "搜索股票" }), `search results from ${at}`).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("option", { name: new RegExp(name!) }).click({ timeout: 20_000 });
+    await expect(page, `stock page from ${at}`).toHaveURL(/#\/stock\/600030\.SH/, { timeout: 20_000 });
+    await expect(page.locator(".stock-title"), `stock title from ${at}`).toContainText(name!, { timeout: 30_000 });
+    await expect(page.locator("body"), `source from ${at}`).not.toContainText(/从[a-z]+打开/);
   }
   await page.goto(`#/picks?id=${preset}`);
   await expect(page.locator(".picks-main .stock-ref b").first()).not.toHaveText(/^\d{6}\.(SH|SZ)$/);
