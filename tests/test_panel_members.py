@@ -5,11 +5,12 @@ import datetime as dt
 import numpy as np
 import pytest
 
-from tests.test_panel import DAYS, A, B, C, D, col, seed
+from tests.test_panel import DAYS, A, B, C, D, col, security, seed
 from wequant.expr import Field, evaluate
 from wequant.panel import load_panel
 
 NAN = np.nan
+SECURITIES = [(A, "main", 1, 8), (B, "chinext", 3, 6), (D, "main", 1, 8), (C, "bse", 1, 8)]  # as test_panel seeds them
 MEMBERS = [
     {"index_code": "399300.SZ", "code": A, "start_date": DAYS[1], "end_date": DAYS[3]},
     {"index_code": "399300.SZ", "code": D, "start_date": DAYS[3], "end_date": DAYS[6]},
@@ -62,3 +63,15 @@ def test_list_days_count_trading_days_from_first_date_whatever_the_panel_starts_
     field = evaluate(Field("list_days"), panel)  # empty on a day without a bar
     assert np.array_equal(field[:, col(panel, A)], [1, 2, NAN, NAN, 5, 6, 7, 8], equal_nan=True)
     assert field[:, col(panel, C)].tolist() == [1, 2, 3, 4, 5, 6, 7, 8]
+
+
+def test_a_stock_listed_long_before_the_calendar_is_seasoned_on_the_data_s_first_day(tmp_path):
+    """A known listing day counts, not the first day of the data; one before the calendar by a lower bound (S2.11)."""
+    listed = {A: "2010-01-04", B: "2024-01-04"}  # A years before the calendar, B on its own first bar
+    rows = [
+        security(code, board, first, last) | {"list_date": listed.get(code)} for code, board, first, last in SECURITIES
+    ]
+    panel = load_panel(store=seed(tmp_path / "home", securities=rows), cache_dir=tmp_path / "cache")
+    assert panel.list_days[0, col(panel, A)] >= 120 and panel.list_days_bound[col(panel, A)]
+    assert panel.list_days[:, col(panel, B)].tolist() == [0, 0, 1, 2, 3, 4, 5, 6]
+    assert not panel.list_days_bound[col(panel, B)] and panel.list_days_bound[col(panel, D)]

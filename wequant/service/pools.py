@@ -11,6 +11,10 @@ from typing import Annotated, Literal
 import polars as pl
 
 from wequant.data.indexes import LEGACY, OFFERED, stored_as
+from wequant.data.names import basic_rows
+from wequant.data.raw import BaoStockRaw
+from wequant.data.store import exclusive
+from wequant.data.update import _fetch as fetch
 from wequant.pools import REASONS, NoPool, Parsed, PoolBook, StockPool, parse
 from wequant.service.base import (
     Code,
@@ -27,6 +31,8 @@ from wequant.service.base import (
 from wequant.service.details import spec_details, usage
 from wequant.service.labels import LEGACY_SCOPES
 from wequant.service.outputs import Warning
+from wequant.service.scopes import beyond_data
+from wequant.service.sessions import baostock
 from wequant.service.specs import Name
 from wequant.strategy import SpecError, Strategy
 
@@ -200,8 +206,9 @@ def pools_delete(request: PoolRequest, context: Context = Context()) -> PoolOut:
 
 
 def pools_parse(request: ParseRequest, context: Context = Context()) -> ParsedStocks:
-    """Each item of a pasted list or file resolved to a stock of the data, or the reason it names none."""
-    stocks = _stocks(context, required=True)
+    """Each item of a pasted list or file resolved to a stock of the market, or the reason it names none; an empty
+    data root reads BaoStock's securities list first (one request, kept in the raw layer; S2.11)."""
+    stocks = market(context)
     return _parsed(parse(request.text, stocks), stocks)
 
 
@@ -232,7 +239,7 @@ def pools_export(request: PoolRequest, context: Context = Context()) -> PoolCsv:
 
 def pools_import(request: PoolImportRequest, context: Context = Context()) -> PoolImported:
     """A new stock pool of the stocks a CSV or TXT file names, with the items that named none."""
-    stocks = _stocks(context, required=True)
+    stocks = market(context)
     parsed = _parsed(parse(request.text, stocks), stocks)
     with located(), guarded():
         pool = _book(context).save(request.name, [s.code for s in parsed.stocks])
@@ -256,7 +263,15 @@ def pool_drift(strategy: Strategy, context: Context) -> PoolDrift | None:
 
 
 def scope_warnings(strategy: Strategy, context: Context) -> list[Warning]:
-    """legacy_index for an index no longer offered; stocks_not_in_data for listed codes the data lacks."""
+    """legacy_index for an index no longer offered; stocks_not_in_data for listed codes the data lacks;
+    scope_beyond_data for a scope the current version's data does not cover (S2.11)."""
+    store = context.store()
+    version = store.manifest()
+    beyond = beyond_data(strategy, store, version, None) if version is not None else []
+    return _pool_warnings(strategy, context) + beyond
+
+
+def _pool_warnings(strategy: Strategy, context: Context) -> list[Warning]:
     found, pool = {}, strategy.pool
     if pool.index in LEGACY:
         found["legacy_index"] = {"name": LEGACY_SCOPES[pool.index][0]}
@@ -282,12 +297,24 @@ def _book(context: Context) -> PoolBook:
     return PoolBook(context.store().home, context.clock)
 
 
-def _stocks(context: Context, required: bool = False) -> dict[str, str | None]:
-    """code -> name of each stock of the version in use; empty without data, NOT_FOUND then when required."""
+def market(context: Context) -> dict[str, str | None]:
+    """code -> name of each stock the data holds or BaoStock's securities list in the raw layer names, whatever the
+    data's scope (S2.11); an empty data root fetches that list first."""
+    stored, raw = _stocks(context), BaoStockRaw.at(context.store().home)
+    if not stored and not raw.stock_basic.exists():
+        raw.root.mkdir(parents=True, exist_ok=True)
+        with baostock() as source, exclusive(raw.root / ".lock"):
+            fetch(source, raw, raw.stock_basic, "query_stock_basic", {})
+    if not raw.stock_basic.exists():
+        return stored
+    listed = basic_rows(pl.read_parquet(raw.stock_basic)).select("code", "name").iter_rows()
+    return stored | {code: name for code, name in listed if name or code not in stored}
+
+
+def _stocks(context: Context) -> dict[str, str | None]:
+    """code -> name of each stock of the version in use; empty without data."""
     store = context.store()
     version = read_version(context, None)
-    if required:
-        manifest(store, version)
     found = store.manifest(version)
     if found is None:
         return {}

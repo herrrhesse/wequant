@@ -36,14 +36,16 @@ def own_folder(tmp_path, bars=BARS):
 
 def test_a_build_and_its_history_are_versions_of_their_own(tmp_path, fake):
     home = tmp_path / "home"
-    built = service.data_build(service.BuildRequest(years=1), context(home))
+    built = service.data_build(service.BuildRequest(years=1, scope={"all": True}), context(home))
     history = service.data_backfill(service.BackfillRequest(oldest=2024), context(home))
     assert (built.status, built.version, history.status, history.segments) == ("built", 1, "complete", [])
 
 
 def test_a_cancelled_build_is_interrupted_and_leaves_no_version(tmp_path, fake):
     with pytest.raises(ServiceError) as raised:
-        service.data_build(service.BuildRequest(years=1), context(tmp_path / "home", cancel=lambda: True))
+        service.data_build(
+            service.BuildRequest(years=1, scope={"all": True}), context(tmp_path / "home", cancel=lambda: True)
+        )
     assert raised.value.exit == Exit.INTERRUPTED and Store(tmp_path / "home").manifest() is None
 
 
@@ -92,7 +94,7 @@ def test_an_import_needs_an_empty_data_root(tmp_path):
 
 def test_a_built_or_imported_version_is_named_by_its_data_s_last_trading_day(tmp_path, fake):
     """F-29: YYYYMMDD of the data's last trading day, not of the day it was made (coordinator, round 3)."""
-    service.data_build(service.BuildRequest(years=1), context(tmp_path / "built"))
+    service.data_build(service.BuildRequest(years=1, scope={"all": True}), context(tmp_path / "built"))
     service.data_own_import(service.OwnRequest(path=str(own_folder(tmp_path))), context(tmp_path / "imported"))
     names = [service.data_status(service.StatusRequest(), context(tmp_path / h)) for h in ("built", "imported")]
     assert [(s.data_version_name, s.last_trade_date.isoformat()) for s in names] == [
@@ -133,7 +135,9 @@ def flaky(monkeypatch):
 def test_a_build_reaches_baostock_again_and_carries_on_after_it_fails(tmp_path, flaky):
     """A new session after a pause, from the files fetched so far."""
     steps = []
-    built = service.data_build(service.BuildRequest(years=1), context(tmp_path / "home", progress=steps.append))
+    built = service.data_build(
+        service.BuildRequest(years=1, scope={"all": True}), context(tmp_path / "home", progress=steps.append)
+    )
     assert built.status == "built" and [s.params["attempt"] for s in steps if s.stage == "build_reconnect"] == [1]
 
 
@@ -141,6 +145,45 @@ def test_a_builds_share_done_never_goes_back_through_a_reconnect(tmp_path, flaky
     """A progress bar holds its place while the build waits for BaoStock and starts its new session."""
     shares = []
     service.data_build(
-        service.BuildRequest(years=1), context(tmp_path / "home", progress=lambda step: shares.append(step.fraction))
+        service.BuildRequest(years=1, scope={"all": True}),
+        context(tmp_path / "home", progress=lambda step: shares.append(step.fraction)),
     )
     assert shares == sorted(shares) and shares[-1] > 0
+
+
+def test_a_list_in_an_empty_data_root_resolves_against_baostock_s_securities_and_drops_no_item(tmp_path, fake):
+    """S2.11: before any data, every item is a stock, a reason it names none, or a repeat."""
+    text = "600000 乙股份 600000.SH 600009 丙股份"
+    parsed = service.pools_parse(service.ParseRequest(text=text), context(tmp_path / "home"))
+    assert [s.code for s in parsed.stocks] == ["600000.SH", "600001.SH"] and parsed.duplicates == ["600000.SH"]
+    assert [(u.item, u.reason) for u in parsed.unparsed] == [("600009", "not_found"), ("丙股份", "not_found")]
+
+
+def test_an_extension_s_estimate_counts_the_stocks_it_adds_and_nothing_once_covered(tmp_path, fake):
+    home = tmp_path / "home"
+    service.data_build(service.BuildRequest(years=1), context(home))  # CSI 300 + CSI 500: the fake's one member
+    every = {"scope": {"all": True}}
+    before = service.data_extend_estimate(service.ExtendEstimateRequest(**every), context(home))
+    extended = service.data_extend(service.ExtendRequest(**every), context(home))
+    after = service.data_extend_estimate(service.ExtendEstimateRequest(**every), context(home))
+    assert (before.covered, before.stocks, extended.status, extended.added) == (False, 1, "built", 1)
+    assert (after.covered, after.stocks, [layer.label for layer in extended.layers]) == (True, 0, ["沪深全部"])
+
+
+def test_a_build_of_a_list_holds_its_stocks_and_saves_the_list_as_a_stock_pool(tmp_path, fake):
+    home = tmp_path / "home"
+    request = service.BuildRequest(years=1, scope={"stocks": ["600001.SH"]}, pool_name="我的名单")
+    built = service.data_build(request, context(home))
+    pool = service.pools_show(service.PoolRequest(id=built.pool_id), context(home))
+    assert (built.stocks, pool.name, [s.code for s in pool.stocks]) == (1, "我的名单", ["600001.SH"])
+
+
+def test_an_addition_with_nothing_to_fetch_is_covered_and_makes_no_version(tmp_path, fake):
+    """A list of stocks the data holds already: no stock to fetch, so nothing to run (S2.11)."""
+    home = tmp_path / "home"
+    service.data_build(service.BuildRequest(years=1), context(home))  # holds 600000.SH, the fake's member
+    held = {"scope": {"stocks": ["600000.SH"]}}
+    estimate = service.data_extend_estimate(service.ExtendEstimateRequest(**held), context(home))
+    extended = service.data_extend(service.ExtendRequest(**held), context(home))
+    assert (estimate.covered, estimate.stocks, estimate.seconds) == (True, 0, 0)
+    assert (extended.status, Store(home).versions()) == ("covered", [1])

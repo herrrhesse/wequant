@@ -15,6 +15,7 @@ from wequant.rules.tables import limit_check_current
 from wequant.service.base import Context, DataRequest, Model, manifest, read_version
 from wequant.service.labels import reason_text
 from wequant.service.outputs import Params
+from wequant.service.scopes import ScopeStatus, scope_status
 from wequant.storage.settings import load as load_settings
 
 
@@ -80,6 +81,8 @@ class DataStatus(Model):
     """Every other manifest key, such as source and limit_check."""
     home: str
     """The data root's folder, absolute (round 3: the data page's 存储位置)."""
+    scope: ScopeStatus
+    """The stocks the version holds bars for, in layers by first day, and the strategy scopes they cover (S2.11)."""
 
 
 def data_status(request: StatusRequest, context: Context = Context()) -> DataStatus:
@@ -104,6 +107,7 @@ def data_status(request: StatusRequest, context: Context = Context()) -> DataSta
         tables=[_table(name, entry) for name, entry in sorted(shown["tables"].items())],
         meta={key: value for key, value in shown.items() if key not in (*OWN_KEYS, "last_trade_date")},
         home=str(absolute(store.home)),
+        scope=scope_status(store, shown),
     )
 
 

@@ -71,7 +71,7 @@ def test_a_new_version_is_served_from_its_own_directory(store, cache):
     commit(store, bars=[bar(A, 2, 10100, 9800) if (r["code"], r["date"]) == (A, "2024-01-03") else r for r in BARS])
     panel = load_panel(store=store, cache_dir=cache)
     assert panel.raw("close")[1, col(panel, A)] == 10.1
-    assert panel.key.startswith("f1-v2-") and (cache / "panel" / panel.key / "close.npy").exists()
+    assert panel.key.startswith("f2-v2-") and (cache / "panel" / panel.key / "close.npy").exists()
     assert first.raw("open")[1, col(first, A)] == 10.0  # the v1 panel keeps serving v1, even a field read only now
     assert load_panel(version=1, store=store, cache_dir=cache).raw("close")[1, col(first, A)] == 10.0
 

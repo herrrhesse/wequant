@@ -1,11 +1,12 @@
 """A synthetic data root for trying WeQuant and for end-to-end tests: 60 made-up stocks over three years.
 
-python -m tools.demo_home --out DIR [--seed 7]
+python -m tools.demo_home --out DIR [--seed 7] [--scope layered | csi300]
 
 Every number comes from the seed, none from a real market; the same seed writes the same bytes. The market has every
 board, ST stocks, a suspension, a delisting, a new listing, limit-up and limit-down streaks, a bonus issue and a
 dividend, an index (000300.SH, synthetic members) and a few data issues, one of them error level. The store's price
-limits are checked and two strategies are saved.
+limits are checked and two strategies are saved. With --scope layered (S2.11) the data holds every stock from LAYERED
+on and only the index's members before, in two layers; with --scope csi300 only the index's members, in one layer.
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ import polars as pl
 
 from wequant import service
 from wequant.data.codes import board
+from wequant.data.raw import BaoStockRaw, raw_frame
 from wequant.data.schema import TABLES
+from wequant.data.scope import ALL, Layer, Scope, as_meta
 from wequant.data.store import Store
 from wequant.expr.vocab import STORED_AS
 
@@ -44,6 +47,7 @@ DELISTED = ("600070.SH", 520)  # last bar; it rises hard before, so momentum hol
 LISTED = ("300042.SZ", 330)  # first bar; ChiNext lists without a limit for five days
 EVENTS = {"000071.SZ": (250, "bonus", 2.0), "600080.SH": (400, "dividend", 300)}  # 10-for-10; 0.30 yuan
 INDEX, SWAP = "000300.SH", 400  # a member leaves and another joins on SWAP
+LAYERED = 450  # --scope layered: the trading-day index from which every stock has bars
 DROPPED = ("000081.SZ", 260)  # a bar recorded as dropped (off_scale): the day reads as missing
 STRATEGIES = {
     "demo-momentum": (
@@ -61,8 +65,9 @@ STRATEGIES = {
 }
 
 
-def build(out: Path, seed: int = SEED) -> dict:
-    """Write the demo data root at out (which must not exist yet); counts of what it holds."""
+def build(out: Path, seed: int = SEED, scope: str = "all") -> dict:
+    """Write the demo data root at out (which must not exist yet); counts of what it holds. scope layered: every
+    stock from LAYERED on, the index's members before; csi300: the index's members alone."""
     if out.exists():
         raise FileExistsError(f"{out} exists; the demo home goes into a new directory")
     rng = np.random.default_rng(seed)
@@ -71,15 +76,43 @@ def build(out: Path, seed: int = SEED) -> dict:
     for code in CODES:
         bars[code], events = _bars(rng, code, days)
         factors += events
-    tables = _tables(days, bars, factors)
     meta = {"source": "demo", "seed": seed, "last_trade_date": days[-1].isoformat()}
+    members, index = set(_index_members(days)), Layer(Scope(indexes=(INDEX,)), days[0])
+    listed = {code: rows[0]["date"] for code, rows in bars.items()}  # official listing days, whatever the scope
+    if scope == "layered":
+        bars = {c: [r for r in rows if c in members or r["date"] >= days[LAYERED]] for c, rows in bars.items()}
+        meta |= as_meta([Layer(ALL, days[LAYERED]), index])
+    if scope == "csi300":
+        bars = {c: rows for c, rows in bars.items() if c in members}
+        meta |= as_meta([index])
+    tables = _tables(days, bars, [f for f in factors if f["code"] in bars], listed)
     Store(out, clock=_stamp).commit(meta, replace=tables, reason="demo")
+    if scope != "all":  # like a data root built from BaoStock: the whole market's securities list in the raw layer
+        raw = BaoStockRaw.at(out)
+        raw.stock_basic.parent.mkdir(parents=True)
+        raw.write(raw.stock_basic, _stock_basic(days, listed))
     with tempfile.TemporaryDirectory() as cache:  # panel caches stay out of the demo home
         context = service.Context(out, Path(cache), clock=_stamp)
         service.data_check(service.CheckRequest(commit=True), context)
         for id, (name, form) in STRATEGIES.items():
             service.strategy_save(service.SaveRequest(strategy=form, id=id, name=name), context)
     return {name: frame.height for name, frame in tables.items()}
+
+
+def _stock_basic(days: list[dt.date], listed: dict[str, dt.date]) -> pl.DataFrame:
+    """BaoStock's stock_basic of every demo stock, as the raw layer keeps it."""
+    rows = [
+        {
+            "code": f"{code[-2:].lower()}.{code[:6]}",
+            "code_name": f"演示{i + 1:02d}",
+            "ipoDate": listed[code].isoformat(),
+            "outDate": days[DELISTED[1]].isoformat() if code == DELISTED[0] else "",
+            "type": "1",
+            "status": "0" if code == DELISTED[0] else "1",
+        }
+        for i, code in enumerate(CODES)
+    ]
+    return raw_frame(pl.DataFrame(rows), "query_stock_basic", "demo", dt.datetime.fromisoformat(STAMP))
 
 
 def _stamp() -> str:
@@ -162,13 +195,17 @@ def _st(code: str, t: int) -> bool:
     return t in ST.get(code, ())
 
 
-def _tables(days: list[dt.date], bars: dict[str, list[dict]], factors: list[dict]) -> dict[str, pl.DataFrame]:
+def _tables(
+    days: list[dt.date], bars: dict[str, list[dict]], factors: list[dict], listed: dict
+) -> dict[str, pl.DataFrame]:
     rows = [row for code_rows in bars.values() for row in code_rows]
     dropped = (DROPPED[0], days[DROPPED[1]])
     kept = [r for r in rows if (r["code"], r["date"]) != dropped]
     frames = {
         "calendar": pl.DataFrame({"date": days}),
-        "securities": pl.DataFrame([_security(i, code, bars[code]) for i, code in enumerate(CODES)]),
+        "securities": pl.DataFrame(
+            [_security(i, code, bars[code], listed[code]) for i, code in enumerate(CODES) if code in bars]
+        ),
         "bars": pl.DataFrame(kept).with_columns(preclose_derived=False, tradestatus=1, source=pl.lit("demo")),
         "daily_status": _status(days, bars),
         "adj_factor": pl.DataFrame(factors),
@@ -179,11 +216,11 @@ def _tables(days: list[dt.date], bars: dict[str, list[dict]], factors: list[dict
     return {name: _typed(name, frame) for name, frame in frames.items()}
 
 
-def _security(i: int, code: str, rows: list[dict]) -> dict:
+def _security(i: int, code: str, rows: list[dict], listed: dt.date) -> dict:
     exchange = code[-2:]
     name = f"演示{i + 1:02d}"
     span = {"first_date": rows[0]["date"], "last_date": rows[-1]["date"]}
-    official = {"list_date": rows[0]["date"], "delist_date": rows[-1]["date"] if code == DELISTED[0] else None}
+    official = {"list_date": listed, "delist_date": rows[-1]["date"] if code == DELISTED[0] else None}
     fields = {"code": code, "exchange": exchange, "board": board(code), **span, **official, "name": name}
     return fields | {"source": "demo"}
 
@@ -247,6 +284,7 @@ def _issues(days: list[dt.date], bars: dict[str, list[dict]]) -> pl.DataFrame:
         ("bars", "600090.SH", days[200], "volume_mismatch", "value_replaced", {"volume": 1200, "store_volume": 1000}),
         ("bars", LISTED[0], days[LISTED[1]], "bar_added", "row_added", {"position": "new_code"}),
     ]
+    rows = [row for row in rows if row[1] in bars and bars[row[1]][0]["date"] <= row[2]]  # the scope's stocks
     found = [
         {
             "table": t,
@@ -278,8 +316,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tools.demo_home", description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, required=True, help="a new directory for the demo data root")
     parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument(
+        "--scope", choices=("all", "layered", "csi300"), default="all", help="layered: two scope layers; csi300: one"
+    )
     args = parser.parse_args(argv)
-    counts = build(args.out, args.seed)
+    counts = build(args.out, args.seed, args.scope)
     print(f"demo home at {args.out}: " + ", ".join(f"{n} {name}" for name, n in counts.items()))
     print(f"serve it: uv run wequant serve --home {args.out}")
     return 0

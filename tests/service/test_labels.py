@@ -34,6 +34,7 @@ from wequant.service.queue import STAGES as QUEUE_STAGES
 from wequant.service.queue import STATES
 from wequant.service.running import STAGES as WORKER_STAGES
 from wequant.service.schedule import Source
+from wequant.service.scopes import DATA_SCOPE_TEXTS
 from wequant.service.screen import StepKind
 from wequant.service.update import Status as UpdateStatus
 from wequant.strategy import SELL_KINDS
@@ -65,7 +66,7 @@ def metric_names(market_home, cache) -> set[str]:
 
 
 FAMILIES = {  # labels field -> the codes the code base defines for it
-    "warnings": lambda: set(TEXTS) | set(READ_TEXTS) | set(SCOPE_TEXTS),
+    "warnings": lambda: set(TEXTS) | set(READ_TEXTS) | set(SCOPE_TEXTS) | set(DATA_SCOPE_TEXTS),
     "issue_kinds": lambda: set(ISSUE_KINDS),
     "issue_actions": lambda: {a for kind in ISSUE_KINDS.values() for a in kind.actions},
     "metric_reasons": lambda: set(REASONS),
@@ -104,6 +105,7 @@ STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's
     "build_stocks": ["code", "done", "total"],
     "build_factors": ["done", "total"],
     "build_reconnect": ["seconds", "attempt", "of"],
+    "backfill_floor": ["name", "date"],
 }
 
 
@@ -133,7 +135,7 @@ class Reads(dict):
 def test_a_warning_template_uses_exactly_the_params_its_english_text_reads(label):
     """The English text names every number and date of a warning: its params; the Chinese uses the same keys."""
     params = Reads(label.params)
-    ({**TEXTS, **READ_TEXTS, **SCOPE_TEXTS}[label.code])(params)
+    ({**TEXTS, **READ_TEXTS, **SCOPE_TEXTS, **DATA_SCOPE_TEXTS}[label.code])(params)
     assert params.read == set(label.params)
 
 

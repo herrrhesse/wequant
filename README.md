@@ -293,10 +293,11 @@ uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl
 - **The frontend at `/`:** the build in `--static DIR`, else `$WEQUANT_STATIC`, else the repository's `frontend/dist`.
   A file of the build is served as is and any other path outside `/api` gets its `index.html`. Without a build, `/`
   is a page saying how to build it; the API works either way. An unknown `/api/...` path is a 404 ErrorBody.
-- **Demo home:** `uv run python -m tools.demo_home --out DIR [--seed N]` writes a synthetic data root into a new
+- **Demo home:** `uv run python -m tools.demo_home --out DIR [--seed N] [--scope ...]` writes a synthetic data root into a new
   directory: every board, two ST stocks, a suspension, a delisting, a new listing, limit-up and limit-down streaks, a
   bonus issue and a dividend, 000300.SH with synthetic members, data issues (one at error level), its limit check
-  recorded and two saved strategies. Nothing comes from a real market.
+  recorded and two saved strategies. Nothing comes from a real market. `--scope layered` holds every stock from
+  2024-09-23 and only the index's members before (two scope layers); `--scope csi300` holds the members alone (S2.11).
 
 ## Daily update and stock names
 
@@ -322,6 +323,10 @@ uv run wequant data names [--commit]  # "补充股票名称", once, from raw/bao
   the store's last day while their code stays a member (to the day before L once it left) and starts spans for new
   members on L. Other indexes' stored bars and members (CSI 800, CSI 1000, CSI All Share) stay as they are and are no
   longer updated.
+- **A data root's scope (S2.11):** when its widest layer is not every stock, the update keeps only the stocks with
+  bars, the members of its indexes on the last new day and its listed stocks (factors only for those). A new member
+  without bars then gets its history from the layer's first day as a version of its own (reason 补新调入成分股,
+  `UpdateResult.joined`).
 - **Failures leave the store as it was:** BaoStock unreachable or refusing the login is exit 4
   (`source_unreachable`), another writer or BaoStock session exit 5 (`store_busy`), cancel exit 130; a day already
   fetched stays in the raw layer and is not fetched again. The update holds `raw/baostock/.lock`, as the backfill does,
@@ -429,23 +434,42 @@ uv run wequant data copy TO ; uv run wequant data move TO   # also background jo
 - **The first-run setup's progress** (`setup save`: step, source, home, years, job_id, import_path; `--clear`) is kept
   in the same user settings, so the frontend can carry on after the browser is closed.
 
-## First build, history and your own data (S2.9)
+## First build, scope, history and your own data (S2.9, S2.11)
 
 ```bash
 uv sync --extra baostock
-uv run wequant data build-estimate --years 3      # days, requests and about how long; sends no request
-uv run wequant data build --years 3               # an empty data root's first version (job kind data_build)
+uv run wequant data build-estimate --years 3 [--scope ...]   # stocks, days, requests, about how long; no request
+uv run wequant data build --years 3 [--scope 000300.SH --scope 000905.SH] [--stocks 600519.SH ...]   # data_build
 uv run wequant data backfill [--oldest 2000]      # earlier years, one version per three years (data_backfill)
+uv run wequant data extend-estimate --scope all   # what a wider scope adds and about how long; no request
+uv run wequant data extend --scope all            # a wider scope, newest years first (job kind data_extend)
 uv run wequant data own-check FOLDER ; uv run wequant data own-import FOLDER   # your own files (data_own_import)
 ```
 
-- **`data build`** fills an empty data root from BaoStock with the last 1, 3 or 5 years up to the latest closed
-  trading day, fetched stock by stock (measured 2.4 times as fast as a cross-section per day on 2026-11-14): every
-  SH/SZ stock listed in the window, delisted ones included (`query_stock_basic`, which also gives names and official
-  dates), with one `query_history_k_data_plus` request for its rows over the window (prices, preclose, volume,
-  amount, turnover, trade status, ST), each code's whole factor history (`query_adjust_factor`), and CSI 300 and CSI
-  500 bars and members (member lists of each month's first trading day,
-  dated by BaoStock's `updateDate`). Every response goes to the raw layer first and the S2.4b merge then builds every
+- **Scope (S2.11):** what a data root holds bars for, said like a strategy's scope: `--scope all` (every SH/SZ
+  stock), one or both of `000300.SH` and `000905.SH` (every stock that was a member at some time in the window, so a
+  backtest has no survivorship), and `--stocks` (a list, saved as a stock pool, `--pool-name`); the default is CSI
+  300 + CSI 500. The calendar, stock_basic (names and official dates across the market) and both indexes' bars and
+  member lists are fetched whatever the scope, so lists resolve against the whole market. The manifest keeps the scope
+  in layers, widest first, each from its own first day; `data status` shows them (`scope.layers`, with Chinese
+  labels), which strategy scopes they cover from which day (`scope.covers`), and the stocks held. Data roots made
+  before S2.11, merged or imported hold every stock.
+- **Beyond the data:** a strategy whose scope the data does not hold still validates, screens and backtests, with
+  the warning `scope_beyond_data`, or `scope_beyond_data_before` when the layer holding it starts after the run's or
+  screen's day. A saved run keeps these warnings, so they still show once the data is widened.
+- **`data extend`** adds an index, every stock or a list: from the day before the data first holds it (or the last
+  day), three years per version, newest first (reason 扩大数据范围：name（first–last）), the stocks it picks beyond
+  those held on the segment's first day, back to the data's first day. Every layer from the day reached holds the
+  addition, and a layer with the scope of the one before it folds into it. Nothing is fetched when the first layer
+  already holds it (`covered`). The same command again carries on after a stop; a cancel keeps the segments made.
+  `data extend-estimate` counts the stocks to fetch (new ones and those held only from a later day) and their time,
+  from the stored member spans and stock_basic (else the stored securities).
+- **`data build`** fills an empty data root from BaoStock with the last 1, 3 or 5 years of its scope up to the latest
+  closed trading day, fetched stock by stock (measured 2.4 times as fast as a cross-section per day on 2026-11-14):
+  first stock_basic and the CSI 300 and CSI 500 bars and members (member lists of each month's first trading day,
+  dated by BaoStock's `updateDate`), then for each stock the scope picks one `query_history_k_data_plus` request for
+  its rows over the window (prices, preclose, volume, amount, turnover, trade status, ST), and each code's whole
+  factor history (`query_adjust_factor`). Every response goes to the raw layer first and the S2.4b merge then builds every
   table from the raw files on an empty base, with its checks and `data_issues`; one version, reason 首次建库. A data
   root with data makes no version (`exists`, no BaoStock session). A cancel leaves no version and keeps what was
   fetched, so the next run carries on and makes the same tables as one run straight through. It holds
@@ -453,10 +477,13 @@ uv run wequant data own-check FOLDER ; uv run wequant data own-import FOLDER   #
 - **Progress:** a build or backfill job's `JobInfo.eta_seconds` is the time left at the job's own pace so far (null
   before its first fetch); a backfill's steps carry `first_year` and `last_year`; an import reports `own_read` and
   `own_commit`.
-- **`data build-estimate`** gives the days, requests and seconds of a build from the speeds measured in round 3
-  (report `Database/reports/round3_*.md`); days already in the raw layer cost nothing again.
-- **`data backfill`** adds the years before the store's first day, three years per version (reason 补齐历史 first–last),
-  down to the start of `--oldest` (2000), merging each segment like the build; a cancel keeps the segments already
+- **`data build-estimate`** gives the stocks, days, requests and seconds of a build of a scope from the speeds and
+  member counts measured (reports `Database/reports/round3_*.md`, `s2.11_*.md`); stocks already in the raw layer cost
+  nothing again.
+- **`data backfill`** adds the years before the store's first day for the oldest layer's scope (an index's members of
+  each segment), three years per version (reason 补齐历史 first–last), down to the start of `--oldest` (2000) or to
+  the first member list of an index the scope names (`BackfillResult.floor`, `data status`'s `scope.backfill_floor`,
+  stage `backfill_floor`), merging each segment like the build; a cancel keeps the segments already
   added and leaves no half segment. Cleanup never removes the version in use (S2.6), so a backfill running alongside
   is safe. The frontend starts it after a first build unless the user turns it off.
 - **Your own data:** a folder with `bars.parquet` or `bars.csv`, one row per stock and day, with `code` (600000.SH),

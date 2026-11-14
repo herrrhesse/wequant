@@ -23,12 +23,14 @@ from wequant.data.files import check_inside
 from wequant.data.indexes import MEMBER_QUERIES, OFFERED, stored_as
 from wequant.data.members import member_rows
 from wequant.data.merge import apply_merge, plan_merge
+from wequant.data.merge.daily import read_daily
 from wequant.data.merge.propose import propose
 from wequant.data.merge.resolutions import add, default_path
 from wequant.data.merge.resolutions import load as load_resolutions
 from wequant.data.names import basic_rows, with_basic
 from wequant.data.raw import BaoStockRaw, raw_frame
 from wequant.data.schema import TABLES
+from wequant.data.scope import layers
 from wequant.data.sources.baostock import FIRST_DAY, INDEX_FIELDS, BaoStock, from_baostock, parse_index, to_baostock
 from wequant.data.store import Store, exclusive
 
@@ -68,6 +70,7 @@ class Outcome:
     indexes: dict[str, int] = field(default_factory=dict)  # index rows added, by code
     members: dict[str, int] = field(default_factory=dict)  # member spans grown or started, by index
     requests: int = 0
+    joined: int = 0  # new members whose history was added after the update (S2.11)
 
 
 def update(
@@ -121,12 +124,14 @@ def _merge(store, source, raw, base, due, now, say, cancel) -> Outcome:
     if not days:
         return Outcome("not_published", base["version"], waiting=waiting)
     basic = _fetch(source, raw, raw.stock_basic, "query_stock_basic", {}, force=True)
-    codes = _factor_codes(store, base, raw, days)
+    members = _fetch_members(source, raw, store, base, days)
+    kept = _in_scope(store, base, members, days[-1])
+    codes = [code for code in _factor_codes(store, base, raw, days) if kept is None or code in kept]
     _fetch_factors(source, raw, codes, now, say, cancel)
     indexes = _fetch_indexes(source, raw, days, say)
-    members = _fetch_members(source, raw, store, base, days)
     say(Step(STAGES[4], 0.8, {}))
-    plan = plan_merge(store, raw, days=days, factor_codes=codes)
+    daily = None if kept is None else read_daily(raw, days).filter(pl.col("code").is_in(sorted(kept)))
+    plan = plan_merge(store, raw, days=days, factor_codes=codes, daily=daily)
     if plan.unresolved.height:
         path = default_path(store.home)
         proposed = add(path, propose(store, raw, days, load_resolutions(path)))
@@ -143,6 +148,23 @@ def _merge(store, source, raw, base, due, now, say, cancel) -> Outcome:
     spans = {index: rows.height for index, rows in members.items() if rows.height}
     held = {"issues": issues, "indexes": added, "members": spans}
     return Outcome("updated", base["version"], result.version, days, waiting, **held)
+
+
+def _in_scope(store: Store, base: dict, members: dict[str, pl.DataFrame], last: dt.date) -> set[str] | None:
+    """The stocks an update keeps for a data root whose widest layer is not every stock (S2.11): those with bars, the
+    members of its indexes on the last new day, and its listed stocks; None: every stock."""
+    first = store.read_table("calendar", columns=["date"], manifest=base)["date"].min()
+    scope = layers(base, first)[0].scope
+    if scope.all:
+        return None
+    held = set(store.read_table("securities", columns=["code"], manifest=base)["code"])
+    current = {
+        code
+        for index in scope.indexes
+        if index in members
+        for code in members[index].filter(pl.col("end_date") == last)["code"]
+    }
+    return held | current | set(scope.stocks)
 
 
 def _fetch_days(source, raw, due, say, cancel) -> tuple[list[dt.date], dt.date | None]:

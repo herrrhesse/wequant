@@ -39,6 +39,8 @@ REASONS = (  # why a version was made; the service layer gives each a Chinese se
     "first_build",  # round 3: the first version, built from BaoStock on an empty data root
     "history_backfill",  # round 3: earlier years added in the background
     "own_import",  # round 3: the user's own files
+    "scope_extend",  # S2.11: a wider scope's stocks over one segment of the data's days
+    "members_joined",  # S2.11: new members' history, after a daily update of a data root built by index
     "names",
     "version_import",
     "demo",

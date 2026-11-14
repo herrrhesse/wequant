@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,7 +44,9 @@ class Market:
     trading: tuple[dt.date, ...] = (*CALENDAR, D4, D5)
     events: dict[dt.date, list[tuple[str, float]]] = field(default_factory=dict)  # (code, back factor) by ex-date
     histories: dict[str, list[tuple[dt.date, float]]] = field(default_factory=dict)  # per-code factor histories
-    members: dict[str, list[str]] = field(default_factory=dict)  # each index's member list by query method
+    members: dict[str, list[str] | Callable[[str], list[str]]] = field(default_factory=dict)  # by query method; a
+    # callable gives the list on the day asked for
+    names: dict[str, str] = field(default_factory=lambda: dict(NAMES))  # stock_basic's stocks
     listed: dt.date | None = None  # the member lists' date; None: the day asked for
     fail_on: str | None = None
     calls: list[tuple[str, dict]] = field(default_factory=list)
@@ -84,7 +87,7 @@ class Market:
         return FakeResult(ADJUST_FACTOR, [[code, d.isoformat(), "", f"{f:.6f}", f"{f:.6f}"] for d, f in history])
 
     def _query_stock_basic(self):
-        rows = [[to_baostock(code), name, "2023-01-03", "", "1", "1"] for code, name in NAMES.items()]
+        rows = [[to_baostock(code), name, "2023-01-03", "", "1", "1"] for code, name in self.names.items()]
         return FakeResult(STOCK_BASIC, rows)
 
     def _query_history_k_data_plus(self, code, fields, start_date, end_date, frequency, adjustflag):
@@ -105,5 +108,7 @@ class Market:
 
     def _members(self, method, date):
         listed = self.listed.isoformat() if self.listed else date
-        rows = [[listed, to_baostock(code), NAMES.get(code, "")] for code in self.members.get(method, [])]
+        found = self.members.get(method, [])
+        codes = found(date) if callable(found) else found
+        rows = [[listed, to_baostock(code), self.names.get(code, "")] for code in codes]
         return FakeResult(["updateDate", "code", "code_name"], rows)
