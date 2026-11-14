@@ -142,7 +142,6 @@ function Followed() {
 
 function FollowCard({ s }: { s: StrategyInfo }) {
   const L = useLabels();
-  const show = useCall("strategy_show", { id: s.id });
   const screen = useCall("screen", { saved: { id: s.id } });
   const rows = screen.data?.rows ?? [];
   const picked = [...rows.filter((r) => r.role === "target"), ...rows.filter((r) => r.role === "backup")].slice(0, 10);
@@ -153,7 +152,6 @@ function FollowCard({ s }: { s: StrategyInfo }) {
         <span className="b big">{s.name}</span>
         {screen.data && <span className="push small muted">{tt.follow.counts(n("target"), n("backup"))}</span>}
       </div>
-      {show.data && <span className="small sub clamp2">{show.data.summary}</span>}
       {screen.isError && <Problem error={screen.error} />}
       {screen.isPending && <span className="note">{tx.app.loading}</span>}
       {screen.data && (

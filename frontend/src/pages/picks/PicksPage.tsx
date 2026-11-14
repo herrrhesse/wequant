@@ -63,7 +63,6 @@ export function PicksPage({ route }: { route: PicksRoute }) {
   const subject = gap ? null : variant || d ? (spec ? { strategy: spec } : null) : id ? { saved: { id, n: route.n } } : null;
   const request = subject ? { ...subject, date: route.date } : null;
   const screen = useCall("screen", request, { placeholderData: keepPreviousData });
-  const summary = useCall("strategy_summary", spec && !gap ? { strategy: spec } : null);
   const save = useCallMutation("strategy_save", ["strategy_list"]);
   const r = screen.data;
   const nonTrading = !!route.date && !!r && r.date !== route.date;
@@ -149,7 +148,6 @@ export function PicksPage({ route }: { route: PicksRoute }) {
           )}
           {nonTrading && r && <span className="warnbox">{route.date} 不是交易日，按之前最近的交易日 {r.date} 计算</span>}
         </div>
-        {summary.data && <p className="summary">{summary.data.text}</p>}
         {tweak && spec && !gap && (
           <div className="inner tweak">
             <span className="small b">换个范围</span>
@@ -243,7 +241,6 @@ function Funnel({ r, step, setStep }: { r: ScreenResult; step: string | null; se
         <h2>漏斗 · {r.date}</h2>
         <span className="push small muted">剩余 · 剔除</span>
       </div>
-      <span className="note">点一级，看这一级剔除了哪些股票</span>
       <ol className="funnel">
         {r.funnel.map((s, i) => {
           const n = s.left ?? s.passed;
