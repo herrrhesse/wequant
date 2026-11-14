@@ -1183,3 +1183,22 @@ test("剔除退市整理期: a new strategy has it on, with its funnel step; off
   await expect(page.getByText("未保存的变体")).toBeVisible();
   await expect(page.locator(".funnel, .picks-layout").getByText("剔除退市整理期").first()).toBeVisible();
 });
+
+test("data downloaded by index says how far back the history goes before the backfill starts", async ({ page }) => {
+  // The demo homes' member lists start on their first day: data_status is answered in the browser with the backend's
+  // shape for a 沪深300 + 中证500 build of the last year.
+  await page.route("**/api/data_status", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    const layer = { all: false, indexes: ["000300.SH", "000905.SH"], stocks: [], label: "沪深300 + 中证500", since: body.scope.first_date };
+    const member_floors = [
+      { index: "000300.SH", name: "沪深300", date: "2006-01-04" },
+      { index: "000905.SH", name: "中证500", date: "2007-01-15" },
+    ];
+    return r.fulfill({ response: res, json: { ...body, scope: { ...body.scope, layers: [layer], covers: [], backfill_floor: null, member_floors } } });
+  });
+  await page.goto("#/data");
+  const card = page.getByRole("region", { name: "数据范围" });
+  await expect(card.getByRole("button", { name: "补齐更早的历史（到 2007 年）" })).toBeVisible();
+  await expect(card.getByRole("note", { name: "补齐能补到哪天" })).toHaveText("按指数下载的数据最早补到 2007-01-15（中证500的成分名单从这天开始；沪深300从 2006-01-04 开始），更早需要扩大到沪深全部");
+});
