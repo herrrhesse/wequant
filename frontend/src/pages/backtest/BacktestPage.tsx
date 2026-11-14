@@ -7,29 +7,20 @@ import { commandOf, modelDefaults, useCall, useCallMutation } from "../../api/cl
 import { INDEX_CHOICES, indexName } from "../../components/IndexSeg";
 import { cancelJob, finished, useJob } from "../../api/jobs";
 import { jobView } from "../../api/jobstate";
-import type { DataSpec, ErrorBody, ExecutionSpec, JobInfo, RunRow, StrategySpec } from "../../api/types.gen";
+import type { DataSpec, ErrorBody, ExecutionSpec, JobInfo, RunRow } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
 import { useElapsed } from "../../hooks";
 import { useLabels, type LabelBook } from "../../labels";
 import { href, type Route } from "../../router";
+import { draftGap, readPageDraft } from "../../strategy/pageDraft";
 import { useUi } from "../../ui";
 import { ResultView } from "./ResultView";
 import { Compare, RunList, type NameOf } from "./RunList";
 
 type BacktestRoute = Extract<Route, { page: "backtest" }>;
-const DRAFT = "wequant.strategy.draft";
 const DRAFT_NAME = "策略页的草稿";
 const DRAFT_KEY = "__draft";
-
-function draftSpec(): { spec: StrategySpec; name: string } | null {
-  try {
-    const v = JSON.parse(localStorage.getItem(DRAFT) ?? "null") as { spec: StrategySpec; name: string } | null;
-    return v && typeof v.spec === "object" ? v : null;
-  } catch {
-    return null;
-  }
-}
 
 export function BacktestPage({ route }: { route: BacktestRoute }) {
   const runs = useCall("runs_list", { limit: 100 });
@@ -38,8 +29,9 @@ export function BacktestPage({ route }: { route: BacktestRoute }) {
   const nameOf: NameOf = (r) => (r.saved_as[0] && names.get(r.saved_as[0].id)) || "未保存的策略";
   const [started, setStarted] = useState<number | null>(null);
   // The draft's content hash tells which runs were made from it (runs record the hash of what they ran).
-  const draft = draftSpec();
-  const draftCheck = useCall("strategy_validate", draft ? { strategy: draft.spec } : null);
+  const draft = readPageDraft();
+  // A draft not complete yet is not sent (the backend would refuse it); it has no runs either.
+  const draftCheck = useCall("strategy_validate", draft && !draftGap(draft) ? { strategy: draft.spec } : null);
   const draftHash = draftCheck.data?.strategy_hash ?? null;
   const rows = runs.data?.rows ?? [];
   const keyOf = (r: RunRow): string | null => r.saved_as[0]?.id ?? (draftHash && r.strategy_hash === draftHash ? DRAFT_KEY : null);
@@ -80,7 +72,8 @@ function NewBacktest({ use, chosen, onChoose, onStarted }: { use: string | null;
   const defaults = modelDefaults("BacktestRequest");
   const list = useCall("strategy_list", {});
   const calendar = useCall("data_calendar", {});
-  const draft = draftSpec();
+  const draft = readPageDraft();
+  const gap = chosen === "__draft" ? draftGap(draft) : null;
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [cash, setCash] = useState(String(defaults.cash ?? ""));
@@ -102,7 +95,7 @@ function NewBacktest({ use, chosen, onChoose, onStarted }: { use: string | null;
   const last = calendar.data?.last ?? "";
   const from = start || first;
   const to = end || last;
-  const subject = chosen === "__draft" ? (draft ? { strategy: draft.spec } : null) : chosen ? { saved: { id: chosen } } : null;
+  const subject = chosen === "__draft" ? (draft && !gap ? { strategy: draft.spec } : null) : chosen ? { saved: { id: chosen } } : null;
   const request = subject && from && to ? { ...subject, start: from, end: to, cash: Number(cash), execution, data, benchmark: benchmark || null, save: true } : null;
   const ex = (k: keyof ExecutionSpec, v: unknown) => setExecution({ ...execution, [k]: v });
   return (
@@ -163,7 +156,18 @@ function NewBacktest({ use, chosen, onChoose, onStarted }: { use: string | null;
           开始回测
         </button>
       </div>
-      {chosen === "__draft" && <span className="small warn-text">未保存的改动也会用于这次回测。</span>}
+      {gap ? (
+        <span className="row small" role="note" aria-label="为什么不能回测">
+          <span className="warn-text">
+            <b>{gap.title}</b>：{gap.text}
+          </span>
+          <a className="b" href={gap.fix}>
+            去策略页 ›
+          </a>
+        </span>
+      ) : (
+        chosen === "__draft" && <span className="small warn-text">未保存的改动也会用于这次回测。</span>
+      )}
       <span className="small sub">
         默认用全部数据（{first || "—"} 至 {last || "—"}）。决策日收盘后选股，下一交易日按{execution.price === "close" ? "收盘价" : "开盘价"}成交；涨跌停、停牌、不足一手的订单不成交。
         <button type="button" className="link small inline-btn" aria-expanded={adv} onClick={() => setAdv(!adv)}>

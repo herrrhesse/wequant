@@ -26,34 +26,39 @@ test.beforeAll(async ({ request }) => {
 
 const blur = (page: Page) => page.keyboard.press("Tab");
 
-test("strategy: a wrong field is located on its row, the fix brings the summary, saving twice keeps one history entry", async ({ page }) => {
-  await page.goto("#/strategy?new=1");
-  // A new strategy opens without errors: no marks, and the preview says how to go on.
-  await expect(page.locator(".strat-aside .funnel")).toBeVisible();
-  await expect(page.locator(".has-err")).toHaveCount(0);
-  await expect(page.locator(".strat-aside").getByText("添加一个打分因子")).toBeVisible();
-  await page.getByLabel("策略名称").fill(NAME);
-  await page.getByRole("button", { name: "＋ 添加因子" }).click();
-  await expect(page.locator(".strat-aside table tbody tr").first()).toBeVisible();
-  await page.getByRole("button", { name: "＋ 添加条件", exact: true }).click();
-  await page.getByRole("button", { name: /自定义表达式/ }).click();
-  await page.getByLabel("表达式").fill('["GT", ["MA", "amout", 5], ["MA", "amount", 20]]');
-  await blur(page);
-  // The backend's error points at that condition; the row is marked and says what is wrong in Chinese.
-  await expect(page.locator(".cond.has-err")).toHaveCount(1);
-  await expect(page.locator(".cond.has-err .err-text")).not.toBeEmpty();
-  await expect(page.locator(".state.errors")).toBeVisible();
-  await page.getByLabel("表达式").fill('["GT", ["MA", "amount", 5], ["MA", "amount", 20]]');
-  await blur(page);
-  await expect(page.locator(".has-err")).toHaveCount(0);
-  await expect(page.locator(".strat-bar .summary")).not.toBeEmpty();
-  await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page).toHaveURL(/#\/strategy\?id=/);
-  await page.getByRole("button", { name: "修改历史" }).click();
-  await expect(page.locator(".hist-list button")).toHaveCount(1);
-  // Unchanged content cannot make a second entry.
-  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
-  await expect(page.locator(".hist-list button")).toHaveCount(1);
+test.describe("an invalid strategy on purpose", () => {
+  // The wrong field below is sent as typed: the backend refuses it (422, logged by Chrome) and the page locates it.
+  test.use({ allowConsole: [/status of 422/] });
+
+  test("strategy: a wrong field is located on its row, the fix brings the summary, saving twice keeps one history entry", async ({ page }) => {
+    await page.goto("#/strategy?new=1");
+    // A new strategy opens without errors: no marks, and the preview says how to go on.
+    await expect(page.locator(".strat-aside .funnel")).toBeVisible();
+    await expect(page.locator(".has-err")).toHaveCount(0);
+    await expect(page.locator(".strat-aside").getByText("添加一个打分因子")).toBeVisible();
+    await page.getByLabel("策略名称").fill(NAME);
+    await page.getByRole("button", { name: "＋ 添加因子" }).click();
+    await expect(page.locator(".strat-aside table tbody tr").first()).toBeVisible();
+    await page.getByRole("button", { name: "＋ 添加条件", exact: true }).click();
+    await page.getByRole("button", { name: /自定义表达式/ }).click();
+    await page.getByLabel("表达式").fill('["GT", ["MA", "amout", 5], ["MA", "amount", 20]]');
+    await blur(page);
+    // The backend's error points at that condition; the row is marked and says what is wrong in Chinese.
+    await expect(page.locator(".cond.has-err")).toHaveCount(1);
+    await expect(page.locator(".cond.has-err .err-text")).not.toBeEmpty();
+    await expect(page.locator(".state.errors")).toBeVisible();
+    await page.getByLabel("表达式").fill('["GT", ["MA", "amount", 5], ["MA", "amount", 20]]');
+    await blur(page);
+    await expect(page.locator(".has-err")).toHaveCount(0);
+    await expect(page.locator(".strat-bar .summary")).not.toBeEmpty();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page).toHaveURL(/#\/strategy\?id=/);
+    await page.getByRole("button", { name: "修改历史" }).click();
+    await expect(page.locator(".hist-list button")).toHaveCount(1);
+    // Unchanged content cannot make a second entry.
+    await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+    await expect(page.locator(".hist-list button")).toHaveCount(1);
+  });
 });
 
 test("strategy preview: an edit shows updating at once and updated after; results stay on the right; rows and funnel steps light each other", async ({ page }) => {
@@ -1103,4 +1108,42 @@ test("data scope: where an index's member list ends, the history backfill says w
   const card = page.getByRole("region", { name: "数据范围" });
   await expect(card.getByRole("note", { name: "补齐历史停在这里" })).toContainText("沪深300的成分名单最早到 2005-04-08，更早的历史补不了");
   await expect(card.getByRole("button", { name: /补齐更早的历史/ })).toHaveCount(0);
+});
+
+test("a blank draft (no factor yet) is not sent from picks or backtest: they say what is missing, with the way back; no 4xx on the way", async ({ page }) => {
+  const refused: string[] = [];
+  page.on("response", (r) => r.status() >= 400 && refused.push(`${r.status()} ${r.url()}`));
+  const cal = await (await page.request.post("api/data_calendar", { data: {} })).json();
+  await page.goto("#/data");
+  await page.evaluate(() => localStorage.clear());
+  await page.goto("#/strategy?new=1");
+  await expect(page.locator(".strat-aside").getByText("添加一个打分因子")).toBeVisible();
+  // 选股: the decision day is the latest trading day; the draft is not screened; the strategy page is one click away.
+  await page.goto("#/picks?draft=1");
+  const result = page.getByRole("region", { name: "结果" });
+  await expect(result).toContainText("这个草稿还没有打分因子");
+  await expect(page.getByLabel("决策日")).toHaveValue(cal.last);
+  await expect(page.getByRole("button", { name: "选股", exact: true })).toBeDisabled();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText("请求不合法");
+  await expect(result.getByRole("link", { name: "去策略页" })).toHaveAttribute("href", "#/strategy?new=1");
+  // 回测: the start button is off, the reason beside it.
+  await page.goto("#/backtest?use=draft");
+  await expect(page.getByLabel("策略", { exact: true })).toHaveValue("__draft");
+  await expect(page.getByRole("button", { name: "开始回测" })).toBeDisabled();
+  const why = page.getByRole("note", { name: "为什么不能回测" });
+  await expect(why).toContainText("这个草稿还没有打分因子");
+  await expect(page.locator("main")).not.toContainText("请求不合法");
+  await why.getByRole("link", { name: "去策略页 ›" }).click();
+  await expect(page).toHaveURL(/#\/strategy\?new=1$/);
+  // With a factor, both run the draft.
+  await page.getByRole("button", { name: "＋ 添加因子" }).click();
+  await expect(page.locator(".strat-aside table tbody tr").first()).toBeVisible();
+  await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
+  await page.goto("#/picks?draft=1");
+  await expect(page.locator(".picks-main")).toBeVisible();
+  await expect(page.getByRole("region", { name: "结果" })).not.toContainText("还没有打分因子");
+  await page.goto("#/backtest?use=draft");
+  await expect(page.getByRole("button", { name: "开始回测" })).toBeEnabled();
+  expect(refused).toEqual([]);
 });

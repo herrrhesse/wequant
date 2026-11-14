@@ -9,8 +9,8 @@ import { useScopes } from "../../components/IndexSeg";
 import { href } from "../../router";
 import { boxes } from "../../strategy/model";
 import { st } from "./text";
+import { PAGE_DRAFT as DRAFT } from "../../strategy/pageDraft";
 
-const DRAFT = "wequant.strategy.draft";
 
 /** An unsaved new strategy (not yet saved under any id) the page was left with, if one was begun. */
 export function leftOver(): { spec: StrategySpec; name: string } | null {
