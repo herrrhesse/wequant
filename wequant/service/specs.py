@@ -16,7 +16,7 @@ from pydantic_core import PydanticCustomError
 from wequant.account.execution import DELISTING, PRICES
 from wequant.backtest.data import ANOMALY_MODES
 from wequant.expr.vocab import INDEXES
-from wequant.service.base import Model
+from wequant.service.base import Code, Distinct, Model
 from wequant.strategy.strategy import MODES, PERIODS, POOL_BOARDS, PREFERS, WEIGHTINGS
 
 
@@ -78,17 +78,32 @@ class FactorSpec(Spec):
     enabled: bool = True
 
 
+class StocksSpec(Spec):
+    """A fixed list of stocks: the strategy keeps its own copy, so a later change to the stock pool leaves it as it
+    was."""
+
+    codes: Annotated[list[Code], Distinct] = Field(min_length=1)
+    """Codes such as 600000.SH, in the order shown."""
+    pool_id: Name | None = None
+    """The stock pool they were copied from (pools_list); shown only."""
+    pool_name: Name | None = None
+    """That pool's name when copied; shown only."""
+
+
 class PoolSpec(Spec):
     """Explicit pool items, ANDed with the universe; all defaults leave the pool as the universe."""
 
     index: Literal[INDEXES] | None = None
-    """Members of this index on the decision day; null: any."""
+    """Members of this index on the decision day; null: any. labels.scopes lists the ones offered; 000906.SH,
+    000852.SH and 000985.SH are older options that existing strategies still read."""
     boards: list[Literal[POOL_BOARDS]] | None = Field(None, min_length=1)
     """Only these boards, no repeats; null: any board (the frontend writes null for all three)."""
     exclude_st: bool = False
     """Leave out stocks that are ST on the decision day (ST is unknown on the seed store)."""
     min_list_days: int | None = Field(None, ge=2)
     """Leave out stocks listed for fewer trading days; null: no limit."""
+    stocks: StocksSpec | None = None
+    """Only the stocks on this fixed list (round 3); never together with index."""
 
 
 def _filter(value: object, handler: Callable) -> object:

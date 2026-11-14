@@ -8,6 +8,8 @@ from wequant.service import (
     BarsRequest,
     Context,
     DecisionRequest,
+    IndexPoolRequest,
+    PoolSaveRequest,
     ServiceError,
     SettingsUpdate,
     StatusRequest,
@@ -15,6 +17,8 @@ from wequant.service import (
     data_bars,
     data_resolve_approve,
     data_status,
+    pools_from_index,
+    pools_save,
     runs_rerun,
 )
 from wequant.service.backtest import BacktestRequest, backtest
@@ -52,6 +56,7 @@ RULES = {  # rule -> a request that breaks it and nothing else
     "requires strategy or saved": lambda: validated(StrategyRequest, {}),
     "requires strategy, saved or run": lambda: validated(ExplainRequest, {"code": CODE, "date": DAYS[-1]}),
     "requires a selector": lambda: data_resolve_approve(DecisionRequest(note="n"), Context()),
+    "requires one scope": strategy(pool={"index": "000300.SH", "stocks": {"codes": ["600000.SH"]}}),
     "out_of_range top_n": strategy(top_n=0),
     "out_of_range backups": strategy(backups=-1),
     "out_of_range every": strategy(every=0),
@@ -125,6 +130,8 @@ ON_DATA = {  # rule -> a call on tests.service.conftest's synthetic market that 
     "version_not_kept rerun": lambda h: runs_rerun(RunRequest(id=gone(h)), Context(h)),
     "version_not_kept explain": lambda h: explained(h, run=gone(h)),
     "bad_file name": lambda h: receive(Context(h), "picked.txt", b""),
+    "no_data index members": lambda h: pools_from_index(IndexPoolRequest(index="000300.SH"), Context(h)),
+    "out_of_range blank pool name": lambda h: pools_save(PoolSaveRequest(name=" ", codes=[]), Context(h)),
 }
 
 

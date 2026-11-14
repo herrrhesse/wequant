@@ -63,12 +63,23 @@ def _parts(s: Strategy) -> Iterator[Part]:
 
 def _scope(s: Strategy) -> Part:
     custom = s.universe != SH_SZ
+    if s.pool.stocks is not None:
+        return _stock_list(s, custom)
     index = INDEX_NAMES.get(s.pool.index)
     if index and custom:
         return Part((("pool", "index"), ("universe",)), f"在{index}成分股中、满足自定义范围的股票里", {})
     if index:
         return Part((("pool", "index"),), f"在{index}成分股中", {})
     return Part((("universe",),), "在自定义范围内" if custom else "在沪深全部股票中", {})
+
+
+def _stock_list(s: Strategy, custom: bool) -> Part:
+    stocks = s.pool.stocks
+    name = f"自定义股票池“{stocks.pool_name}”" if stocks.pool_name else "自定义名单"
+    loc, text = (("pool", "stocks"),), f"在{name}（{len(stocks.codes)} 只）中"
+    if custom:
+        loc, text = (*loc, ("universe",)), f"{text}、满足自定义范围的股票里"
+    return Part(loc, text, {"stocks": len(stocks.codes)})
 
 
 def _excluded(s: Strategy) -> Part:

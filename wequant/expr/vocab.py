@@ -9,14 +9,13 @@ import numpy as np
 
 from wequant import ops
 from wequant.data.codes import BOARDS, EXCHANGES
+from wequant.data.indexes import INDEXES, STORED_AS
 
 if TYPE_CHECKING:
     from wequant.panel import Panel
 
 EXPR_VERSION = 1  # bump when an operator, a field or the canonical form changes meaning
 NUM, BOOL, SAME = "num", "bool", "same"
-INDEXES = ("000300.SH", "000905.SH", "000906.SH", "000852.SH", "000985.SH")  # the codes member@ takes
-STORED_AS = {"000300.SH": "399300.SZ"}  # the code an index's rows carry in index_members, where it differs
 
 
 class FieldSpec(NamedTuple):

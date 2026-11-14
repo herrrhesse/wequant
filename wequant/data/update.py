@@ -1,8 +1,9 @@
 """The daily update (S2.5): BaoStock's day snapshots after the store's last trading day, fetched into the raw layer and
-merged as one version, with names, official dates and index bars refreshed.
+merged as one version, with names, official dates, and the bars and members of the offered indexes (CSI 300 and CSI
+500, round 3) refreshed; other indexes' stored rows stay as they are.
 
-Each day costs two requests (the snapshot and its adjustment events); the calendar, stock_basic and each stored index
-cost one per update, and a code new to the store or without a factor file one more. A day BaoStock has not published
+Each day costs two requests (the snapshot and its adjustment events); the calendar, stock_basic and each offered index's
+bars and member list cost one per update, and a code new to the store or without a factor file one more. A day BaoStock has not published
 yet ends the fetch, and the days before it are merged. A conflict the merge cannot settle becomes a proposed
 resolution in the data root's file and stops the update with the store unchanged until the user decides.
 """
@@ -20,6 +21,8 @@ from zoneinfo import ZoneInfo
 import polars as pl
 
 from wequant.data.files import check_inside
+from wequant.data.indexes import MEMBER_QUERIES, OFFERED, stored_as
+from wequant.data.members import member_rows
 from wequant.data.merge import apply_merge, plan_merge
 from wequant.data.merge.propose import propose
 from wequant.data.merge.resolutions import add, default_path
@@ -64,6 +67,7 @@ class Outcome:
     unresolved: int = 0
     issues: dict[str, int] = field(default_factory=dict)  # this run's data_issues rows by kind
     indexes: dict[str, int] = field(default_factory=dict)  # index rows added, by code
+    members: dict[str, int] = field(default_factory=dict)  # member spans grown or started, by index
     requests: int = 0
 
 
@@ -120,7 +124,8 @@ def _merge(store, source, raw, base, due, now, say, cancel) -> Outcome:
     basic = _fetch(source, raw, raw.stock_basic, "query_stock_basic", {}, force=True)
     codes = _factor_codes(store, base, raw, days)
     _fetch_factors(source, raw, codes, now, say, cancel)
-    indexes = _fetch_indexes(source, raw, store, base, days, say)
+    indexes = _fetch_indexes(source, raw, days, say)
+    members = _fetch_members(source, raw, store, base, days)
     say(Step(STAGES[4], 0.8, {}))
     plan = plan_merge(store, raw, days=days, factor_codes=codes)
     if plan.unresolved.height:
@@ -130,12 +135,15 @@ def _merge(store, source, raw, base, due, now, say, cancel) -> Outcome:
         return Outcome("conflicts", base["version"], **held)
     plan.replace["securities"] = with_basic(plan.replace["securities"], basic_rows(basic))
     plan.upsert["index_bars"] = indexes
+    plan.upsert["index_members"] = pl.concat(members.values())
     _check(cancel)
     say(Step(STAGES[5], 0.95, {}))
     result = apply_merge(store, plan, reason="daily_update")
     added = dict(indexes.group_by("code").len().sort("code").rows())
     issues = dict(plan.issues.group_by("kind").len().sort("kind").rows())
-    return Outcome("updated", base["version"], result.version, days, waiting, issues=issues, indexes=added)
+    spans = {index: rows.height for index, rows in members.items() if rows.height}
+    held = {"issues": issues, "indexes": added, "members": spans}
+    return Outcome("updated", base["version"], result.version, days, waiting, **held)
 
 
 def _fetch_days(source, raw, due, say, cancel) -> tuple[list[dt.date], dt.date | None]:
@@ -171,10 +179,10 @@ def _fetch_factors(source, raw, codes, now, say, cancel) -> None:
         _fetch(source, raw, raw.adjust_factor(code), "query_adjust_factor", params, empty=True)
 
 
-def _fetch_indexes(source, raw, store, base, days, say) -> pl.DataFrame:
-    """index_bars rows of the days for each index the store holds."""
+def _fetch_indexes(source, raw, days, say) -> pl.DataFrame:
+    """index_bars rows of the days for each offered index."""
     say(Step(STAGES[3], 0.7, {}))
-    codes = store.read_table("index_bars", columns=["code"], manifest=base)["code"].unique().sort().to_list()
+    codes = OFFERED
     window = {"start_date": days[0].isoformat(), "end_date": days[-1].isoformat(), "frequency": "d", "adjustflag": "3"}
     frames = [pl.DataFrame(schema=TABLES["index_bars"].schema)]
     for code in codes:
@@ -185,6 +193,22 @@ def _fetch_indexes(source, raw, store, base, days, say) -> pl.DataFrame:
             source_name = f"baostock@{response['_baostock_version'].first()}"
             frames.append(parse_index(response, source_name).filter(pl.col("date").is_in(days)))
     return pl.concat(frames)
+
+
+def _fetch_members(source, raw, store, base, days) -> dict[str, pl.DataFrame]:
+    """index_members rows to upsert for each offered index, from its member list as of the last day; an index whose
+    list comes back empty keeps its spans as they are."""
+    spans = store.read_table("index_members", manifest=base)
+    before = store.read_table("calendar", columns=["date"], manifest=base)["date"].max()
+    found = {}
+    for index in OFFERED:
+        params = {"date": days[-1].isoformat()}
+        listed = _fetch(source, raw, raw.members(index, days[-1]), MEMBER_QUERIES[index], params, empty=True)
+        if listed.height:
+            day = dt.date.fromisoformat(listed["updateDate"].max())
+            codes = [from_baostock(code) for code in listed["code"]]
+            found[index] = member_rows(spans, stored_as(index), codes, day, before, days)
+    return found or {"": pl.DataFrame(schema=TABLES["index_members"].schema)}
 
 
 def _fetch(source, raw, path, method, params, force=False, empty=False, day=None) -> pl.DataFrame | None:
