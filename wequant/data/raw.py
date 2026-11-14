@@ -70,6 +70,10 @@ class BaoStockRaw:
     def index(self, code: str, first: dt.date, last: dt.date) -> Path:
         return self.root / "index" / code / f"{first.isoformat()}_{last.isoformat()}.parquet"
 
+    def history(self, code: str, first: dt.date, last: dt.date) -> Path:
+        """One stock's daily rows from first to last (round 3: a first build or a backfill segment)."""
+        return self.root / "history" / code / f"{first.isoformat()}_{last.isoformat()}.parquet"
+
     def members(self, index: str, day: dt.date) -> Path:
         """BaoStock's member list of an index as of day (round 3)."""
         return self.root / "members" / index / f"{day.isoformat()}.parquet"

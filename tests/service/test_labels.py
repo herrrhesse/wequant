@@ -21,12 +21,14 @@ from wequant.data.store import REASONS as VERSION_REASONS
 from wequant.pools import REASONS as PARSE_REASONS
 from wequant.runs.causes import CAUSES, PARAMS
 from wequant.service import Context
+from wequant.service.build import BuildResult
 from wequant.service.details import PYDANTIC
 from wequant.service.errors import Exit
 from wequant.service.indicators import Category
 from wequant.service.jobs import KINDS as JOB_KINDS
 from wequant.service.jobs import JobKind, JobState
 from wequant.service.labels import fill, job_text, update_params
+from wequant.service.own import Rule
 from wequant.service.pools import SCOPE_TEXTS
 from wequant.service.queue import STAGES as QUEUE_STAGES
 from wequant.service.queue import STATES
@@ -88,6 +90,8 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "scopes": lambda: {"all", "stocks", *INDEXES},
     "parse_reasons": lambda: set(PARSE_REASONS),
     "indicator_categories": lambda: set(get_args(Category)),
+    "own_rules": lambda: set(get_args(Rule)),
+    "build_statuses": lambda: set(get_args(BuildResult.model_fields["status"].annotation)),
 }
 STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's and JobInfo's own
     "queued": ["position"],
@@ -97,6 +101,8 @@ STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's
     "update_snapshot": ["day", "done", "total"],
     "update_factors": ["done", "total"],
     "relocate_copy": ["done_mb", "total_mb"],
+    "build_stocks": ["code", "done", "total"],
+    "build_factors": ["done", "total"],
 }
 
 

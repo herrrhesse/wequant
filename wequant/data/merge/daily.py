@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Iterable
+from pathlib import Path
 
 import polars as pl
 
@@ -72,6 +73,19 @@ def read_daily(raw: BaoStockRaw, days: Iterable[dt.date]) -> pl.DataFrame:
     daily = pl.concat([parse_daily(frame, turn=True), source], how="horizontal").collect(engine="streaming")
     check(daily.lazy(), _row_checks(daily))
     return daily
+
+
+def read_history(paths: Iterable[Path], days: Iterable[dt.date]) -> pl.DataFrame:
+    """read_daily of the given days from per-stock history files (round 3), with the same checks; a row's date has to
+    be one of the days instead of the file's."""
+    wanted = [day.isoformat() for day in days]
+    scan = pl.scan_parquet([str(p) for p in paths])
+    frame = scan.select(*COLUMNS).filter(pl.col("date").is_in(wanted)).with_columns(file=pl.col("date"))
+    check(frame, TEXT_CHECKS)
+    source = frame.select(source=pl.lit("baostock@") + pl.col("_baostock_version"))
+    daily = pl.concat([parse_daily(frame, turn=True), source], how="horizontal").collect(engine="streaming")
+    check(daily.lazy(), _row_checks(daily))
+    return daily.sort("date", "code")
 
 
 def check(frame: pl.LazyFrame, checks: dict[str, pl.Expr]) -> None:

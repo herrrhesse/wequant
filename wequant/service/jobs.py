@@ -22,21 +22,26 @@ from wequant.service.base import (
     not_found,
     read_version,
 )
+from wequant.service.build import BackfillResult, BuildResult
 from wequant.service.details import usage, validated
 from wequant.service.errors import ServiceError
 from wequant.service.homes import Relocated
 from wequant.service.labels import EXITS, job_text
 from wequant.service.outputs import Params
+from wequant.service.own import OwnImported
 from wequant.service.queue import FINAL, Job, Jobs, Kind
 from wequant.service.running import imported
 from wequant.service.update import UpdateResult
 
-JobKind = Literal["backtest", "data_update", "data_relocate"]
+JobKind = Literal["backtest", "data_update", "data_relocate", "data_build", "data_backfill", "data_own_import"]
 JobState = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 KINDS = {  # a backtest in a thread of the server, with its warm caches; the update in a worker process of its own
     "backtest": Kind("wequant.service.backtest:backtest"),
     "data_update": Kind("wequant.service.update:data_update", source="baostock", process=True),
     "data_relocate": Kind("wequant.service.homes:data_relocate"),  # a thread: it switches the server's data root
+    "data_build": Kind("wequant.service.build:data_build", source="baostock", process=True),
+    "data_backfill": Kind("wequant.service.build:data_backfill", source="baostock", process=True),
+    "data_own_import": Kind("wequant.service.own:data_own_import"),
 }
 
 
@@ -98,7 +103,7 @@ class JobList(Model):
     """Jobs that run at a time; the others wait."""
 
 
-class JobOutput(RootModel[BacktestResult | UpdateResult | Relocated]):
+class JobOutput(RootModel[BacktestResult | UpdateResult | Relocated | BuildResult | BackfillResult | OwnImported]):
     """A succeeded job's result: what its operation run directly returns (backtest: BacktestResult, data_update:
     UpdateResult)."""
 

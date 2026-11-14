@@ -88,7 +88,10 @@ class Market:
         return FakeResult(STOCK_BASIC, rows)
 
     def _query_history_k_data_plus(self, code, fields, start_date, end_date, frequency, adjustflag):
-        assert fields == INDEX_FIELDS
+        if fields != INDEX_FIELDS:  # one stock's history (round 3's build): its snapshot rows over the window
+            names, days = fields.split(","), sorted(d for d in self.days if start_date <= d.isoformat() <= end_date)
+            rows = [[row[f] for f in names] for d in days for row in self.days[d] if row["code"] == code]
+            return FakeResult(names, rows)
         days = [d for d in self.days if start_date <= d.isoformat() <= end_date]
         return FakeResult(
             fields.split(","), [[d.isoformat(), code, *["3100.0000"] * 4, "1000000", "3.1e9"] for d in days]

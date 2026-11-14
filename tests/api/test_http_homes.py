@@ -14,6 +14,8 @@ from wequant.service import Context, JobInfo
 from wequant.service.contract import OPERATIONS, route
 
 COVERED = ("fs_places", "fs_list", "fs_mkdir", "data_use_home", "data_relocate", "setup_status", "setup_save")
+COVERED += ("data_build_estimate", "data_build", "data_backfill", "data_own_check", "data_own_import")  # and S2.9:
+# the BaoStock ones run on tests.service.test_build's fake; their routes are the snapshot's like every other
 
 
 def call(client, name: str, fields: dict | None = None):
@@ -47,13 +49,18 @@ def test_a_copy_job_switches_the_server_to_the_copy(market_home, tmp_path, cache
     assert (market_home / "manifest.json").exists()  # a copy leaves the old folder
 
 
+def unreachable():
+    raise ConnectionError("no BaoStock in the tests")
+
+
 def test_an_empty_data_root_starts_and_no_operation_answers_500(tmp_path, cache, monkeypatch):
-    """Every operation with an empty body on a folder that does not exist: a clear refusal, never a 500."""
-    monkeypatch.setattr("wequant.data.sources.baostock.import_baostock", lambda: pytest.fail("no BaoStock here"))
+    """Every operation with an empty body on a folder that does not exist: a clear refusal, never a 500 (a build
+    goes to BaoStock, here unreachable: 503)."""
+    monkeypatch.setattr("wequant.data.sources.baostock.import_baostock", unreachable)
     with TestClient(create_app(Context.resident(tmp_path / "missing", cache))) as client:
         answers = {op.__name__: call(client, op.__name__).status_code for op in OPERATIONS}
         status = call(client, "setup_status").json()
-    assert [name for name, code in answers.items() if code >= 500] == []
+    assert [name for name, code in answers.items() if code == 500] == []
     assert status["needs_setup"] and answers["data_status"] == 404
 
 
@@ -61,6 +68,8 @@ READS = [  # the same request on one folder: the command's --json and the route'
     (["fs", "places"], "fs_places", {}),
     (["fs", "list", "{dir}"], "fs_list", {"path": "{dir}"}),
     (["setup", "status"], "setup_status", {}),
+    (["data", "build-estimate", "--years", "1"], "data_build_estimate", {"years": 1}),
+    (["data", "own-check", "{dir}"], "data_own_check", {"path": "{dir}"}),
 ]
 
 
