@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from wequant.data.build import OLDEST, Built, backfill, build
+from wequant.data.build import OLDEST, Built, Say, backfill, build
 from wequant.data.merge import StalePlan
 from wequant.data.raw import BaoStockRaw
 from wequant.data.sources.baostock import BaoStock, BaoStockError
@@ -107,7 +107,7 @@ def data_build(request: BuildRequest, context: Context = Context()) -> BuildResu
     started, store = time.monotonic(), context.store()
     if (found := store.manifest()) is not None:  # no BaoStock session for a data root that has data
         return _result(Built("exists", found["version"]), started, context)
-    work = lambda source: build(store, source, request.years, _now(context), context.progress, context.cancel)  # noqa: E731
+    work = lambda source, say: build(store, source, request.years, _now(context), say, context.cancel)  # noqa: E731
     built = _session(work, context)
     if built.version is not None:
         tidy(context)
@@ -121,7 +121,7 @@ def data_backfill(request: BackfillRequest, context: Context = Context()) -> Bac
     manifest(store)  # NOT_FOUND no_store: history goes behind a first version
     while True:
         started = time.monotonic()
-        work = lambda source: backfill(store, source, _now(context), context.progress, context.cancel, request.oldest)  # noqa: E731
+        work = lambda source, say: backfill(store, source, _now(context), say, context.cancel, request.oldest)  # noqa: E731
         built = _session(work, context)
         if built.status != "built":
             return BackfillResult(segments=segments, status="complete")
@@ -129,14 +129,21 @@ def data_backfill(request: BackfillRequest, context: Context = Context()) -> Bac
         segments.append(_result(built, started, context))
 
 
-def _session(work: Callable[[BaoStock], Built], context: Context) -> Built:
+def _session(work: Callable[[BaoStock, Say], Built], context: Context) -> Built:
     """work in a BaoStock session, started again (from the files fetched so far) while BaoStock fails, RECONNECTS
-    times at most, PAUSE seconds apart; the last failure raises."""
-    say, cancel = context.progress or (lambda step: None), context.cancel or (lambda: False)
+    times at most, PAUSE seconds apart; the last failure raises. The share done never goes back: the wait and a new
+    session's first steps, over files already fetched, report the share reached before."""
+    reached, cancel = [0.0], context.cancel or (lambda: False)
+
+    def say(step: Step) -> None:
+        reached[0] = max(reached[0], step.fraction)
+        if context.progress:
+            context.progress(step._replace(fraction=reached[0]))
+
     for attempt in range(RECONNECTS + 1):
         try:
             with _baostock() as source:
-                return work(source)
+                return work(source, say)
         except ServiceError as error:
             if error.exit != Exit.UNREACHABLE or attempt == RECONNECTS:
                 raise
