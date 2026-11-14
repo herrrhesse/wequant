@@ -101,7 +101,7 @@ test("strategy to backtest: no run button or last run here; 回测 opens the for
   await expect(page.getByLabel("结束日")).toHaveValue(cal.last);
   await expect(page.getByLabel("初始资金")).not.toHaveValue("");
   await page.getByRole("button", { name: "开始回测" }).click();
-  await expect(page).toHaveURL(/#\/backtest\?run=[0-9a-f]+/, { timeout: 90_000 });
+  await expect(page).toHaveURL(/#\/backtest\?.*run=[0-9a-f]+/, { timeout: 90_000 });
   await expect(page.locator(".current-tag")).toHaveCount(1);
 });
 
@@ -170,7 +170,7 @@ test("backtest: default settings run; metrics show a value or a reason; a picked
   await page.goto("#/backtest");
   await page.getByLabel("策略", { exact: true }).selectOption(preset);
   await page.getByRole("button", { name: "开始回测" }).click();
-  await expect(page).toHaveURL(/#\/backtest\?run=[0-9a-f]+/, { timeout: 90_000 });
+  await expect(page).toHaveURL(/#\/backtest\?.*run=[0-9a-f]+/, { timeout: 90_000 });
   // The form is first and the run records are last, with the results between them.
   await expect(page.getByRole("region", { name: "回测结果" })).toBeVisible();
   const order = await page.locator("main > section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
@@ -292,4 +292,60 @@ test("storage: an old version in use is announced and one click goes back; a pin
   await expect(rows.first().getByRole("button", { name: "删除" })).toBeDisabled();
   await page.locator('input[type=file][accept=".wqrun"]').setInputFiles({ name, mimeType: "application/octet-stream", buffer: (await import("node:fs")).readFileSync(file) });
   await expect(list.getByRole("status")).toBeVisible();
+});
+
+test("a strategy saved with an index no longer offered opens and shows it as an old option", async ({ page, request }) => {
+  const old = await (await request.post("api/strategy_save", { data: { strategy: { ...spec, pool: { index: "000906.SH", exclude_st: true } }, name: `e2e-old-index-${STAMP}` } })).json();
+  await page.goto(`#/strategy?id=${old.id}`);
+  const scope = page.locator("[data-step=index]");
+  await expect(scope).toContainText("旧选项");
+  await expect(scope.getByRole("button", { pressed: true })).toHaveCount(1);
+  await expect(page.locator(".strat-aside .funnel")).toBeVisible();
+});
+
+test("backtest results follow the chosen strategy: its latest run, or an empty state when it has none", async ({ page, request }) => {
+  // Different content from the preset: runs belong to every saved strategy with the same content.
+  const fresh = await (await request.post("api/strategy_save", { data: { strategy: { ...spec, top_n: 4 }, name: `e2e-unrun-${STAMP}` } })).json();
+  await page.goto(`#/backtest?use=${fresh.id}`);
+  const result = page.getByRole("region", { name: "回测结果" });
+  await expect(result).toContainText("这个策略还没有回测过");
+  await page.getByLabel("策略", { exact: true }).selectOption(preset);
+  await expect(result.locator(".card-head h2").first()).toHaveText(`e2e-preset-${STAMP}`);
+  const rows = page.getByRole("region", { name: "运行记录" }).locator("tbody tr");
+  await rows.last().click();
+  await expect(rows.last().locator(".current-tag")).toBeVisible();
+});
+
+test("empty pages say what to do next, and their buttons go there", async ({ page }) => {
+  await page.route("**/api/runs_list", (r) => r.fulfill({ json: { total: 0, offset: 0, limit: 100, rows: [] } }));
+  await page.goto("#/");
+  await page.getByRole("region", { name: "最近的回测" }).getByRole("link", { name: "去回测" }).click();
+  await expect(page).toHaveURL(/#\/backtest/);
+  await page.unroute("**/api/runs_list");
+  await page.route("**/api/strategy_list", (r) => r.fulfill({ json: { rows: [] } }));
+  await page.goto("#/strategy?view=list");
+  await page.getByRole("region", { name: "我的策略" }).getByRole("link", { name: /新建空白策略/ }).click();
+  await expect(page).toHaveURL(/#\/strategy\?new=1/);
+  await page.unroute("**/api/strategy_list");
+  await page.route("**/api/screen", async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    await route.fulfill({ response: res, json: { ...body, rows: [] } });
+  });
+  await page.goto(`#/picks?id=${preset}`);
+  await page.getByRole("link", { name: "去策略页调整" }).click();
+  await expect(page).toHaveURL(/#\/strategy/);
+  await page.goto("#/data");
+  await expect(page.getByRole("region", { name: "数据问题" }).locator(".empty")).toBeVisible();
+});
+
+test("help: each strategy section explains itself on request; backtest metrics explain themselves on hover", async ({ page }) => {
+  await page.goto(`#/strategy?id=${preset}`);
+  const buttons = page.locator(".strat-main .what-btn");
+  await expect(buttons).toHaveCount(4);
+  for (const b of await buttons.all()) await b.click();
+  await expect(page.locator(".strat-main .what-text")).toHaveCount(4);
+  await page.goto("#/backtest");
+  const tile = page.locator(".kpis").first().locator(".stat").first();
+  await expect(tile).toHaveAttribute("data-tip", /\S+：\S+/);
 });

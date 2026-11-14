@@ -4,23 +4,23 @@
 // and the run records at the bottom.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { commandOf, modelDefaults, useCall, useCallMutation } from "../../api/client";
-import { poolIndexCodes } from "../../api/contract-info";
+import { INDEX_CHOICES, indexName } from "../../components/IndexSeg";
 import { cancelJob, finished, useJob } from "../../api/jobs";
 import { jobView } from "../../api/jobstate";
-import type { DataSpec, ErrorBody, ExecutionSpec, JobInfo, StrategySpec } from "../../api/types.gen";
+import type { DataSpec, ErrorBody, ExecutionSpec, JobInfo, RunRow, StrategySpec } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
 import { useElapsed } from "../../hooks";
 import { useLabels, type LabelBook } from "../../labels";
 import { href, type Route } from "../../router";
 import { useUi } from "../../ui";
-import { st as strategyText } from "../strategy/text";
 import { ResultView } from "./ResultView";
 import { Compare, RunList, type NameOf } from "./RunList";
 
 type BacktestRoute = Extract<Route, { page: "backtest" }>;
 const DRAFT = "wequant.strategy.draft";
 const DRAFT_NAME = "策略页的草稿";
+const DRAFT_KEY = "__draft";
 
 function draftSpec(): { spec: StrategySpec; name: string } | null {
   try {
@@ -37,28 +37,50 @@ export function BacktestPage({ route }: { route: BacktestRoute }) {
   const names = useMemo(() => new Map((list.data?.rows ?? []).map((s) => [s.id, s.name])), [list.data]);
   const nameOf: NameOf = (r) => (r.saved_as[0] && names.get(r.saved_as[0].id)) || "未保存的策略";
   const [started, setStarted] = useState<number | null>(null);
-  const id = route.run ?? runs.data?.rows[0]?.id ?? null;
+  // The draft's content hash tells which runs were made from it (runs record the hash of what they ran).
+  const draft = draftSpec();
+  const draftCheck = useCall("strategy_validate", draft ? { strategy: draft.spec } : null);
+  const draftHash = draftCheck.data?.strategy_hash ?? null;
+  const rows = runs.data?.rows ?? [];
+  const keyOf = (r: RunRow): string | null => r.saved_as[0]?.id ?? (draftHash && r.strategy_hash === draftHash ? DRAFT_KEY : null);
+  // The chosen strategy: as opened (?use), else the strategy of the run shown, else of the newest run.
+  const shownRun = route.run ? rows.find((r) => r.id === route.run) : rows[0];
+  const chosen =
+    (route.use === "draft" ? (draft ? DRAFT_KEY : null) : route.use) ?? (shownRun ? keyOf(shownRun) : null) ?? list.data?.rows[0]?.id ?? (draft ? DRAFT_KEY : null);
+  // The result shown: the run asked for, else the chosen strategy's latest run.
+  const latest = chosen ? rows.find((r) => (chosen === DRAFT_KEY ? !!draftHash && r.strategy_hash === draftHash : r.saved_as.some((x) => x.id === chosen))) : undefined;
+  const id = route.run ?? latest?.id ?? null;
+  const choose = (key: string) => (location.hash = href.backtest({ use: key === DRAFT_KEY ? "draft" : key }));
   return (
     <main className="page">
       <StatusBar />
-      <NewBacktest use={route.use} onStarted={setStarted} />
+      <NewBacktest use={route.use} chosen={chosen ?? ""} onChoose={choose} onStarted={setStarted} />
       <Running started={started} names={names} />
       {runs.isError && <Problem error={runs.error} />}
       {route.cmp.length >= 2 && <Compare ids={route.cmp} nameOf={nameOf} />}
       {id && <ResultView key={id} id={id} day={route.day} nameOf={nameOf} />}
+      {!id && runs.isSuccess && (
+        <section className="card" aria-label="回测结果">
+          <div className="empty">{chosen ? "这个策略还没有回测过，设好日期和资金后点开始回测。" : "还没有策略。先在策略页写一个策略，再回来回测。"}</div>
+          {!chosen && (
+            <a className="btn" style={{ alignSelf: "flex-start" }} href={href.newStrategy()}>
+              去策略页新建
+            </a>
+          )}
+        </section>
+      )}
       {runs.data && <RunList rows={runs.data.rows} selected={id} cmp={route.cmp} nameOf={nameOf} />}
     </main>
   );
 }
 
-function NewBacktest({ use, onStarted }: { use: string | null; onStarted: (id: number) => void }) {
+function NewBacktest({ use, chosen, onChoose, onStarted }: { use: string | null; chosen: string; onChoose: (key: string) => void; onStarted: (id: number) => void }) {
   const L = useLabels();
   const ui = useUi();
   const defaults = modelDefaults("BacktestRequest");
   const list = useCall("strategy_list", {});
   const calendar = useCall("data_calendar", {});
   const draft = draftSpec();
-  const [strategy, setStrategy] = useState(use === "draft" && draft ? "__draft" : (use ?? ""));
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [cash, setCash] = useState(String(defaults.cash ?? ""));
@@ -69,13 +91,13 @@ function NewBacktest({ use, onStarted }: { use: string | null; onStarted: (id: n
   const begin = useCallMutation("jobs_start", ["jobs_list"]);
   const box = useRef<HTMLElement>(null);
   const go = useRef<HTMLButtonElement>(null);
-  // Opened from the strategy page: bring the form into view with the start button focused.
+  // Opened from the strategy page: bring the form into view with the start button focused (once, on opening).
+  const opened = useRef(use);
   useEffect(() => {
-    if (!use) return;
+    if (!opened.current) return;
     box.current?.scrollIntoView({ block: "start" });
     go.current?.focus({ preventScroll: true });
-  }, [use]);
-  const chosen = strategy || list.data?.rows[0]?.id || (draft ? "__draft" : "");
+  }, []);
   const first = calendar.data?.first ?? "";
   const last = calendar.data?.last ?? "";
   const from = start || first;
@@ -91,7 +113,7 @@ function NewBacktest({ use, onStarted }: { use: string | null; onStarted: (id: n
       <div className="row picks-bar">
         <label className="field">
           策略
-          <select className="select" aria-label="策略" value={chosen} onChange={(e) => setStrategy(e.target.value)}>
+          <select className="select" aria-label="策略" value={chosen} onChange={(e) => onChoose(e.target.value)}>
             {draft && (
               <option value="__draft">
                 {DRAFT_NAME}：{draft.name}
@@ -120,9 +142,9 @@ function NewBacktest({ use, onStarted }: { use: string | null; onStarted: (id: n
           基准
           <select className="select" aria-label="基准" value={benchmark} onChange={(e) => setBenchmark(e.target.value)}>
             <option value="">不设基准</option>
-            {poolIndexCodes().map((c) => (
+            {[...INDEX_CHOICES.filter((c): c is string => c !== null), ...(benchmark && !INDEX_CHOICES.includes(benchmark) ? [benchmark] : [])].map((c) => (
               <option key={c} value={c}>
-                {strategyText.scope.indexNames[c] ?? c}
+                {indexName(c)}
               </option>
             ))}
           </select>
@@ -230,7 +252,8 @@ function Running({ started, names }: { started: number | null; names: Map<string
     const out = result.data;
     if (!out || !("run_id" in out) || !job || opened.current === job.id) return;
     opened.current = job.id;
-    location.hash = href.backtest({ run: out.run_id });
+    const saved = (job.request as { saved?: { id?: string } }).saved?.id;
+    location.hash = href.backtest({ run: out.run_id, use: saved ?? "draft" });
   }, [result.data, job]);
   if (!job || job.kind !== "backtest" || job.state === "succeeded") return null;
   const name = jobName(job, names);

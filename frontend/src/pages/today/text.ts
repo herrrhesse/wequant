@@ -20,7 +20,8 @@ export const tt = {
   runs: {
     title: "最近的回测",
     all: "全部运行记录 ›",
-    none: "还没有回测过。",
+    none: "还没有回测过。在回测页选一个策略、设好日期和资金，就能看到它过去的表现。",
+    go: "去回测",
     strategy: "策略",
     range: "区间",
     ann: "年化",

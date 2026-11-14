@@ -54,6 +54,14 @@ export function MyStrategies() {
           </div>
         </div>
         {err !== null && <Problem error={err} />}
+        {list.isSuccess && rows.length === 0 && (
+          <div className="empty">
+            <span>还没有保存过策略。新建一个空白策略，或者导入别人给你的策略文件。</span>
+            <a className="btn push" href={href.newStrategy()}>
+              {st.list.new}
+            </a>
+          </div>
+        )}
         <div className="list-grid">
           {rows.map((s) => (
             <Item key={s.id} s={s} run={runs.data?.rows.find((r) => r.saved_as.some((x) => x.id === s.id)) ?? null} on={followed.includes(s.id)} />

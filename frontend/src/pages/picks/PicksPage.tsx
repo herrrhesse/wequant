@@ -5,7 +5,7 @@ import { Stock } from "../../components/Stock";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
-import { poolIndexCodes } from "../../api/contract-info";
+import { IndexSeg } from "../../components/IndexSeg";
 import type { Reject, ScreenResult, ScreenRow, StrategySpec } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
@@ -15,7 +15,6 @@ import { href, type Route } from "../../router";
 import { tx } from "../../text";
 import { useUi } from "../../ui";
 import { stepName } from "../strategy/Preview";
-import { st } from "../strategy/text";
 import { MiniK } from "./MiniK";
 import { ChainView } from "../../components/ChainView";
 import { boxes, readCondition, UNIT_TEXT } from "../../strategy/model";
@@ -150,13 +149,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
         {tweak && spec && (
           <div className="inner tweak">
             <span className="small b">换个范围</span>
-            <div className="seg" role="group" aria-label="范围">
-              {[null, ...poolIndexCodes()].map((c) => (
-                <button key={c ?? "all"} type="button" aria-pressed={(spec.pool?.index ?? null) === c} onClick={() => edit((s) => void (s.pool = { ...(s.pool ?? {}), index: c as never }))}>
-                  {c ? (st.scope.indexNames[c] ?? c) : st.scope.all}
-                </button>
-              ))}
-            </div>
+            <IndexSeg label="范围" value={spec.pool?.index ?? null} onChange={(c) => edit((s) => void (s.pool = { ...(s.pool ?? {}), index: c as never }))} />
             <span className="small b">因子权重</span>
             {(spec.factors ?? []).map((f, i) => (
               <label key={f.name} className="row small">
@@ -253,7 +246,14 @@ function Scored({ r, pick }: { r: ScreenResult; pick: (c: string) => void }) {
         <h2>有分股票 {r.rows.length} 只</h2>
         <span className="push small muted">按综合分排序；点一行看因子明细和判断链</span>
       </div>
-      {r.rows.length === 0 && <span className="note">这一天没有股票通过全部条件。看看漏斗里哪一级剔除得最多。</span>}
+      {r.rows.length === 0 && (
+        <div className="empty">
+          <span>这一天没有股票通过全部条件。看看左边漏斗里哪一级剔除得最多，再去策略页放宽那一条。</span>
+          <a className="btn push" href={href.strategy()}>
+            去策略页调整
+          </a>
+        </div>
+      )}
       {r.rows.length > 0 && (
         <div className="tbl-wrap">
           <table className="tbl">

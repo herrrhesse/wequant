@@ -157,7 +157,7 @@ function Picks({ spec, screen, fading, blocked, noFactors }: Props & { fading: s
           选股页 ›
         </a>
       </div>
-      {rows.length === 0 && <span className="note">{st.preview.none}</span>}
+      {rows.length === 0 && <div className="empty">{st.preview.none}</div>}
       {rows.length > 0 && (
         <div className="tbl-wrap" style={{ maxHeight: 360 }}>
           <table className="tbl">

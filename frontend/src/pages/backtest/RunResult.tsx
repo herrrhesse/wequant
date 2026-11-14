@@ -133,7 +133,7 @@ export function Kpis({ run }: { run: RunDetail }) {
   const tile = (k: string) => {
     const m = metricShown(run.metrics[k]);
     return (
-      <div key={k} className="stat">
+      <div key={k} className="stat" tabIndex={0} data-tip={[lb().of("metrics", k), lb().help("metrics", k)].filter(Boolean).join("：")}>
         <span className="stat-l">{lb().of("metrics", k)}</span>
         <span className="stat-v num">{m.text}</span>
         {m.reason && <span className="stat-s">{lb().of("metric_reasons", m.reason)}</span>}

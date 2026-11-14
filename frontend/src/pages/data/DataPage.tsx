@@ -54,7 +54,17 @@ export function DataPage({ route }: { route: DataRoute }) {
           )}
         </div>
         {res.isError && <Problem error={res.error} />}
-        {res.data && res.data.rows.length === 0 && <span className="note">{tab === "proposed" ? "没有待批准的处理。" : "没有记录。"}</span>}
+        {res.data && res.data.rows.length === 0 && (
+          <div className="empty">
+            <span>
+              {tab === "proposed"
+                ? "现在没有要你决定的数据问题。更新数据时，如果两个来源对不上，这里会列出建议的处理，等你批准或驳回。"
+                : tab === "approved"
+                  ? "还没有批准过的处理。"
+                  : "还没有驳回过的处理。"}
+            </span>
+          </div>
+        )}
         {res.data?.rows.map((r) => <ResolutionRow key={`${r.code}/${r.date}/${r.kind}`} r={r} />)}
       </section>
       <div className="split">
