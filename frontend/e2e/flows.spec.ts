@@ -809,7 +809,7 @@ test.describe("first-run setup", () => {
     const second = [...jobs.values()].at(-1)!;
     Object.assign(second, { state: "succeeded", fraction: 1, stage: "build_commit", params: {} });
     // Done: the history fills in behind (on by default), and the setup goes on.
-    const history = page.getByRole("status", { name: "后台补全更早的历史（到 2000 年）" });
+    const history = page.getByRole("status", { name: /^后台补全更早的历史（到 \d{4} 年）/ });
     await expect(history).toBeVisible();
     expect(starts.at(-1)!.kind).toBe("data_backfill");
     await expect(page.getByText("最近 1 年的数据已经可用")).toBeVisible();

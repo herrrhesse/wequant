@@ -7,6 +7,14 @@ declare module "./types.gen" {
     /** Leave out stocks in their last trading days before delisting (short name with 退); default off when absent. */
     exclude_delisting?: boolean;
   }
+  interface ScopeStatus {
+    /** Each index of the oldest layer with its first member-list day (empty when that layer holds every stock). */
+    member_floors?: BackfillFloor[];
+  }
+  interface BuildEstimate {
+    /** The same for the scope of this build. */
+    member_floors?: BackfillFloor[];
+  }
   interface Labels {
     /** Each scope item's short name (funnel, judgment chain) and its sentence (the strategy page's row). */
     pool_items?: Label[];

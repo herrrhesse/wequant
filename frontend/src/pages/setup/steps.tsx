@@ -22,6 +22,7 @@ import {
 import { BARS_EXAMPLE, SECURITIES_EXAMPLE } from "./examples";
 import { type Pick, ScopeChoice, scopeOf, useEstimate } from "./Scope";
 import { show } from "../../format";
+import { historyStop, stopNote, stopYear } from "../../components/history";
 
 const SOURCES: { source: Source; desc: string }[] = [
   {
@@ -48,6 +49,8 @@ export function SourceStep(props: {
   const here = useFolder(folder);
   const scope = scopeOf(pick);
   const estimate = useEstimate(years, scope, source === "baostock");
+  // Data downloaded by index goes back to its member lists only (the backend's days for this scope).
+  const buildStop = historyStop(estimate.data?.member_floors);
   const useHome = useCallMutation("data_use_home");
   const current = folder === status.home;
   // Building and importing go into an empty or new folder (the backend switches to it, making it when missing); a
@@ -168,8 +171,13 @@ export function SourceStep(props: {
               checked={backfill}
               onChange={(e) => props.setBackfill(e.target.checked)}
             />
-            建好后在后台补齐到 2000 年（可以随时暂停）
+            建好后在后台补齐到 {stopYear(buildStop)} 年（可以随时暂停）
           </label>
+          {backfill && buildStop && (
+            <span className="tiny muted" role="note" aria-label="补齐能补到哪天">
+              {stopNote(buildStop)}
+            </span>
+          )}
           <span className="tiny muted">
             BaoStock 一次只允许一个连接，建库期间别在别处登录 BaoStock。
           </span>
@@ -295,6 +303,7 @@ export function BuildStep({
 export function HistoryStep({ ctx, back }: { ctx: Ctx; back: () => void }) {
   const { job, years } = ctx;
   const running = !!job && job.kind === "data_backfill" && !finished(job);
+  const stop = historyStop(useCall("data_status", ctx.status.has_data ? {} : null).data?.scope?.member_floors);
   const resume = () =>
     void ctx.start("data_backfill", {}, "history").catch(() => undefined);
   return (
@@ -305,7 +314,7 @@ export function HistoryStep({ ctx, back }: { ctx: Ctx; back: () => void }) {
       {job && running ? (
         <JobBar
           job={job}
-          label={`后台补全更早的历史（到 2000 年）${fillYears(job) ? ` · 正在补 ${fillYears(job)}` : ""}`}
+          label={`后台补全更早的历史（到 ${stopYear(stop)} 年）${fillYears(job) ? ` · 正在补 ${fillYears(job)}` : ""}`}
         >
           <button
             type="button"
@@ -318,7 +327,7 @@ export function HistoryStep({ ctx, back }: { ctx: Ctx; back: () => void }) {
       ) : (
         <span className="small">
           {job?.state === "succeeded"
-            ? "更早的历史已经补齐到 2000 年。"
+            ? `更早的历史已经补齐到 ${stop ? stop.stop.date : "2000 年"}。`
             : job?.state === "failed"
               ? ""
               : "补全更早的历史已暂停，已经补上的部分保留。"}
