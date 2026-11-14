@@ -22,10 +22,10 @@ from wequant.service.outputs import Warning
 from wequant.strategy import Strategy
 
 ALL_STOCKS = {1: 5_250, 3: 5_330, 5: 5_418}  # SH/SZ stocks listed in the last 1, 3, 5 years (stock_basic, 2026-11-14)
-MEMBER_STOCKS = {  # stocks that were members at some time in the last 1, 3, 5 years: PLACEHOLDER until S2.11 measures
-    ("000300.SH",): {1: 330, 3: 400, 5: 470},
-    ("000905.SH",): {1: 560, 3: 700, 5: 850},
-    ("000300.SH", "000905.SH"): {1: 880, 3: 1_080, 5: 1_280},
+MEMBER_STOCKS = {  # stocks that were members at some time in the last 1, 3, 5 years (monthly lists, 2026-11-14)
+    ("000300.SH",): {1: 331, 3: 380, 5: 440},
+    ("000905.SH",): {1: 603, 3: 776, 5: 933},
+    ("000300.SH", "000905.SH"): {1: 892, 3: 1_042, 5: 1_176},
 }
 DATA_SCOPE_TEXTS = {  # the English text of each data scope warning, filled from its params
     "scope_beyond_data": lambda p: f"the data holds only {p['data']}; {p['scope']} picks among those stocks alone",

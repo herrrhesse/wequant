@@ -10,7 +10,7 @@ LEGACY = ("000906.SH", "000852.SH", "000985.SH")  # still read where the store h
 INDEXES = (*OFFERED, *LEGACY)  # the codes member@ takes
 STORED_AS = {"000300.SH": "399300.SZ"}  # the code an index's rows carry in index_members, where it differs
 MEMBER_QUERIES = {"000300.SH": "query_hs300_stocks", "000905.SH": "query_zz500_stocks"}  # BaoStock's member lists
-MEMBERS_SINCE = {  # the first day BaoStock lists members of each offered index: PLACEHOLDER until S2.11 measures it
+MEMBERS_SINCE = {  # the first day BaoStock lists members of each offered index (measured 2026-11-14, S2.11)
     "000300.SH": dt.date(2006, 1, 4),
     "000905.SH": dt.date(2007, 1, 15),
 }
