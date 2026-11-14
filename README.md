@@ -438,9 +438,11 @@ uv run wequant data own-check FOLDER ; uv run wequant data own-import FOLDER   #
 ```
 
 - **`data build`** fills an empty data root from BaoStock with the last 1, 3 or 5 years up to the latest closed
-  trading day: every SH/SZ stock's daily snapshots (`query_daily_history_k_AStock`, prices, preclose, volume, amount,
-  trade status, ST) and adjustment events, each listed code's factor history, names and official dates
-  (`query_stock_basic`), and CSI 300 and CSI 500 bars and members (member lists of each month's first trading day,
+  trading day, fetched stock by stock (measured 2.4 times as fast as a cross-section per day on 2026-11-14): every
+  SH/SZ stock listed in the window, delisted ones included (`query_stock_basic`, which also gives names and official
+  dates), with one `query_history_k_data_plus` request for its rows over the window (prices, preclose, volume,
+  amount, turnover, trade status, ST), each code's whole factor history (`query_adjust_factor`), and CSI 300 and CSI
+  500 bars and members (member lists of each month's first trading day,
   dated by BaoStock's `updateDate`). Every response goes to the raw layer first and the S2.4b merge then builds every
   table from the raw files on an empty base, with its checks and `data_issues`; one version, reason 首次建库. A data
   root with data makes no version (`exists`, no BaoStock session). A cancel leaves no version and keeps what was

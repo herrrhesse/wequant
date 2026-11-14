@@ -77,9 +77,10 @@ def data_own_import(request: OwnRequest, context: Context = Context()) -> OwnImp
         raise ServiceError(Exit.USAGE, str(error), [ErrorDetail(code="bad_file", message=str(error))]) from None
     if context.cancel is not None and context.cancel():
         raise ServiceError(Exit.INTERRUPTED, "import cancelled; nothing was written")
-    days = tables["calendar"].height
+    days, last = tables["calendar"].height, tables["calendar"]["date"].max()
+    meta = {"source": own.SOURCE, "last_trade_date": last.isoformat()}  # the version is named by it (F-29)
     with guarded():
-        result = store.commit({"source": own.SOURCE}, replace=tables, reason="own_import", reason_params={"days": days})
+        result = store.commit(meta, replace=tables, reason="own_import", reason_params={"days": days})
     return OwnImported(
         version=result.version,
         version_name=name_of(store, result.version),

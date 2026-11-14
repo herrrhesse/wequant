@@ -14,6 +14,7 @@ from typing import Literal
 from wequant import user_config
 from wequant.data.store import Store, StoreLocked
 from wequant.data.update import Step
+from wequant.paths import absolute
 from wequant.service.base import Context, ErrorDetail, Model, manifest, not_found
 from wequant.service.errors import Exit, ServiceError
 from wequant.storage.relocate import (
@@ -27,6 +28,7 @@ from wequant.storage.relocate import (
     remove_source,
 )
 
+GIB = 1 << 30
 STAGES = ("relocate_check", "relocate_copy", "relocate_switch", "relocate_remove")
 MIB = 1 << 20
 
@@ -108,7 +110,7 @@ class SetupSaveRequest(SetupState):
 
 def data_use_home(request: UseHomeRequest, context: Context = Context()) -> HomeSwitched:
     """Use another folder that holds complete WeQuant data; refused, with the reason, for any other folder."""
-    target = Path(request.path).expanduser().absolute()
+    target = absolute(request.path)
     if (refused := problem(target)) is not None:
         raise _refusal(refused)
     current = context.store()
@@ -122,7 +124,7 @@ def data_relocate(request: RelocateRequest, context: Context = Context()) -> Rel
     remove the old folder; cancelled or failed, the old folder stays as it was and the new one is cleaned up."""
     store, started = context.store(), time.monotonic()
     manifest(store)  # NOT_FOUND no_store
-    source, target = store.home.absolute(), Path(request.to).expanduser().absolute()
+    source, target = absolute(store.home), absolute(request.to)
     say = context.progress or (lambda step: None)
     say(Step(STAGES[0], 0.0, {}))
     files = files_of(source)
@@ -150,7 +152,7 @@ def data_relocate(request: RelocateRequest, context: Context = Context()) -> Rel
 
 def setup_status(request: SetupStatusRequest, context: Context = Context()) -> SetupStatus:
     """The data root in use and whether it needs the first-run setup; never fails on an empty or missing folder."""
-    home = context.store().home
+    home = absolute(context.store().home)
     has_data = is_data_root(home)
     saved = SetupState.model_validate(user_config.load().get("setup") or {})
     return SetupStatus(
@@ -220,7 +222,16 @@ def _switch(context: Context, home: Path) -> None:
 def _refusal(error: Refused) -> ServiceError:
     if error.code == "no_directory":
         return not_found("no_directory", str(error), ["path"])
-    return ServiceError(Exit.USAGE, str(error), [ErrorDetail(code=error.code, message=str(error))])
+    detail = ErrorDetail(code=error.code, message=str(error), **_space(error))
+    return ServiceError(Exit.USAGE, str(error), [detail])
+
+
+def _space(error: Refused) -> dict:
+    """no_space's hint with the sizes (F-32): how much the disk has free and how much the data takes."""
+    if error.code != "no_space":
+        return {}
+    free, size = (error.params[key] / GIB for key in ("free", "size"))
+    return {"hint": f"新位置所在的磁盘只剩 {free:.1f} GB，这些数据需要 {size:.1f} GB：请换一个位置，或者先腾出空间"}
 
 
 def _source(context: Context) -> str:

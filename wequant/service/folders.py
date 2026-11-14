@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
 
+from wequant.paths import absolute
 from wequant.service.base import Context, ErrorDetail, Model, not_found
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.specs import Name
@@ -86,7 +86,7 @@ def fs_places(request: PlacesRequest, context: Context = Context()) -> Places:
 
 def fs_list(request: FolderRequest, context: Context = Context()) -> Listing:
     """A folder's subfolders, each marked when it is a WeQuant data root; no file names."""
-    path = Path(request.path).expanduser().absolute()
+    path = absolute(request.path)
     with refused():
         found = folders.subfolders(path)
         free = folders.free_bytes(path)
@@ -99,7 +99,7 @@ def fs_list(request: FolderRequest, context: Context = Context()) -> Listing:
 def fs_mkdir(request: MkdirRequest, context: Context = Context()) -> Made:
     """Make a folder inside path."""
     with refused():
-        return Made(path=str(folders.make(Path(request.path).expanduser().absolute(), request.name)))
+        return Made(path=str(folders.make(absolute(request.path), request.name)))
 
 
 @contextmanager
