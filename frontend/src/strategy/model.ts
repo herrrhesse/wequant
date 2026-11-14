@@ -2,6 +2,7 @@
 // names and the funnel numbers each row shows. Only the user's choices are written; no stock data is computed here.
 import type { ConditionSpec, FactorSpec, FunnelStep, GroupSpec, StepCheck, StrategySpec } from "../api/types.gen";
 import { conditionForm, metricForm, parseCondition, parseMetric, type Compare, type Form, type Metric } from "./expr.ts";
+import { formulaOf, type Formula } from "./formula.ts";
 import { metricUnit, toBackend, toDisplay, type Unit } from "./fields.ts";
 
 export type Filter = ConditionSpec | GroupSpec;
@@ -74,20 +75,23 @@ export const metricKey = (m: Metric) => JSON.stringify(metricForm(m));
 
 export type Mode = "gt" | "lt" | "topn" | "toppct";
 
-/** A condition row as the page edits it; `custom` when its expression is not one the builder writes. */
+/** A condition row as the page edits it; `custom` when its expression is not one the builder writes: a formula the
+ * user wrote (formula), or a JSON tree shown through the backend's formatting until it is edited (formula null). */
 export type Row =
   | { custom: false; metric: Metric; mode: Mode; dir: "high" | "low"; value: string; unit: Unit }
-  | { custom: true; text: string };
+  | { custom: true; formula: Formula | null; expr: ConditionSpec["expr"] };
 
 export function readCondition(expr: ConditionSpec["expr"]): Row {
+  const formula = formulaOf(expr);
+  if (formula) return { custom: true, formula, expr };
   const parsed = parseCondition(expr as Form);
-  if (!parsed) return { custom: true, text: typeof expr === "string" ? expr : JSON.stringify(expr) };
+  if (!parsed) return { custom: true, formula: null, expr };
   const { metric, compare } = parsed;
   const unit = metricUnit(metric);
   if (compare.op === "gt" || compare.op === "lt") return { custom: false, metric, mode: compare.op, dir: "high", value: String(toDisplay(compare.value, unit)), unit };
   if (compare.op === "top_n") return { custom: false, metric, mode: "topn", dir: compare.dir, value: String(compare.n), unit };
   if (compare.op === "top_pct") return { custom: false, metric, mode: "toppct", dir: compare.dir, value: String(compare.pct), unit };
-  return { custom: true, text: JSON.stringify(expr) };
+  return { custom: true, formula: null, expr };
 }
 
 export type Expr = ConditionSpec["expr"];
@@ -105,21 +109,14 @@ export function writeCondition(r: Exclude<Row, { custom: true }>): Expr | null {
   return exprOf(conditionForm(r.metric, c));
 }
 
-/** A custom expression typed by the user: JSON when it parses as an array, else the text as a string expression. */
-export function readCustom(text: string): Expr {
-  const s = text.trim();
-  if (s.startsWith("[")) {
-    try {
-      return JSON.parse(s) as Expr;
-    } catch {
-      return s;
-    }
-  }
-  return s;
-}
+const FORMULA_NAMES = { day: "公式", week: "周线公式", month: "月线公式" } as const;
 
 export function autoName(r: Row): string {
-  if (r.custom) return r.text.length > 24 ? `${r.text.slice(0, 24)}…` : r.text;
+  if (r.custom && r.formula) return FORMULA_NAMES[r.formula.period ?? "day"];
+  if (r.custom) {
+    const text = typeof r.expr === "string" ? r.expr : JSON.stringify(r.expr);
+    return text.length > 24 ? `${text.slice(0, 24)}…` : text;
+  }
   const m = metricName(r.metric);
   if (r.mode === "gt") return `${m}大于 ${r.value}${UNIT_TEXT[r.unit]}`;
   if (r.mode === "lt") return `${m}小于 ${r.value}${UNIT_TEXT[r.unit]}`;

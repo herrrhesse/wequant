@@ -40,14 +40,15 @@ test.describe("an invalid strategy on purpose", () => {
     await page.getByRole("button", { name: "＋ 添加因子" }).click();
     await expect(page.locator(".strat-aside table tbody tr").first()).toBeVisible();
     await page.getByRole("button", { name: "＋ 添加条件", exact: true }).click();
-    await page.getByRole("button", { name: /自定义表达式/ }).click();
-    await page.getByLabel("表达式").fill('["GT", ["MA", "amout", 5], ["MA", "amount", 20]]');
+    await page.getByRole("button", { name: /自定义公式/ }).click();
+    const formula = page.getByLabel("公式", { exact: true });
+    await formula.fill("MA(AMOUT,5)>MA(AMOUNT,20)");
     await blur(page);
     // The backend's error points at that condition; the row is marked and says what is wrong in Chinese.
     await expect(page.locator(".cond.has-err")).toHaveCount(1);
     await expect(page.locator(".cond.has-err .err-text")).not.toBeEmpty();
     await expect(page.locator(".state.errors")).toBeVisible();
-    await page.getByLabel("表达式").fill('["GT", ["MA", "amount", 5], ["MA", "amount", 20]]');
+    await formula.fill("MA(AMOUNT,5)>MA(AMOUNT,20)");
     await blur(page);
     await expect(page.locator(".has-err")).toHaveCount(0);
     await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);

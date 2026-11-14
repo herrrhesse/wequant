@@ -64,7 +64,8 @@ export const backendState = {
 
 /** Call one operation. Rejects with ApiError or Unreachable. */
 export async function call<O extends Operation>(op: O, request: Operations[O]["request"], signal?: AbortSignal): Promise<Operations[O]["result"]> {
-  const { method, path } = ROUTES[op];
+  // Every service operation is POST /api/<name>; one newer than the generated routes still goes there.
+  const { method, path } = ROUTES[op] ?? { method: "POST", path: `/api/${op}` };
   let response: Response;
   try {
     response = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(request), signal });

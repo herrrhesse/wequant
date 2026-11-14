@@ -17,6 +17,8 @@ import { href, type Route } from "../../router";
 import { tx } from "../../text";
 import { useUi } from "../../ui";
 import { stepName } from "../strategy/Preview";
+import { screenPeriods } from "../../api/r4";
+import { PeriodTag } from "../../components/PeriodTag";
 import { MiniK } from "./MiniK";
 import { ChainView } from "../../components/ChainView";
 import { boxes, readCondition, UNIT_TEXT } from "../../strategy/model";
@@ -251,6 +253,7 @@ function Funnel({ r, step, setStep }: { r: ScreenResult; step: string | null; se
                 <span className="funnel-name">
                   {s.chain ? "" : "└ "}
                   {stepName(s.step, s.kind, L.of)}
+                  <PeriodTag value={screenPeriods(r)[s.step]} />
                 </span>
                 <span className="funnel-bar">
                   <span style={{ width: `${Math.max(1, (n / top) * 100)}%` }} />
@@ -354,6 +357,7 @@ function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string
       <div className="card-head">
         <h2>
           被“{stepName(step, kind, L.of)}”剔除 {rows.length} 只
+          <PeriodTag value={screenPeriods(r)[step]} />
         </h2>
         <button type="button" className="btn sm soft push" onClick={back}>
           ← 回到有分股票
@@ -372,7 +376,10 @@ function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string
             {rows.map((x) => (
               <tr key={x.code} className="clickable" onClick={() => pick(x.code)}>
                 <td><Stock code={x.code} name={x.name} /></td>
-                <td>{stepName(x.step, x.kind, L.of)}</td>
+                <td>
+                  {stepName(x.step, x.kind, L.of)}
+                  <PeriodTag value={screenPeriods(r)[x.step]} />
+                </td>
                 <td className="sub num">{why(x, units)}</td>
               </tr>
             ))}

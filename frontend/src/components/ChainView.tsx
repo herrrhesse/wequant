@@ -4,11 +4,13 @@ import { stepValue } from "../strategy/model";
 import { pct } from "../format";
 import { useLabels } from "../labels";
 import { POOL_STEP_NAMES } from "../pages/strategy/text";
+import { stepPeriods, useR4Labels } from "../api/r4";
 
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
 
 export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null }) {
   const L = useLabels();
+  const R = useR4Labels();
   const mark = (ok: boolean | null) => (ok === null ? <span className="muted">·</span> : ok ? <span className="ok">✓</span> : <span className="bad">✗</span>);
   return (
     <div className="col tight">
@@ -23,6 +25,11 @@ export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null 
         <div key={s.name} className={`chain-row ${s.chain ? "" : "sub-row"}`}>
           {mark(s.passed)}
           <span>{s.name}</span>
+          {stepPeriods(s).map((p, i) => (
+            <span key={i} className="muted small">
+              {R.periodValue(p)}
+            </span>
+          ))}
           {stepValue(spec, s) && <span className="muted small num">{stepValue(spec, s)}</span>}
         </div>
       ))}
