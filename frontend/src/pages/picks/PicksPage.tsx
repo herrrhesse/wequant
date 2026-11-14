@@ -17,7 +17,6 @@ import { href, type Route } from "../../router";
 import { tx } from "../../text";
 import { useUi } from "../../ui";
 import { stepName } from "../strategy/Preview";
-import { screenHoldings } from "../../api/r4";
 import { formulaWords, rejectFormulaValues, sellIsDefault, sellOf } from "../../strategy/formula";
 import { Holdings } from "./Holdings";
 import { PeriodTag } from "../../components/PeriodTag";
@@ -220,7 +219,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
           ))}
         </div>
       )}
-      {r && screenHoldings(r) && <Holdings h={screenHoldings(r)!} pick={setCode} />}
+      {r?.holdings && <Holdings h={r.holdings} pick={setCode} />}
       {r && (
         <div className={`picks-layout ${screen.isFetching ? "pending" : ""}`}>
           <Funnel r={r} step={step} setStep={(s) => setStep(s === step ? null : s)} />

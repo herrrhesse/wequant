@@ -1,12 +1,11 @@
 // A formula object in a strategy (S4.1): the text the user wrote and its period; the backend's compiled tree comes
-// back with it but is never sent (the backend compiles the text). Sell rules (S4.2) below are TEMPORARY types until
-// the schema snapshot has them.
-import type { ConditionSpec, FormulaRequest, FormulaSpec, FormulaValue } from "../api/types.gen";
+// back with it but is never sent (the backend compiles the text). And the strategy's sell section (S4.2).
+import type { ConditionSpec, FormulaRequest, FormulaSpec, FormulaValue, RuleCheck, SellSpec } from "../api/types.gen";
 
 export type FormulaPeriod = NonNullable<FormulaSpec["period"]>;
 export type FormulaRole = NonNullable<FormulaRequest["role"]>;
 export type Formula = FormulaSpec;
-export type { FormulaValue };
+export type { FormulaValue, SellSpec };
 
 type Expr = ConditionSpec["expr"];
 
@@ -17,20 +16,6 @@ export function formulaOf(expr: unknown): FormulaSpec | null {
 
 /** A formula as the spec stores it: text and period only (never the tree). */
 export const formulaExpr = (text: string, period: FormulaPeriod = "day"): Expr => ({ text, period });
-
-/** S4.2: how holdings are sold, as the strategy stores it (all defaults: not written, the rebalance engine). */
-export interface SellSpec {
-  mode?: "rebalance" | "rules";
-  stop_loss?: number | null;
-  take_profit?: number | null;
-  trailing_stop?: number | null;
-  max_hold_days?: number | null;
-  sell_when?: ConditionSpec | null;
-  keep_when?: ConditionSpec | null;
-  keep_over_stops?: boolean;
-  min_hold_days?: number | null;
-  cooldown_days?: number;
-}
 
 /** The strategy's sell section (absent on strategies saved before S4.2: rebalance, no rules). */
 export const sellOf = (spec: object): SellSpec => (spec as { sell?: SellSpec | null }).sell ?? {};
@@ -104,4 +89,24 @@ export function formulaTexts(spec: object | null | undefined): string {
   add("sell_when", s.sell?.sell_when?.expr);
   add("keep_when", s.sell?.keep_when?.expr);
   return JSON.stringify(out);
+}
+
+/** A sell rule's state for a holding in words, after its name: "下跌 10.3%（设定 10%）", "已持有 21 天（设定 20 天）",
+ * "成立" for a formula. Values and settings are the backend's; nothing is computed. */
+export function ruleWords(r: RuleCheck): string {
+  const pct = (v: number) => `${Number((v * 100).toFixed(1))}%`;
+  const set = (t: string) => (r.threshold === null ? "" : `（设定 ${t}）`);
+  if (r.value === null) return "当天没有值";
+  switch (r.rule) {
+    case "stop_loss":
+    case "trailing_stop":
+      return `下跌 ${pct(r.value)}${set(pct(r.threshold ?? 0))}`;
+    case "take_profit":
+      return `上涨 ${pct(r.value)}${set(pct(r.threshold ?? 0))}`;
+    case "max_hold":
+    case "min_hold":
+      return `已持有 ${r.value} 天${set(`${r.threshold} 天`)}`;
+    default:
+      return r.value ? "成立" : "不成立";
+  }
 }

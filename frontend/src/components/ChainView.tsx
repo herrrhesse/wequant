@@ -4,8 +4,7 @@ import { stepValue } from "../strategy/model";
 import { pct } from "../format";
 import { useLabels } from "../labels";
 import { POOL_STEP_NAMES } from "../pages/strategy/text";
-import { explainRules } from "../api/r4";
-import { formulaValuesOf, formulaWords, type FormulaValue } from "../strategy/formula";
+import { formulaValuesOf, formulaWords, ruleWords, type FormulaValue } from "../strategy/formula";
 
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
 
@@ -51,11 +50,13 @@ export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null 
       )}
       {e.sell_reason && <span className="small">将卖出：{L.of("sell_kinds", e.sell_reason.kind)}</span>}
       {/* Sell rules (S4.2) for a stock held that day: each rule's state in the backend's words. */}
-      {explainRules(e)?.map((r) => (
+      {e.rules?.map((r) => (
         <div key={r.rule} className="chain-row">
-          {r.triggered === null ? <span className="muted">·</span> : r.triggered ? <span className="bad">卖</span> : <span className="ok">✓</span>}
-          <span>{r.text}</span>
-          {r.blocked_by && <span className="muted small">被挡住</span>}
+          {/* The keep formula and the minimum hold hold a sale back when they fire; the others sell. */}
+          {r.triggered === null ? <span className="muted">·</span> : !r.triggered ? <span className="ok">✓</span> : r.rule === "keep_formula" || r.rule === "min_hold" ? <span className="warn-text">挡</span> : <span className="bad">卖</span>}
+          <span>{L.of("sell_rules", r.rule)}</span>
+          <span className="muted small">{ruleWords(r)}</span>
+          {r.blocked_by === "keep" && <span className="muted small">被{L.of("sell_rules", "keep_formula") || "不卖公式"}挡住</span>}
         </div>
       ))}
       {e.warnings.map((w, i) => (

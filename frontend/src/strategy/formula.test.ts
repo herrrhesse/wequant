@@ -52,3 +52,11 @@ test("formulaTexts: a comment changes the formulas as written; a tree has none",
   assert.equal(formulaTexts({ filters: [{ name: "x", expr: ["GT", "close", 5] }] }), "[]");
   assert.equal(formulaTexts(a), formulaTexts({ ...a, filters: [{ name: "x", expr: { text: "C>MA(C,20)" } }] }));
 });
+
+test("ruleWords: the backend's value against its setting", async () => {
+  const { ruleWords } = await import("./formula.ts");
+  assert.equal(ruleWords({ rule: "stop_loss", triggered: true, value: 0.1034, threshold: 0.1, blocked_by: null }), "下跌 10.3%（设定 10%）");
+  assert.equal(ruleWords({ rule: "max_hold", triggered: false, value: 12, threshold: 20, blocked_by: null }), "已持有 12 天（设定 20 天）");
+  assert.equal(ruleWords({ rule: "sell_formula", triggered: true, value: 1, threshold: null, blocked_by: null }), "成立");
+  assert.equal(ruleWords({ rule: "take_profit", triggered: null, value: null, threshold: 0.2, blocked_by: null }), "当天没有值");
+});

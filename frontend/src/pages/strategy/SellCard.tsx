@@ -2,9 +2,8 @@
 // and sell by rules only; each rule a switch and a number, the sell and keep formulas in the formula editor. A
 // strategy saved before S4.2 opens as the default with no rule, and an all-default section is not written.
 import type { ConditionSpec, StrategySpec } from "../../api/types.gen";
-import { MODEL_DEFAULTS } from "../../api/contract.gen";
-import { useR4Labels } from "../../api/r4";
 import { Help } from "../../components/Help";
+import { useLabels } from "../../labels";
 import { NumInput } from "../../components/NumInput";
 import { concerns, type Loc } from "../../strategy/locate";
 import { editSell, formulaExpr, sellOf, type SellSpec } from "../../strategy/formula";
@@ -12,9 +11,6 @@ import { namesIn, uniqueName } from "../../strategy/model";
 import { ExprFormula, useExample } from "./ExprFormula";
 import type { EditorProps, Err } from "./Editor";
 import { st } from "./text";
-
-/** The backend takes a sell section (S4.2 in its schema): until then the section is not offered. */
-export const SELL_RULES = "sell" in (MODEL_DEFAULTS.StrategySpec ?? {});
 
 type Num = "stop_loss" | "take_profit" | "trailing_stop" | "max_hold_days" | "min_hold_days" | "cooldown_days";
 
@@ -33,13 +29,13 @@ const LIMITS: typeof RULES = [
 const errsAt = (errors: Err[], at: Loc) => errors.filter((e) => concerns(e.loc, at));
 
 export function SellCard({ spec, edit, errors }: EditorProps) {
-  const R = useR4Labels();
+  const L = useLabels();
   const sell = sellOf(spec);
   const mode = sell.mode ?? "rebalance";
   const sellExample = useExample("sell");
   const keepExample = useExample("keep");
   const up = (fn: (s: SellSpec) => void) => edit((d) => editSell(d, fn));
-  const name = (code: keyof typeof st.sell.rules) => R.sellRule(code).label || st.sell.rules[code];
+  const name = (code: keyof typeof st.sell.rules) => L.of("sell_rules", code) || st.sell.rules[code];
   const on = (r: (typeof RULES)[number]) => (r.field === "cooldown_days" ? (sell.cooldown_days ?? 0) > 0 : sell[r.field] != null);
   const anySell = RULES.some(on) || (!!sell.sell_when && sell.sell_when.enabled !== false);
   const numRule = (r: (typeof RULES)[number]) => {
@@ -61,7 +57,7 @@ export function SellCard({ spec, edit, errors }: EditorProps) {
           <NumInput aria-label={name(r.code)} style={{ width: 64 }} disabled={!on(r)} value={on(r) ? (sell[r.field] ?? null) : null} scale={r.pct ? 0.01 : 1} onValue={(v) => v !== null && v > 0 && up((s) => void (s[r.field] = r.pct ? v : Math.round(v)))} />
           {r.words[1]}
         </span>
-        {R.sellRule(r.code).help && <span className="tiny muted sell-help">{R.sellRule(r.code).help}</span>}
+        {L.help("sell_rules", r.code) && <span className="tiny muted sell-help">{L.help("sell_rules", r.code)}</span>}
         {errs.map((e, i) => (
           <span key={i} className="err-text">
             {e.text}
@@ -89,7 +85,7 @@ export function SellCard({ spec, edit, errors }: EditorProps) {
           <input type="checkbox" checked={active} disabled={!c && !example} onChange={toggle} />
           {name(code)}
         </label>
-        <span className={`small ${active ? "" : "muted"}`}>{words}</span>
+        <span className={`small ${active ? "" : "muted"}`}>{L.help("sell_rules", code) || words}</span>
         {active && c && (
           <div className="sell-formula">
             <ExprFormula expr={c.expr} role={key === "sell_when" ? "sell" : "keep"} label={name(code)} onCommit={(e) => up((s) => void (s[key] = { ...c, expr: e }))} />
@@ -120,11 +116,11 @@ export function SellCard({ spec, edit, errors }: EditorProps) {
         <div className="seg" role="group" aria-label={st.sell.mode}>
           {(["rebalance", "rules"] as const).map((m) => (
             <button key={m} type="button" aria-pressed={mode === m} onClick={() => up((s) => void (s.mode = m))}>
-              {R.sellMode(m).label || st.sell.modes[m]}
+              {L.of("sell_modes", m) || st.sell.modes[m]}
             </button>
           ))}
         </div>
-        <span className="small sub">{R.sellMode(mode).help || st.sell.modeHelp[mode]}</span>
+        <span className="small sub">{L.help("sell_modes", mode) || st.sell.modeHelp[mode]}</span>
         {mode === "rules" && !anySell && <span className="warnbox">{st.sell.needRule}</span>}
         {modeErrs.map((e, i) => (
           <span key={i} className="err-text">

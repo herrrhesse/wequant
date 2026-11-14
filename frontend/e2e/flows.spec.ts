@@ -388,7 +388,8 @@ test("empty pages say what to do next, and their buttons go there", async ({ pag
 test("help: each strategy section explains itself in a small popover from its ?, closed by a click elsewhere or Escape; no one-line summary, no how-to hints; backtest metrics explain themselves on hover", async ({ page }) => {
   await page.goto(`#/strategy?id=${preset}`);
   const buttons = page.locator(".strat-main").getByRole("button", { name: "这是什么" });
-  await expect(buttons).toHaveCount(4);
+  // 范围, 筛选条件, 排名打分, 交易与仓位, 卖出规则.
+  await expect(buttons).toHaveCount(5);
   await expect(buttons.first()).toHaveText("?");
   const pop = page.getByRole("tooltip");
   await buttons.nth(1).click();
@@ -1509,4 +1510,61 @@ test("公式: an existing JSON expression opens as text; leaving it unchanged ke
   expect(after.strategy.filters[0].expr.text).toBe("{五日均线在二十日均线上}\nMA(CLOSE, 5) > MA(CLOSE, 20)");
   expect(after.strategy_hash).toBe(before.strategy_hash);
   expect(before.strategy.filters[0].expr).toEqual(tree);
+});
+
+/* ---------- F10 S4.2: sell rules ---------- */
+
+test("卖出规则: a strategy saved before them opens as 调仓时不再入选就卖 with no rule, and stays unchanged", async ({ page, request }) => {
+  const before = await (await request.post("api/strategy_show", { data: { id: preset } })).json();
+  await page.goto(`#/strategy?id=${preset}`);
+  const card = page.getByRole("region", { name: "卖出规则" });
+  await expect(card.getByRole("group", { name: "卖出方式" }).getByRole("button", { name: "调仓时不再入选就卖" })).toHaveAttribute("aria-pressed", "true");
+  for (const box of await card.getByRole("checkbox").all()) await expect(box).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  // A rule switched on and off again leaves the strategy as it was.
+  await card.getByRole("checkbox", { name: "止损", exact: true }).check();
+  await expect(card.getByLabel("止损", { exact: true }).and(page.locator("input.num"))).toHaveValue("10");
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
+  await card.getByRole("checkbox", { name: "止损", exact: true }).uncheck();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  const after = await (await request.post("api/strategy_show", { data: { id: preset } })).json();
+  expect(after.strategy_hash).toBe(before.strategy_hash);
+});
+
+test("卖出规则: by rules needs a rule that sells; with 止损 on and a sell formula it checks, its picks show the simulated holdings", async ({ page, request }) => {
+  await page.goto("#/strategy?new=1");
+  await page.getByRole("button", { name: "＋ 添加因子" }).click();
+  const card = page.getByRole("region", { name: "卖出规则" });
+  await card.getByRole("button", { name: "入选只决定买入" }).click();
+  await expect(card.locator(".warnbox")).toContainText("至少要打开一条会卖出的规则");
+  await card.getByRole("checkbox", { name: "止损", exact: true }).check();
+  await expect(card.locator(".warnbox")).toHaveCount(0);
+  await card.getByRole("checkbox", { name: "卖出公式" }).check();
+  // A sell formula starts from the backend's sell example (weekly J below K) and is checked as a condition.
+  await expect(card.getByRole("group", { name: "周期" }).getByRole("button", { name: "周线" })).toHaveAttribute("aria-pressed", "true");
+  await expect(card.getByRole("status", { name: "公式检查结果" })).toContainText("条件公式");
+  await expect(page.locator(".has-err")).toHaveCount(0);
+  await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
+  // Its picks: the simulated holdings, said to be simulated.
+  const strategy = { ...spec, sell: { mode: "rules", stop_loss: 0.1 } };
+  const saved = await (await request.post("api/strategy_save", { data: { strategy, name: `e2e-rules-${STAMP}` } })).json();
+  await page.goto(`#/picks?id=${saved.id}`);
+  const held = page.getByRole("region", { name: "模拟持仓" });
+  await expect(held.getByRole("note", { name: "持仓来源" })).toContainText("模拟持仓");
+  await expect(held.getByRole("table", { name: "模拟持仓" }).locator("tbody tr").first()).toBeVisible();
+});
+
+test("止损 10%: a backtest has stop-loss sells, said with the drop and the cost on their day", async ({ page, request }) => {
+  const strategy = { ...spec, sell: { stop_loss: 0.1 } };
+  const saved = await (await request.post("api/strategy_save", { data: { strategy, name: `e2e-stop-${STAMP}` } })).json();
+  await page.goto("#/backtest");
+  await page.getByLabel("策略", { exact: true }).selectOption(saved.id);
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await expect(page).toHaveURL(/#\/backtest\?.*run=[0-9a-f]+/, { timeout: 90_000 });
+  const run = /run=([0-9a-f]+)/.exec(page.url())![1];
+  const sells = await (await request.post("api/runs_orders", { data: { id: run, side: "sell", limit: 500 } })).json();
+  const stops = sells.rows.filter((o: { cause: string }) => o.cause === "stop_loss");
+  expect(stops.length).toBeGreaterThan(0);
+  await page.goto(`#/backtest?run=${run}&day=${stops[0].date}`);
+  await expect(page.getByTestId("day")).toContainText(/止损：较成本下跌 \d+\.\d%（成本 \d+\.\d{2}，\d{4}-\d{2}-\d{2} 收盘 \d+\.\d{2}）/);
 });
