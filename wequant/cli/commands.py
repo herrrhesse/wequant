@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -859,7 +860,9 @@ def _print(text: str) -> None:
     """text on stdout; a reader that closes the pipe early (| head) is not an error."""
     try:
         print(text, flush=True)
-    except BrokenPipeError:
+    except OSError as error:  # BrokenPipeError; Windows says EINVAL
+        if not isinstance(error, BrokenPipeError) and error.errno != errno.EINVAL:
+            raise
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())  # keeps the interpreter's last flush quiet
 
 

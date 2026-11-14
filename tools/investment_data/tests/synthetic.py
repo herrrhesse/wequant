@@ -128,14 +128,16 @@ def write_qlib(root: Path) -> list[Stock]:
     """Write calendars/, instruments/ and features/ under root; return stocks with raw data."""
     (root / "calendars").mkdir(parents=True)
     (root / "instruments").mkdir()
-    (root / "calendars" / "day.txt").write_text("".join(f"{d}\n" for d in DAYS), encoding="utf-8")
-    (root / "calendars" / "day_future.txt").write_text("".join(f"{d}\n" for d in FUTURE), encoding="utf-8")
+    (root / "calendars" / "day.txt").write_text("".join(f"{d}\n" for d in DAYS), encoding="utf-8", newline="\n")
+    (root / "calendars" / "day_future.txt").write_text(
+        "".join(f"{d}\n" for d in FUTURE), encoding="utf-8", newline="\n"
+    )
     (root / "instruments" / "all.txt").write_text(
-        "".join(f"{s.code}\t{DAYS[s.start]}\t{DAYS[s.end]}\n" for s in STOCKS), encoding="utf-8"
+        "".join(f"{s.code}\t{DAYS[s.start]}\t{DAYS[s.end]}\n" for s in STOCKS), encoding="utf-8", newline="\n"
     )
     for name, spans in CSI.items():
         (root / "instruments" / f"{name}.txt").write_text(
-            "".join(f"{c}\t{DAYS[a]}\t{DAYS[b]}\n" for c, a, b in sorted(spans)), encoding="utf-8"
+            "".join(f"{c}\t{DAYS[a]}\t{DAYS[b]}\n" for c, a, b in sorted(spans)), encoding="utf-8", newline="\n"
         )
     for i, stock in enumerate(STOCKS):
         stock.raw = make_raw(stock, seed=i)

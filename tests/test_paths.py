@@ -12,7 +12,7 @@ from wequant import paths
 def test_each_system_keeps_data_settings_and_caches_in_its_own_places(monkeypatch, tmp_path, windows):
     """Windows: data and caches under %LOCALAPPDATA%\\WeQuant, settings under %APPDATA%\\WeQuant."""
     local, roaming, home = tmp_path / "Local", tmp_path / "Roaming", tmp_path / "me"
-    for variable, value in {"LOCALAPPDATA": local, "APPDATA": roaming, "HOME": home}.items():
+    for variable, value in {"LOCALAPPDATA": local, "APPDATA": roaming, "HOME": home, "USERPROFILE": home}.items():
         monkeypatch.setenv(variable, str(value))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "conf"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(home / "caches"))

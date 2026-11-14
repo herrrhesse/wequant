@@ -68,7 +68,7 @@ def parse_overrides(text: str | None) -> dict[str, Override]:
     try:
         entries = tomllib.loads(text or "")
     except tomllib.TOMLDecodeError as error:
-        raise ValueError(f"{OVERRIDES}: {error}") from None
+        raise ValueError(f"{OVERRIDES.as_posix()}: {error}") from None
     return {code: _override(code, entry) for code, entry in entries.items()}
 
 
@@ -139,7 +139,7 @@ def _dates(column: pl.Series, missing: np.datetime64) -> np.ndarray:
 def _override(code: str, entry: object) -> Override:
     """The override of one entry; ValueError naming it unless it is a code with exactly a known kind, evidence and
     source, each non-empty text."""
-    where = f"{OVERRIDES}: [{code!r}]"
+    where = f"{OVERRIDES.as_posix()}: [{code!r}]"
     try:
         split(code)
     except ValueError:
