@@ -5,7 +5,8 @@ import { Stock } from "../../components/Stock";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
-import { IndexSeg } from "../../components/IndexSeg";
+import { IndexSeg, scopeOf } from "../../components/IndexSeg";
+import { fromPool, PoolPicker } from "../strategy/PoolPicker";
 import type { Reject, ScreenResult, ScreenRow, StrategySpec } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
@@ -60,6 +61,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
   const baseName = d?.name ?? saved.data?.name ?? "";
   const [variant, setVariant] = useState<StrategySpec | null>(null);
   const [tweak, setTweak] = useState(false);
+  const [custom, setCustom] = useState(false);
   const [date, setDate] = useState(route.date ?? "");
   const [step, setStep] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null);
@@ -149,7 +151,15 @@ export function PicksPage({ route }: { route: PicksRoute }) {
         {tweak && spec && (
           <div className="inner tweak">
             <span className="small b">换个范围</span>
-            <IndexSeg label="范围" value={spec.pool?.index ?? null} onChange={(c) => edit((s) => void (s.pool = { ...(s.pool ?? {}), index: c as never }))} />
+            <IndexSeg
+              label="范围"
+              value={custom && !spec.pool?.stocks ? "stocks" : scopeOf(spec.pool)}
+              onChange={(c) => {
+                setCustom(c === "stocks");
+                if (c !== "stocks") edit((s) => void (s.pool = { ...(s.pool ?? {}), stocks: null, index: (c === "all" ? null : c) as never }));
+              }}
+            />
+            {(custom || !!spec.pool?.stocks) && <PoolPicker pool={spec.pool} editable={false} apply={(p) => edit((s) => void (s.pool = fromPool(s.pool, p)))} />}
             <span className="small b">因子权重</span>
             {(spec.factors ?? []).map((f, i) => (
               <label key={f.name} className="row small">

@@ -1,10 +1,11 @@
 // The left column of the strategy editor: scope, filters, ranking and trading. Each row shows the backend's funnel
 // numbers for it ("剩余" = the step's left, "单独剔除" = pool size minus the step's own pass) and flashes the change.
 import { useState, type ReactNode } from "react";
-import type { ConditionSpec, FactorSpec, GroupSpec, Schedule, StrategySpec } from "../../api/types.gen";
+import type { ConditionSpec, FactorSpec, GroupSpec, PoolDrift, Schedule, StrategySpec } from "../../api/types.gen";
 import { useLabels } from "../../labels";
 import { NumInput } from "../../components/NumInput";
-import { IndexSeg } from "../../components/IndexSeg";
+import { IndexSeg, scopeOf } from "../../components/IndexSeg";
+import { fromPool, PoolPicker } from "./PoolPicker";
 import { metricForm, type Metric } from "../../strategy/expr";
 import { concerns, type Loc } from "../../strategy/locate";
 import {
@@ -44,6 +45,8 @@ export interface EditorProps {
   setHl: (step: string | null) => void;
   /** The data has no ST records at all (the backend's st_unknown warning with a known share of 0). */
   stNone: boolean;
+  /** The stock pool the scope's list came from has changed since (strategy validate's pool_drift). */
+  drift?: PoolDrift | null;
 }
 
 /** Whether a name is the automatic one (or it with a number added to keep it unique). */
@@ -69,8 +72,10 @@ function ErrText({ errors }: { errors: Err[] }) {
 
 /* ---------- 1 · scope ---------- */
 
-export function ScopeCard({ spec, edit, errors, hl, setHl, stNone }: EditorProps) {
+export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, drift }: EditorProps) {
   const pool = spec.pool ?? {};
+  const [custom, setCustom] = useState(false);
+  const scope = custom && !pool.stocks ? "stocks" : scopeOf(pool);
   const setPool = (fn: (p: NonNullable<StrategySpec["pool"]>) => void) =>
     edit((d) => {
       d.pool = { ...(d.pool ?? {}) };
@@ -105,7 +110,21 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone }: EditorProps
         {row(
           "index",
           st.scope.index,
-          <IndexSeg label={st.scope.index} value={pool.index ?? null} onChange={(code) => setPool((p) => void (p.index = code as typeof p.index))} />,
+          <>
+            <IndexSeg
+              label={st.scope.index}
+              value={scope}
+              onChange={(code) => {
+                setCustom(code === "stocks");
+                if (code === "stocks") return;
+                setPool((p) => {
+                  p.stocks = null;
+                  p.index = (code === "all" ? null : code) as typeof p.index;
+                });
+              }}
+            />
+            {scope === "stocks" && <PoolPicker pool={pool} drift={drift} apply={(p) => edit((d) => void (d.pool = fromPool(d.pool, p)))} />}
+          </>,
           ["pool", "index"],
         )}
         {row(

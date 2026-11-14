@@ -155,7 +155,7 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
     document.getElementById(`loc-${loc.join("-")}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  const props = { spec, edit, errors, hl, setHl, stNone };
+  const props = { spec, edit, errors, hl, setHl, stNone, drift: check.data?.pool_drift ?? null };
   const preview = <Preview spec={asked} screen={screen.data} updating={updating} errors={errors.length} blocked={blocked} noFactors={noFactors} hl={hl} setHl={setHl} />;
 
   return (

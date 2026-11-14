@@ -300,6 +300,9 @@ test("a strategy saved with an index no longer offered opens and shows it as an 
   const scope = page.locator("[data-step=index]");
   await expect(scope).toContainText("旧选项");
   await expect(scope.getByRole("button", { pressed: true })).toHaveCount(1);
+  // Warnings name the index, never its code.
+  await expect(page.locator(".strat-bar .warn-list")).toBeVisible();
+  await expect(page.locator("main")).not.toContainText("000906");
   await expect(page.locator(".strat-aside .funnel")).toBeVisible();
 });
 
@@ -348,4 +351,58 @@ test("help: each strategy section explains itself on request; backtest metrics e
   await page.goto("#/backtest");
   const tile = page.locator(".kpis").first().locator(".stat").first();
   await expect(tile).toHaveAttribute("data-tip", /\S+：\S+/);
+});
+
+test("stock pool: built by search, paste, file and index, with unreadable items listed; a strategy previews and backtests on it; a changed pool is taken on request", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const names = await (await request.post("api/data_securities", { data: { query: "6000", limit: 3 } })).json();
+  const [a, b, c] = names.rows as { code: string; name: string | null }[];
+  await page.goto(`#/strategy?id=${preset}`);
+  await expect(page.locator(".strat-aside .funnel")).toBeVisible();
+  await page.locator("[data-step=index]").getByRole("button", { name: "自定义名单" }).click();
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+  const d = page.getByRole("dialog", { name: "编辑股票池" });
+  await d.getByLabel("股票池名称").fill(`e2e-pool-${STAMP}`);
+  // Search
+  await d.getByLabel("添加股票").fill(a!.code.slice(0, 6));
+  await d.getByRole("option").first().click();
+  // Paste, with two items that cannot be read
+  await d.getByRole("button", { name: "粘贴一批" }).click();
+  await d.getByLabel("粘贴股票清单").fill(`${b!.code}\nXYZ999\n不存在的股票`);
+  await d.getByRole("button", { name: "加入名单" }).click();
+  await expect(d.getByLabel("没能识别的项")).toContainText("XYZ999");
+  await expect(d.getByLabel("没能识别的项")).toContainText("不存在的股票");
+  // File
+  await d.locator('input[type=file]').setInputFiles({ name: "pool.csv", mimeType: "text/csv", buffer: Buffer.from(`代码\n${c!.code}\n`) });
+  await expect(d.getByRole("table", { name: "股票池名单" }).locator("tbody tr")).toHaveCount(3);
+  // The file's header line is skipped, not counted among the items that could not be read.
+  await expect(d.getByText("跳过了表头：代码")).toBeVisible();
+  await expect(d.getByLabel("没能识别的项")).toHaveCount(0);
+  // Index
+  await d.getByRole("button", { name: /从沪深300添加/ }).click();
+  await expect(d.getByRole("status")).toContainText("成分日期");
+  const total = Number(((await d.getByText(/共 \d+ 只/).textContent()) ?? "").replace(/\D/g, ""));
+  expect(total).toBeGreaterThan(3);
+  await d.getByRole("button", { name: "保存" }).click();
+  await expect(page.locator(".pool-picker")).toContainText(`（${total} 只）`);
+  await expect(page.locator(".strat-aside .funnel")).toContainText("自定义名单");
+  await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
+  // Change the pool: one stock less; the strategy keeps its list until asked.
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const e = page.getByRole("dialog", { name: "编辑股票池" });
+  await e.locator("tbody tr").first().click();
+  await e.getByRole("button", { name: "删除选中" }).click();
+  await e.getByRole("button", { name: "保存" }).click();
+  await expect(page.locator(".pool-picker")).toContainText("股票池已有改动");
+  await expect(page.locator(".pool-picker")).toContainText(`（${total} 只）`);
+  await page.getByRole("button", { name: "更新为最新名单" }).click();
+  await expect(page.locator(".pool-picker")).toContainText(`来自股票池“e2e-pool-${STAMP}”（${total - 1} 只）`);
+  await expect(page.locator(".pool-picker")).not.toContainText("股票池已有改动");
+  // Backtest on the pool (the unsaved draft)
+  await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
+  await page.locator(".strat-bar").getByRole("link", { name: "回测" }).click();
+  await expect(page.getByLabel("策略", { exact: true })).toHaveValue("__draft");
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await expect(page).toHaveURL(/run=[0-9a-f]+/, { timeout: 90_000 });
+  await expect(page.getByRole("region", { name: "回测结果" }).locator(".summary")).toContainText("自定义股票池");
 });

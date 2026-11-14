@@ -364,3 +364,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .what-text { order: 10; flex-basis: 100%; margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--soft2); font-size: 12px; color: var(--sub); line-height: 1.6; }
 .stat[data-tip] { position: relative; cursor: help; }
 .stat[data-tip]:hover::after, .stat[data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; left: 8px; right: 8px; top: calc(100% + 6px); z-index: 10; padding: 8px 10px; border-radius: 10px; background: var(--tip); color: #fff; font-size: 12px; font-weight: 400; line-height: 1.5; box-shadow: var(--pop); pointer-events: none; }
+
+/* Stock pools */
+.modal-back { position: fixed; inset: 0; z-index: 50; background: rgba(17, 18, 20, 0.35); display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px; overflow-y: auto; }
+.modal { width: min(820px, 100%); padding: 20px 22px; border-radius: 24px; background: var(--card); box-shadow: var(--pop); display: flex; flex-direction: column; gap: 12px; }
+.pool-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pool-search { flex: 1 1 240px; max-width: none; }
+.pool-search .search-pop { z-index: 60; }
+.pool-paste { height: auto; padding: 8px 10px; resize: vertical; width: 100%; }
+.pool-table { max-height: 320px; }
+.unparsed { background: var(--warn-t); gap: 6px; }
+.pool-picker { margin-top: 6px; }

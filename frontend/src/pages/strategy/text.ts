@@ -34,7 +34,7 @@ export const st = {
   scope: {
     title: "1 · 范围",
     lead: "每一项剔除多少只，看右边的实时预览",
-    index: "指数",
+    index: "股票范围",
     all: "沪深全部",
     boards: "板块",
     st: "剔除 ST",
@@ -48,6 +48,8 @@ export const st = {
     note: "停牌股当天不参与。股票被调出范围后，下一个调仓日卖出。指数成分按每个调仓日当天的名单。",
     indexNames: { "000300.SH": "沪深 300", "000905.SH": "中证 500", "000906.SH": "中证 800", "000852.SH": "中证 1000", "000985.SH": "中证全指" } as Record<string, string>,
     customUniverse: "范围是自定义表达式，只能在 JSON 里改",
+    fromPool: (name: string, n: number) => `来自股票池“${name}”（${n} 只）`,
+    poolHelp: "自定义股票池是一份固定名单，回测时不会随时间变化；名单里当时还没上市的股票，会在上市后才参与。改了股票池以后，策略里的名单不会自己变，点“更新为最新名单”才会换成新的。",
     legacy: (name: string) => `${name}是旧选项，新建策略不再提供；这个策略照常能用，也可以换成上面的其他范围`,
   },
   filters: {
@@ -207,4 +209,5 @@ export const POOL_STEP_NAMES: Record<string, string> = {
   boards: "板块",
   exclude_st: "剔除 ST",
   min_list_days: "剔除次新股",
+  stocks: "自定义名单",
 };
