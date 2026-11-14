@@ -1,0 +1,55 @@
+# Round 3, W0: the tests on Linux and Windows. Linux also checks ruff; Windows also times the first numba compile and
+# runs the frontend's end-to-end tests against wequant serve. Pushes to main and pull requests only.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - run: uv run --frozen pytest -q
+      - run: uvx ruff check wequant tools tests conftest.py
+      - run: uvx ruff format --check wequant tools tests conftest.py
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: First start (numba compiles every kernel into an empty cache)
+        run: uv run --frozen python -m tools.compile_time
+      - run: uv run --frozen pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - run: npx playwright install chromium
+        working-directory: frontend
+      - run: npm run e2e
+        working-directory: frontend
+        env:
+          WQ_DEMO_HOME: ${{ runner.temp }}\demo-home

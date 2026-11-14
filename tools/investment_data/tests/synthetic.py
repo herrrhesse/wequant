@@ -128,14 +128,14 @@ def write_qlib(root: Path) -> list[Stock]:
     """Write calendars/, instruments/ and features/ under root; return stocks with raw data."""
     (root / "calendars").mkdir(parents=True)
     (root / "instruments").mkdir()
-    (root / "calendars" / "day.txt").write_text("".join(f"{d}\n" for d in DAYS))
-    (root / "calendars" / "day_future.txt").write_text("".join(f"{d}\n" for d in FUTURE))
+    (root / "calendars" / "day.txt").write_text("".join(f"{d}\n" for d in DAYS), encoding="utf-8")
+    (root / "calendars" / "day_future.txt").write_text("".join(f"{d}\n" for d in FUTURE), encoding="utf-8")
     (root / "instruments" / "all.txt").write_text(
-        "".join(f"{s.code}\t{DAYS[s.start]}\t{DAYS[s.end]}\n" for s in STOCKS)
+        "".join(f"{s.code}\t{DAYS[s.start]}\t{DAYS[s.end]}\n" for s in STOCKS), encoding="utf-8"
     )
     for name, spans in CSI.items():
         (root / "instruments" / f"{name}.txt").write_text(
-            "".join(f"{c}\t{DAYS[a]}\t{DAYS[b]}\n" for c, a, b in sorted(spans))
+            "".join(f"{c}\t{DAYS[a]}\t{DAYS[b]}\n" for c, a, b in sorted(spans)), encoding="utf-8"
         )
     for i, stock in enumerate(STOCKS):
         stock.raw = make_raw(stock, seed=i)
@@ -167,7 +167,7 @@ def write_release(raw_dir: Path, tmp: Path, tag: str = TAG) -> list[Stock]:
         "archive_size_bytes": len(data),
         "archive_sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
     }
-    (raw_dir / "qlib_bin.manifest.json").write_text(json.dumps(manifest))
+    (raw_dir / "qlib_bin.manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return stocks
 
 

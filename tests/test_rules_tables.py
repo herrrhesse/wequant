@@ -103,7 +103,9 @@ def test_load_limits_applies_the_recorded_voids(store):
 def test_a_rule_book_change_makes_the_check_stale(store, tmp_path):
     check_store(store, commit=True)
     edited = tmp_path / "rules.toml"
-    edited.write_text(resources.files("wequant.rules").joinpath("rules.toml").read_text("utf-8") + "\n# edited\n")
+    edited.write_text(
+        resources.files("wequant.rules").joinpath("rules.toml").read_text("utf-8") + "\n# edited\n", encoding="utf-8"
+    )
     assert limit_check_current(store.manifest())
     assert not limit_check_current(store.manifest(), load_book(edited))
 

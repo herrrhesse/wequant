@@ -58,7 +58,7 @@ def status_row(code, day, tradestatus=1):
 
 
 def test_copy_store_copies_the_current_version_only(home, tmp_path, monkeypatch):
-    (home / ".lock").write_text("")
+    (home / ".lock").write_text("", encoding="utf-8")
 
     def refuse(*args, **kwargs):
         raise AssertionError("copy-store must not take the lock")

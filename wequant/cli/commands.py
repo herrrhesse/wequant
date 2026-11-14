@@ -21,9 +21,10 @@ from wequant.backtest import ANOMALY_MODES, Progress
 from wequant.backtest.anomalies import CHANNELS
 from wequant.cli.render import error_panel, refused, render, render_schema, table
 from wequant.service import Check, Context, ErrorBody, ErrorDetail, Exit, ServiceError
-from wequant.service.base import error_body
+from wequant.service.base import error_body, failure
 from wequant.service.details import validated
 from wequant.service.profile import ProfileReport, Timer
+from wequant.service.queue import WORKER_COMMAND
 from wequant.version import code_version
 
 log = logging.getLogger("wequant")
@@ -69,7 +70,7 @@ class Common:
     verbose: Annotated[int, Parameter(alias="-v", count=True)] = 0
     """Log more to stderr: -v info, -vv debug."""
     home: Path | None = None
-    """Data root (default: $WEQUANT_HOME, else ~/.wequant)."""
+    """Data root (default: $WEQUANT_HOME, else ~/.wequant; on Windows %LOCALAPPDATA%\\WeQuant\\data)."""
     cache: Path | None = None
     """Panel cache root; panels go under CACHE/panel/ (default: HOME/cache)."""
     profile: bool = False
@@ -740,9 +741,9 @@ def run(
                 log.error("  %s: %s", ".".join(map(str, detail.loc)) or "-", detail.message)
             return _failed(error_body(error), common)
         except Exception as error:
-            log.exception("internal error")
-            message = f"{type(error).__name__}: {error}"
-            return _failed(ErrorBody(exit=Exit.INTERNAL, name=Exit.INTERNAL.name, message=message), common)
+            body = failure(error)
+            log.exception("internal error") if body.exit == Exit.INTERNAL else log.error("%s", error)
+            return _failed(body, common)
         except KeyboardInterrupt:  # caught here, before cyclopts would exit 130 without a body
             log.error(INTERRUPTED.message)
             return _failed(INTERRUPTED, common)
@@ -752,6 +753,10 @@ def run(
 
 def launch(argv: list[str] | None = None) -> None:
     """Run the command line; one the parser refuses exits 2, with its ErrorBody on stdout under --json."""
+    if os.name == "nt":  # a pipe would get the code page, which cannot write every name
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8")
     tokens = sys.argv[1:] if argv is None else argv
     try:
         app(tokens, exit_on_error=False)
@@ -763,6 +768,14 @@ def launch(argv: list[str] | None = None) -> None:
         if "--json" in tokens:
             _print(INTERRUPTED.model_dump_json())
         sys.exit(Exit.INTERRUPTED)
+
+
+@app.command(name=WORKER_COMMAND, show=False)
+def job_worker() -> None:
+    """A background job's worker: one operation, ordered on stdin, reported on stdout (how a frozen build starts it)."""
+    from wequant.service.worker import main
+
+    main()
 
 
 def strategy_fields(text: str) -> dict:

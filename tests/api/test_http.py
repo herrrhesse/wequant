@@ -233,8 +233,8 @@ def test_a_write_returns_the_bytes_the_cli_prints(cli, library_home, named_home,
         service.data_verify_submit(service.VerifySubmitRequest(records=[RECORD]), Context(origin))
     if root == "resolutions":
         add(default_path(origin), [PROPOSED])
-    (tmp_path / "mom.json").write_text(json.dumps(MOM))
-    (tmp_path / "records.json").write_text(json.dumps([RECORD]))
+    (tmp_path / "mom.json").write_text(json.dumps(MOM), encoding="utf-8")
+    (tmp_path / "records.json").write_text(json.dumps([RECORD]), encoding="utf-8")
     by_cli, by_http = (shutil.copytree(origin, tmp_path / side) for side in ("cli", "http"))
     _, out, _ = cli(*[a.format(dir=tmp_path) for a in argv], "--json", "--home", by_cli)
     response = post(by_http, cache, name, fields)
@@ -358,8 +358,8 @@ def test_the_frontend_build_is_served_at_the_root_and_the_api_stays_apart(home, 
     """A file of the build is served as is, any other path gets index.html (the browser routes); /api paths never
     fall through to it, an unknown one is a 404 ErrorBody."""
     (tmp_path / "dist" / "assets").mkdir(parents=True)
-    (tmp_path / "dist" / "index.html").write_text("<html>app</html>")
-    (tmp_path / "dist" / "assets" / "a.js").write_text("js")
+    (tmp_path / "dist" / "index.html").write_text("<html>app</html>", encoding="utf-8")
+    (tmp_path / "dist" / "assets" / "a.js").write_text("js", encoding="utf-8")
     client = TestClient(create_app(Context(home), static=tmp_path / "dist"))
     assert [client.get(p).text for p in ("/", "/assets/a.js", "/picks", "/../secret")] == ["<html>app</html>", "js", "<html>app</html>", "<html>app</html>"]  # fmt: skip
     missing = client.post("/api/no_such_operation")

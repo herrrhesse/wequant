@@ -40,7 +40,9 @@ def test_without_a_settings_file_every_setting_is_its_default(tmp_path):
 
 
 def test_a_setting_that_is_not_valid_reads_as_its_default_and_says_why(tmp_path):
-    (tmp_path / "settings.json").write_text(json.dumps({"keep_versions": 0, "runs_limit_gb": 1.5, "colour": "red"}))
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"keep_versions": 0, "runs_limit_gb": 1.5, "colour": "red"}), encoding="utf-8"
+    )
     settings, problems = load(tmp_path)
     assert (settings.keep_versions, settings.runs_limit_gb, len(problems)) == (5, 1.5, 2)
 

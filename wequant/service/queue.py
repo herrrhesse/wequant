@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -33,7 +34,7 @@ log = logging.getLogger("wequant")
 STATES = ("queued", "running", "succeeded", "failed", "cancelled")
 FINAL = frozenset(STATES[2:])
 STAGES = ("queued", "start", "cancelling", "done", "failed", "cancelled", "crashed", "interrupted")  # the queue's own
-WORKER = (sys.executable, "-m", "wequant.service.worker")
+WORKER_COMMAND = "job-worker"  # the hidden wequant command a frozen build (W2) starts its workers with
 
 
 @dataclass(frozen=True)
@@ -200,9 +201,8 @@ class Jobs:
     def _process(self, job: Job, kind: Kind) -> Callable[[], None]:
         """The reader of a process job: it starts the worker, takes its messages until it exits, then ends the job."""
         order = {"operation": kind.operation, "request": job.request, "home": str(self.home)}
-        worker = subprocess.Popen(
-            WORKER, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8", start_new_session=True
-        )  # its own session: Ctrl-C in the server's terminal reaches the server, which then stops it
+        pipes = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "text": True, "encoding": "utf-8"}
+        worker = subprocess.Popen(worker_command(), **pipes, **_apart())
         _tell(worker, json.dumps(order | {"cache": self.cache and str(self.cache)}) + "\n")
         self._workers[job.id] = worker
 
@@ -300,6 +300,20 @@ class Jobs:
 
 def _error(exit: Exit, message: str) -> dict:
     return error_body(ServiceError(exit, message)).model_dump(mode="json")
+
+
+def worker_command() -> list[str]:
+    """How to start a job's worker: this interpreter on the worker module, or a frozen program's hidden command."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, WORKER_COMMAND]
+    return [sys.executable, "-m", "wequant.service.worker"]
+
+
+def _apart() -> dict:
+    """Popen options that keep Ctrl-C in the server's terminal from reaching a worker: the server then stops it."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
 
 
 def _tell(worker: subprocess.Popen, text: str) -> None:
