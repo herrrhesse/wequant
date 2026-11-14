@@ -19,17 +19,23 @@ export type Exit = 0 | 1 | 2 | 3 | 4 | 5 | 70 | 130;
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "JobOutput".
  */
-export type JobOutput = BacktestResult | UpdateResult | Relocated;
+export type JobOutput = BacktestResult | UpdateResult | Relocated | BuildResult | BackfillResult | OwnImported;
 
 export interface ServiceModels {
   AnomaliesPage?: AnomaliesPage;
   AnomaliesRequest?: AnomaliesRequest;
   AnomalyUse?: AnomalyUse;
   ArchiveRequest?: ArchiveRequest;
+  BackfillRequest?: BackfillRequest;
+  BackfillResult?: BackfillResult;
   BacktestRequest?: BacktestRequest;
   BacktestResult?: BacktestResult;
   Bars?: Bars;
   BarsRequest?: BarsRequest;
+  BuildEstimate?: BuildEstimate;
+  BuildEstimateRequest?: BuildEstimateRequest;
+  BuildRequest?: BuildRequest;
+  BuildResult?: BuildResult;
   Calendar?: Calendar;
   CalendarRequest?: CalendarRequest;
   CheckReport?: CheckReport;
@@ -116,6 +122,10 @@ export interface ServiceModels {
   OrderRow?: OrderRow;
   OrdersPage?: OrdersPage;
   OrdersRequest?: OrdersRequest;
+  OwnCheck?: OwnCheck;
+  OwnImported?: OwnImported;
+  OwnProblem?: OwnProblem;
+  OwnRequest?: OwnRequest;
   ParseRequest?: ParseRequest;
   ParsedStocks?: ParsedStocks;
   PeriodRow?: PeriodRow;
@@ -321,6 +331,45 @@ export interface AnomaliesRequest {
 export interface ArchiveRequest {
   id: string;
   restore?: boolean;
+}
+/**
+ * The history before the data root's first day, back to the start of `oldest`, one version per segment.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BackfillRequest".
+ */
+export interface BackfillRequest {
+  oldest?: number;
+}
+/**
+ * The segments added, newest first, until no history was left.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BackfillResult".
+ */
+export interface BackfillResult {
+  segments: BuildResult[];
+  status: "complete";
+}
+/**
+ * What a build or one backfill segment did.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BuildResult".
+ */
+export interface BuildResult {
+  /**
+   * built: a new version; exists: the data root has data already (no new version); complete: no older history
+   * left; not_published: BaoStock has no day of the window yet.
+   */
+  status: "built" | "exists" | "complete" | "not_published";
+  version: number | null;
+  version_name: string | null;
+  first: string | null;
+  last: string | null;
+  days: number;
+  requests: number;
+  seconds: number;
 }
 /**
  * A strategy (inline or saved) over a date range.
@@ -904,6 +953,46 @@ export interface BarsRequest {
       | "list_days"
     )[]
   ];
+}
+/**
+ * A first build's size and expected time, from measured BaoStock speeds; BaoStock's own speed varies.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BuildEstimate".
+ */
+export interface BuildEstimate {
+  years: number;
+  /**
+   * Trading days, from BaoStock's calendar when the raw layer has it, else 243 a year.
+   */
+  days: number;
+  requests: number;
+  /**
+   * Expected time; the frontend shows it as 预计约 X 小时.
+   */
+  seconds: number;
+  /**
+   * Stocks whose history files the raw layer holds from an earlier, stopped build: they cost nothing again.
+   */
+  already: number;
+}
+/**
+ * How long a first build of the last `years` years will take.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BuildEstimateRequest".
+ */
+export interface BuildEstimateRequest {
+  years?: 1 | 3 | 5;
+}
+/**
+ * A first build of an empty data root from BaoStock.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BuildRequest".
+ */
+export interface BuildRequest {
+  years?: 1 | 3 | 5;
 }
 /**
  * A store version's trading days.
@@ -2584,6 +2673,22 @@ export interface Relocated {
   left_behind: string[];
 }
 /**
+ * The version made from the user's files.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "OwnImported".
+ */
+export interface OwnImported {
+  version: number;
+  version_name: string;
+  days: number;
+  codes: number;
+  /**
+   * data_issues rows: rows not imported and bars flagged.
+   */
+  issues: number;
+}
+/**
  * One job.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2599,7 +2704,7 @@ export interface JobRef {
  * via the `definition` "JobStartRequest".
  */
 export interface JobStartRequest {
-  kind: "backtest" | "data_update" | "data_relocate";
+  kind: "backtest" | "data_update" | "data_relocate" | "data_build" | "data_backfill" | "data_own_import";
   /**
    * The request the operation takes (backtest: a BacktestRequest, data_update: {}); a null data_version is pinned to
    * the version current now, so a version committed while the job waits or runs changes nothing. An update builds on
@@ -2685,6 +2790,14 @@ export interface Labels {
    * The categories of expr indicators (Indicator.category).
    */
   indicator_categories: Label[];
+  /**
+   * The rules the user's own files are checked against (OwnProblem.rule).
+   */
+  own_rules: Label[];
+  /**
+   * What a first build or a backfill segment did (BuildResult.status).
+   */
+  build_statuses: Label[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -2920,6 +3033,56 @@ export interface OrdersRequest {
   side?: ("buy" | "sell") | null;
   start?: string | null;
   end?: string | null;
+}
+/**
+ * What the folder holds and which rows break which rule; ok False when it cannot be imported at all.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "OwnCheck".
+ */
+export interface OwnCheck {
+  /**
+   * True when the check found nothing to act on.
+   */
+  ok: boolean;
+  bars_file: string | null;
+  securities_file: string | null;
+  rows: number;
+  codes: number;
+  first: string | null;
+  last: string | null;
+  /**
+   * Optional columns found: preclose, factor, st, tradestatus.
+   */
+  optional: string[];
+  problems: OwnProblem[];
+}
+/**
+ * A rule some rows break (labels.own_rules): unreadable and duplicate rows are not imported, the others are,
+ * flagged in data_issues.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "OwnProblem".
+ */
+export interface OwnProblem {
+  rule: "missing_columns" | "unreadable" | "duplicate" | "price_order" | "no_list_date";
+  /**
+   * Rows (missing_columns: columns) that break it.
+   */
+  rows: number;
+  /**
+   * The first few as [code, date] (missing_columns: [column, ""]).
+   */
+  examples: string[][];
+}
+/**
+ * A folder with bars.parquet or bars.csv, and optionally securities.parquet or securities.csv.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "OwnRequest".
+ */
+export interface OwnRequest {
+  path: string;
 }
 /**
  * A pasted list, or the text of an uploaded CSV or TXT file (first column codes, second names).

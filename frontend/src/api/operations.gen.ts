@@ -25,6 +25,11 @@ export interface Operations {
   fs_mkdir: { request: M.MkdirRequest; result: M.Made };
   setup_status: { request: M.SetupStatusRequest; result: M.SetupStatus };
   setup_save: { request: M.SetupSaveRequest; result: M.SetupStatus };
+  data_build_estimate: { request: M.BuildEstimateRequest; result: M.BuildEstimate };
+  data_build: { request: M.BuildRequest; result: M.BuildResult };
+  data_backfill: { request: M.BackfillRequest; result: M.BackfillResult };
+  data_own_check: { request: M.OwnRequest; result: M.OwnCheck };
+  data_own_import: { request: M.OwnRequest; result: M.OwnImported };
   data_verify_submit: { request: M.VerifySubmitRequest; result: M.VerifySubmitResult };
   data_verify_list: { request: M.VerifyListRequest; result: M.VerifyPage };
   data_resolve_list: { request: M.ResolveListRequest; result: M.ResolvePage };
@@ -107,6 +112,11 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   fs_mkdir: { method: "POST", path: "/api/fs_mkdir" },
   setup_status: { method: "POST", path: "/api/setup_status" },
   setup_save: { method: "POST", path: "/api/setup_save" },
+  data_build_estimate: { method: "POST", path: "/api/data_build_estimate" },
+  data_build: { method: "POST", path: "/api/data_build" },
+  data_backfill: { method: "POST", path: "/api/data_backfill" },
+  data_own_check: { method: "POST", path: "/api/data_own_check" },
+  data_own_import: { method: "POST", path: "/api/data_own_import" },
   data_verify_submit: { method: "POST", path: "/api/data_verify_submit" },
   data_verify_list: { method: "POST", path: "/api/data_verify_list" },
   data_resolve_list: { method: "POST", path: "/api/data_resolve_list" },
