@@ -30,7 +30,7 @@ test.describe("an invalid strategy on purpose", () => {
   // The wrong field below is sent as typed: the backend refuses it (422, logged by Chrome) and the page locates it.
   test.use({ allowConsole: [/status of 422/] });
 
-  test("strategy: a wrong field is located on its row, the fix brings the summary, saving twice keeps one history entry", async ({ page }) => {
+  test("strategy: a wrong field is located on its row, the fix brings the preview back, saving twice keeps one history entry", async ({ page }) => {
     await page.goto("#/strategy?new=1");
     // A new strategy opens without errors: no marks, and the preview says how to go on.
     await expect(page.locator(".strat-aside .funnel")).toBeVisible();
@@ -50,7 +50,7 @@ test.describe("an invalid strategy on purpose", () => {
     await page.getByLabel("表达式").fill('["GT", ["MA", "amount", 5], ["MA", "amount", 20]]');
     await blur(page);
     await expect(page.locator(".has-err")).toHaveCount(0);
-    await expect(page.locator(".strat-bar .summary")).not.toBeEmpty();
+    await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page).toHaveURL(/#\/strategy\?id=/);
     await page.getByRole("button", { name: "修改历史" }).click();
@@ -361,12 +361,24 @@ test("empty pages say what to do next, and their buttons go there", async ({ pag
   await expect(page.getByRole("region", { name: "数据问题" }).locator(".empty")).toBeVisible();
 });
 
-test("help: each strategy section explains itself on request; backtest metrics explain themselves on hover", async ({ page }) => {
+test("help: each strategy section explains itself in a small popover from its ?, closed by a click elsewhere or Escape; no one-line summary, no how-to hints; backtest metrics explain themselves on hover", async ({ page }) => {
   await page.goto(`#/strategy?id=${preset}`);
-  const buttons = page.locator(".strat-main .what-btn");
+  const buttons = page.locator(".strat-main").getByRole("button", { name: "这是什么" });
   await expect(buttons).toHaveCount(4);
-  for (const b of await buttons.all()) await b.click();
-  await expect(page.locator(".strat-main .what-text")).toHaveCount(4);
+  await expect(buttons.first()).toHaveText("?");
+  const pop = page.getByRole("tooltip");
+  await buttons.nth(1).click();
+  await expect(pop).toHaveCount(1);
+  await expect(pop).toContainText("门槛");
+  // A click elsewhere closes it; so does Escape.
+  await page.getByRole("heading", { name: /筛选条件/ }).click();
+  await expect(pop).toHaveCount(0);
+  await buttons.nth(0).click();
+  await expect(pop).toContainText("先圈定从哪些股票里挑");
+  await page.keyboard.press("Escape");
+  await expect(pop).toHaveCount(0);
+  await expect(page.locator(".summary")).toHaveCount(0);
+  await expect(page.locator(".strat-main")).not.toContainText(/右边|鼠标/);
   await page.goto("#/backtest");
   const tile = page.locator(".kpis").first().locator(".stat").first();
   await expect(tile).toHaveAttribute("data-tip", /\S+：\S+/);
@@ -424,7 +436,7 @@ test("stock pool: built by search, paste, file and index, with unreadable items 
   await expect(page.getByLabel("策略", { exact: true })).toHaveValue("__draft");
   await page.getByRole("button", { name: "开始回测" }).click();
   await expect(page).toHaveURL(/run=[0-9a-f]+/, { timeout: 90_000 });
-  await expect(page.getByRole("region", { name: "回测结果" }).locator(".summary")).toContainText("自定义股票池");
+  await expect(page.getByRole("region", { name: "回测结果" })).toBeVisible();
 });
 
 interface Template {
@@ -455,7 +467,6 @@ test("new strategy: a template opens as an unsaved draft with its settings; noth
   await expect(page).toHaveURL(/new=1/);
   await expect(page.getByLabel("策略名称")).toHaveValue(t.name);
   await expect(page.locator(".state.never")).toBeVisible();
-  await expect(page.locator(".strat-bar .summary")).toContainText(t.strategy.factors[0]!.name);
   await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
   await expect(page.locator(".strat-aside table tbody tr").first()).toBeVisible();
   expect(await strategyCount(page)).toBe(before);

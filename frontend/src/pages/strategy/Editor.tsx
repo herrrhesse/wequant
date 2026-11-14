@@ -2,6 +2,7 @@
 // numbers for it ("剩余" = the step's left, "单独剔除" = pool size minus the step's own pass) and flashes the change.
 import { useState, type ReactNode } from "react";
 import type { ConditionSpec, FactorSpec, GroupSpec, PoolDrift, Schedule, StrategySpec } from "../../api/types.gen";
+import { Help } from "../../components/Help";
 import { useLabels } from "../../labels";
 import { NumInput } from "../../components/NumInput";
 import { IndexSeg, scopeOf } from "../../components/IndexSeg";
@@ -52,19 +53,6 @@ export interface EditorProps {
 const isAuto = (name: string, auto: string) => name === auto || new RegExp(`^${auto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\d+$`).test(name);
 const errsAt = (errors: Err[], at: Loc) => errors.filter((e) => concerns(e.loc, at));
 
-/** A section's plain-words explanation, folded until asked for. */
-function What({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button type="button" className="what-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {st.what} {open ? "▾" : "▸"}
-      </button>
-      {open && <p className="what-text">{text}</p>}
-    </>
-  );
-}
-
 function ErrText({ errors }: { errors: Err[] }) {
   return errors.length ? <span className="err-text">{errors.map((e) => e.text).join(" ")}</span> : null;
 }
@@ -101,8 +89,7 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, drift }: Edit
     <section className="card" aria-label="范围">
       <div className="card-head">
         <h2>{st.scope.title}</h2>
-        <What text={st.help.scope} />
-        <span className="push small muted">{st.scope.lead}</span>
+        <Help text={st.help.scope} />
       </div>
       {!universeDefault && <span className="warnbox">{st.scope.customUniverse}</span>}
       <div className="scope-grid">
@@ -259,8 +246,7 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
     <section className="card" aria-label="筛选条件">
       <div className="card-head">
         <h2>{st.filters.title}</h2>
-        <What text={st.help.filters} />
-        <span className="push small muted">{st.filters.lead}</span>
+        <Help text={st.help.filters} />
       </div>
       {list.length === 0 && (
         <div className="fgroup">
@@ -492,8 +478,7 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
     <section id="loc-factors" className={`card ${errs.some((e) => e.loc.length === 1) ? "has-err" : ""}`} aria-label="排名打分">
       <div className="card-head">
         <h2>{st.factors.title}</h2>
-        <What text={st.help.factors} />
-        <span className="push small muted">{st.factors.lead}</span>
+        <Help text={st.help.factors} />
       </div>
       {factors.length === 0 && <span className="note">{st.factors.empty}</span>}
       {factors.length > 0 && (
@@ -617,7 +602,7 @@ export function TradeCard({ spec, edit, errors, schedule }: EditorProps & { sche
     <section className="card" aria-label="交易与仓位">
       <div className="card-head">
         <h2>{st.trade.title}</h2>
-        <What text={st.help.trade} />
+        <Help text={st.help.trade} />
       </div>
       <div className="row">
         {field("top_n", st.trade.hold, <><NumInput aria-label={st.trade.hold} style={{ width: 60 }} value={spec.top_n ?? null} onValue={(v) => edit((d) => void (d.top_n = v))} />{st.trade.holdUnit}</>)}

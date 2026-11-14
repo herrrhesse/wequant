@@ -24,7 +24,6 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
   const run = show.data;
   const saved = run?.saved_as[0];
   const now = useCall("strategy_show", saved ? { id: saved.id } : null);
-  const summary = useCall("strategy_summary", run ? { strategy: run.strategy } : null);
   const [tab, setTab] = useState<Tab>("periods");
   if (show.isError) return <Problem error={show.error} />;
   if (!run)
@@ -57,7 +56,6 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
             </a>
           )}
         </div>
-        {summary.data && <p className="summary">{summary.data.text}</p>}
         {changed && <span className="warnbox">这次回测之后策略改过，结果按回测时的策略。</span>}
         {/* The scope went beyond the stocks the data holds: said where the result is read, with a way to widen it. */}
         {run.warnings
