@@ -153,7 +153,7 @@ export function useR4<O extends R4>(
 
 
 interface R4Labels {
-  periods?: { code: string; name?: string; label?: string; template?: string }[];
+  periods?: { code: string; label: string; template: string; params: string[] }[];
   formula_categories?: { code: string; label: string }[];
   sell_modes?: { code: string; label: string; help?: string }[];
   sell_rules?: { code: string; label: string; help?: string }[];
@@ -167,7 +167,7 @@ export function useR4Labels() {
     const raw = q.data as unknown as R4Labels | undefined;
     const periods = new Map((raw?.periods ?? []).map((p) => [p.code, p]));
     const cats = new Map((raw?.formula_categories ?? []).map((c) => [c.code, c.label]));
-    const periodName = (p: string) => periods.get(p)?.name ?? periods.get(p)?.label ?? "";
+    const periodName = (p: string) => periods.get(p)?.label ?? "";
     const modes = new Map((raw?.sell_modes ?? []).map((m) => [m.code, m]));
     const rules = new Map((raw?.sell_rules ?? []).map((m) => [m.code, m]));
     return {
@@ -177,16 +177,16 @@ export function useR4Labels() {
       sellRule: (code: string) => ({ label: rules.get(code)?.label ?? "", help: rules.get(code)?.help ?? "" }),
       periodName,
       periodValue: (v: PeriodValue) => {
-        const t = periods.get(v.period)?.template;
-        return t && v.end ? fill({ template: t, params: ["end"] }, { end: v.end }) : periodName(v.period);
+        const t = periods.get(v.period);
+        return t && v.end ? fill(t, { end: v.end }) : periodName(v.period);
       },
       category: (c: string) => cats.get(c) ?? c,
     };
   }, [q.data]);
 }
 
-/** screen's periods (S4.8): which week (month) each weekly (monthly) condition or factor used, by name. */
-export const screenPeriods = (screen: unknown): Record<string, PeriodValue> => (screen as { periods?: Record<string, PeriodValue> } | null | undefined)?.periods ?? {};
+/** screen's periods (S4.8): by condition, factor or formula name, the week or month each weekly or monthly part read. */
+export const screenPeriods = (screen: unknown): Record<string, PeriodValue[]> => (screen as { periods?: Record<string, PeriodValue[]> } | null | undefined)?.periods ?? {};
 
 /** explain StepCheck's periods (S4.8): empty for a daily condition. */
 export const stepPeriods = (step: unknown): PeriodValue[] => (step as { periods?: PeriodValue[] } | null | undefined)?.periods ?? [];
