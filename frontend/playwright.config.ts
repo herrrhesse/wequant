@@ -13,7 +13,8 @@ export default defineConfig({
     baseURL: process.env.WQ_WEB_URL ?? "http://127.0.0.1:4173",
     channel: "chrome",
     headless: true,
-    trace: "off",
+    // On CI a failed test keeps its trace (actions, DOM snapshots, network) in test-results, which CI uploads.
+    trace: process.env.CI ? "retain-on-failure" : "off",
     deviceScaleFactor: 1,
     viewport: { width: 1440, height: 1000 },
   },

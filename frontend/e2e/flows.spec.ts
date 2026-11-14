@@ -1,7 +1,7 @@
 // F8 end-to-end flows on the demo home. They assert rules, never the synthetic numbers.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test, withApi } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
@@ -25,6 +25,19 @@ test.beforeAll(async ({ request }) => {
 });
 
 const blur = (page: Page) => page.keyboard.press("Tab");
+
+/** Make a folder in the folder dialog and choose it, waiting at each step, so a failure says where it stopped (the
+ * folder opened, empty, the button usable, the dialog closed). */
+async function makeAndChoose(d: Locator, parent: string, name: string) {
+  await d.getByLabel("新文件夹名称").fill(name);
+  await d.getByRole("button", { name: "新建文件夹" }).click();
+  await expect(d.getByLabel("文件夹路径")).toHaveValue(join(parent, name));
+  await expect(d.getByText("这里没有子文件夹。")).toBeVisible();
+  const choose = d.getByRole("button", { name: "选择这个文件夹" });
+  await expect(choose).toBeEnabled();
+  await choose.click();
+  await expect(d).toBeHidden();
+}
 
 test.describe("an invalid strategy on purpose", () => {
   // The wrong field below is sent as typed: the backend refuses it (422, logged by Chrome) and the page locates it.
@@ -937,10 +950,7 @@ test.describe("first-run setup", () => {
     await d.getByLabel("文件夹路径").fill(SCRATCH);
     await d.getByLabel("文件夹路径").press("Enter");
     await expect(d.getByLabel("文件夹路径")).toHaveValue(SCRATCH);
-    await d.getByLabel("新文件夹名称").fill("向导新建");
-    await d.getByRole("button", { name: "新建文件夹" }).click();
-    await expect(d.getByLabel("文件夹路径")).toHaveValue(join(SCRATCH, "向导新建"));
-    await d.getByRole("button", { name: "选择这个文件夹" }).click();
+    await makeAndChoose(d, SCRATCH, "向导新建");
     await expect(page.getByLabel("数据文件夹")).toHaveText(join(SCRATCH, "向导新建"));
     await expect(page.getByText("下一步时改用这个文件夹")).toBeVisible();
     await page.getByRole("button", { name: "下一步" }).click();
@@ -971,7 +981,8 @@ test.describe("first-run setup", () => {
     await expect(page.getByRole("region", { name: "存储位置" }).locator(".loc-path")).toHaveText(join(SCRATCH, "向导新建"));
   });
   test("own data without stock names: 剔除退市整理期 says on its row that it cannot work here", async ({ page }) => {
-    test.setTimeout(90_000);
+    // Windows runners are slow: the folder steps and an import of up to a minute.
+    test.setTimeout(150_000);
     const own = join(SCRATCH, "own-no-names");
     mkdirSync(own, { recursive: true });
     const days: string[] = [];
@@ -992,9 +1003,7 @@ test.describe("first-run setup", () => {
     await d.getByLabel("文件夹路径").fill(SCRATCH);
     await d.getByLabel("文件夹路径").press("Enter");
     await expect(d.getByLabel("文件夹路径")).toHaveValue(SCRATCH);
-    await d.getByLabel("新文件夹名称").fill("没有名称");
-    await d.getByRole("button", { name: "新建文件夹" }).click();
-    await d.getByRole("button", { name: "选择这个文件夹" }).click();
+    await makeAndChoose(d, SCRATCH, `没有名称-${STAMP}`);
     await page.getByRole("button", { name: "下一步" }).click();
     await page.getByLabel("要导入的文件夹").fill(own);
     await page.getByRole("button", { name: "检查这个文件夹" }).click();
