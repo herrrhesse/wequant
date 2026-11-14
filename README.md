@@ -430,6 +430,47 @@ days, so weekly and daily conditions combine as any others do (`["AND", ["WEEK",
   (`cache/panel/<key>/week-<field>.npy`), the first week of a panel starting inside one remade from its own days. A
   strategy without WEEK or MONTH runs exactly as before.
 
+## TDX-style formulas (S4.1)
+
+```bash
+uv run wequant formula check --text "N:=9; XG: C>MA(C,N);" --period week   # tree, lines, errors and warnings
+uv run wequant formula trial --text "..." --period week --code 600000.SH  # every line on one stock's bars
+uv run wequant formula format '["GT","adj_close",5]' close             # trees (JSON, or a field name) as text
+uv run wequant formula vocab                                               # functions, fields, refused names, examples
+```
+
+- **Where:** every expression of a strategy (universe, conditions, factors, the weight formula) can be a formula
+  object `{"text": ..., "period": "day" | "week" | "month"}` instead of a tree. The backend compiles the text (a
+  weekly one under WEEK) and returns `tree` with it; a tree sent with the text is ignored. A strategy's hash and its
+  runs' ids follow the trees, so comments, blanks and variable names change neither, and runs archive trees only.
+  Saving keeps each version's text: a version whose text alone changed is a new version with the hash of the one
+  before. A saved version whose text now compiles to another tree reads with `formula_recompiled`.
+- **Syntax:** `NAME:=expr;` lines, `NAME:expr;` outputs (drawing styles after a comma are ignored), `{comments}`,
+  `+ - * /`, `> < >= <= = <>`, `AND OR NOT` (`&&` `||` too), parentheses, the minus sign, calls; any case; full-width
+  punctuation reads as ASCII. Constants (`N:=9`) serve as windows. The formula's value is its last output line (or its
+  last unnamed line). A line may take a built-in name (`C:=...`): from there on the name is that line
+  (`formula_shadows` warns).
+- **Names:** C/CLOSE, O/OPEN, H/HIGH, L/LOW and PRECLOSE are back-adjusted (ratios, averages and KDJ come out as on
+  TDX's forward-adjusted charts); RAW_CLOSE, RAW_OPEN, RAW_HIGH, RAW_LOW, RAW_PRECLOSE are unadjusted, for price levels
+  (`adjusted_level` warns at a back-adjusted price compared with a constant). V/VOL is volume in lots (100 shares) and
+  AMO/AMOUNT amount in yuan, as in TDX's function list; RAW_VOLUME is shares. Other fields go by their names (ST,
+  LIST_DAYS, LIMIT_UP, ...); MEMBER('000300.SH'), BOARD('main'), EXCHANGE('BJ'), CODES('600000.SH', ...) and
+  WEEK(x)/MONTH(x) are wequant's own. Functions named as in TDX map onto the operators (EXPMA → EMA, IFF → IF).
+- **TDX's habits:** a comparison is 1/0; a number where a condition belongs is true when it is not 0; a condition in
+  arithmetic is its 1/0. Conditions, the universe, sell and keep formulas need a condition as output
+  (`formula_needs_bool`); factors and weights a number (a condition counts 1/0).
+- **Refused:** TDX's future functions (`future_function`), functions whose data the store lacks (`formula_no_data`:
+  financials, real-time quotes, share capital, chip distribution, dates, ...), the rest wequant has no operator for
+  yet and drawing functions (`formula_unsupported`), unknown names with the nearest known one (`formula_unknown_name`).
+  Each error names its line, columns and word (`ErrorDetail.position`, `FormulaIssue`) and a Chinese hint.
+- **One difference from TDX:** HHV, LLV, MA and the other window functions are empty until a stock has N bars since
+  the anchor; TDX's HHV and LLV take the bars there are. Only a stock's first bars differ (and SMA's start, which fades
+  within about 30 bars); the help says so.
+- **Trial:** each variable and output on each bar (a week, for a weekly formula: its last trading day and first), with
+  the bar's prices as the formula reads them, VOL in lots, the unadjusted close, and `tdx` prices forward-adjusted to
+  the store's last day for comparing levels with TDX's charts. A weekly trial leaves out a week not yet ended
+  (`open_period`). A formula with a cross-sectional function ranks among every stock.
+
 ## Index bars, rebalance days and order causes
 
 - **`data index-bars`** gives indices' daily bars from the `index_bars` table, prices in index points, with each day's

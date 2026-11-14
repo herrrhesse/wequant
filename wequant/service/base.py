@@ -40,6 +40,17 @@ class Check(Model):
     """True when the check found nothing to act on."""
 
 
+class TextPosition(Model):
+    """Where in a formula's text (S4.1): lines and columns from 1, end_col just after the last character."""
+
+    line: int
+    col: int
+    end_line: int
+    end_col: int
+    token: str | None
+    """The word at fault, as the formula has it (names upper-cased); null at the end of the text."""
+
+
 class ErrorDetail(Model):
     """One located reason an operation failed."""
 
@@ -51,6 +62,8 @@ class ErrorDetail(Model):
     """Where in the request, pydantic style: e.g. ["strategy", "filters", 2, "expr"]; empty for the whole request."""
     path: list[int] = []
     """Where inside an expression form ([name, arg0, arg1, ...]: argument i at index i + 1); empty for all of it."""
+    position: TextPosition | None = None
+    """Where inside a formula's text, when loc names a formula (S4.1); null otherwise."""
     hint: str | None = Field(default_factory=rule_hint)
     """The broken rule in one Chinese sentence: what is missing and how to fix it; null: the general sentence of the
     code in labels.error_codes says it."""

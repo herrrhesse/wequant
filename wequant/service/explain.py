@@ -27,6 +27,7 @@ from wequant.service.base import (
     read_version,
 )
 from wequant.service.details import to_data, usage
+from wequant.service.formula_values import FormulaValue, lines, values_at
 from wequant.service.notes import delisting_day, pool_note
 from wequant.service.outputs import (
     Action,
@@ -113,6 +114,9 @@ class StepCheck(Model):
     periods: list[PeriodValue] = []
     """The week or month each weekly or monthly part of the condition read for this stock (labels.periods has the
     page's words); empty for a daily condition and a group."""
+    formula_values: list[FormulaValue] = []
+    """A condition written as a formula: the variables its output line uses, then its numbers, on the bar it read
+    (S4.1); empty for a condition written as a tree and a group."""
 
 
 class FactorScore(FactorCell):
@@ -189,7 +193,7 @@ def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
         name=names_of(context, [request.code]).get(request.code),
         strategy_hash=strategy_hash(strategy),
         run_id=None,
-        **_checks(strategy, panel, shot, col),
+        **_checks(strategy, panel, shot, col, context),
         role="target" if weight is not None else "backup" if backup else "none",
         weight=weight,
         raw_weight=raw,
@@ -243,7 +247,7 @@ def _with_run(request: ExplainRequest, context: Context) -> Explain:
         name=names.get(request.code),
         strategy_hash=strategy_hash(spec.strategy),
         run_id=request.run,
-        **_checks(spec.strategy, panel, shot, col),
+        **_checks(spec.strategy, panel, shot, col, context),
         role=pick.get("role") or "none",
         weight=pick.get("weight"),
         raw_weight=pick.get("raw_weight"),
@@ -256,14 +260,14 @@ def _with_run(request: ExplainRequest, context: Context) -> Explain:
     )
 
 
-def _checks(strategy: Strategy, panel: Panel, shot: Screen, col: int) -> dict:
+def _checks(strategy: Strategy, panel: Panel, shot: Screen, col: int, context: Context) -> dict:
     """The pool checks, filter steps, score and missing factor of column col on the screen's day."""
     section, row = shot.section, int(shot.section.rows[0])
     scored = bool(section.scored[0, col])
     missing = shot.rejects.filter((pl.col("code") == panel.codes[col]) & (pl.col("step") == "scored"))["missing"]
     return {
         "pool": _pool(strategy, panel, section, row, col),
-        "steps": [_step(step, section, col, panel, row) for step in strategy.steps()],
+        "steps": [_step(step, section, col, panel, row, context) for step in strategy.steps()],
         "score": _score(strategy, section, col) if scored else None,
         "missing": missing.item() if missing.len() else None,
     }
@@ -291,7 +295,7 @@ def _pool(strategy: Strategy, panel: Panel, section: Section, row: int, col: int
     return checks
 
 
-def _step(step: Step, section: Section, col: int, panel: Panel, row: int) -> StepCheck:
+def _step(step: Step, section: Section, col: int, panel: Panel, row: int, context: Context) -> StepCheck:
     """One filter step: its verdict, a simple comparison's value and constants, or a group's member verdicts."""
     group = step.expr is None
     compared = None if group else comparison(step.expr)
@@ -309,6 +313,7 @@ def _step(step: Step, section: Section, col: int, panel: Panel, row: int) -> Ste
         mode=step.mode if group else None,
         members=members,
         periods=[] if group else period_values(step.expr, panel, row, col),
+        formula_values=[] if group else values_at(lines(step.expr, panel, row, context.expr_cache), col),
     )
 
 

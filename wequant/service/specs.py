@@ -16,6 +16,7 @@ from pydantic_core import PydanticCustomError
 from wequant.account.execution import DELISTING, PRICES
 from wequant.backtest.data import ANOMALY_MODES
 from wequant.expr.vocab import INDEXES
+from wequant.formula import MAX_TEXT
 from wequant.service.base import Code, Distinct, Model
 from wequant.strategy.strategy import MODES, PERIODS, POOL_BOARDS, PREFERS, WEIGHTINGS
 
@@ -32,14 +33,17 @@ def _iso_date(value: object) -> object:
 
 
 def _expr_form(value: object, handler: Callable) -> object:
-    """A field name or a list; anything else is one not_a_form, not one error per union branch."""
-    if not isinstance(value, str | list):
-        raise PydanticCustomError("not_a_form", "an expression is a field name or [operator, arguments...]")
+    """A field name, a list or a formula object; anything else is one not_a_form, not one error per union branch."""
+    if isinstance(value, dict):
+        return FormulaSpec.model_validate(value)
+    if not isinstance(value, str | list | FormulaSpec):
+        raise PydanticCustomError(
+            "not_a_form", "an expression is a field name, [operator, arguments...] or a formula {text, period}"
+        )
     return handler(value)
 
 
 IsoDate = Annotated[dt.date, BeforeValidator(_iso_date)]  # a date object or "YYYY-MM-DD", never a timestamp
-ExprForm = Annotated[str | list[JsonValue], WrapValidator(_expr_form)]  # a field name or [operator, arguments...]
 Name = Annotated[str, Field(min_length=1)]
 
 
@@ -47,6 +51,20 @@ class Spec(Model):
     """Base of the given inputs: strict JSON types on top of Model's rules."""
 
     model_config = ConfigDict(strict=True)
+
+
+class FormulaSpec(Spec):
+    """A TDX-style formula (S4.1): the text the user wrote, kept as written, and the period its bars are; the backend
+    compiles the text, so a hash and a run's identity follow the compiled tree, never comments or variable names."""
+
+    text: str = Field(max_length=MAX_TEXT)
+    period: Literal[PERIODS] = "day"
+    tree: JsonValue = None
+    """The compiled tree, given back with a saved strategy; ignored in requests (the text is compiled anew)."""
+
+
+ExprForm = Annotated[str | list[JsonValue] | FormulaSpec, WrapValidator(_expr_form)]
+"""A field name, [operator, arguments...] or a formula {text, period}."""
 
 
 class ConditionSpec(Spec):
