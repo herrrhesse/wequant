@@ -35,6 +35,11 @@ def cache_dir() -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME") or "~/.cache").expanduser() / "wequant"
 
 
+def absolute(path: str | Path) -> Path:
+    """path with ~ expanded, made absolute and normalized (no "." or ".."), symbolic links left as they are (F-32)."""
+    return Path(os.path.abspath(Path(path).expanduser()))
+
+
 def use_user_cache() -> None:
     """Point numba's compile cache at cache_dir() unless NUMBA_CACHE_DIR names one, so a program installed where it
     cannot write (C:\\Program Files) still compiles its operators only once; the package does it on import."""

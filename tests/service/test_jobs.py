@@ -26,6 +26,7 @@ KINDS_FOR_TESTS = KINDS | {  # threads of the queue's process unless marked proc
     "stubborn": Kind("tests.service.job_ops:stubborn", process=True),
     "pid": Kind("tests.service.job_ops:pid", process=True),
     "done": Kind("tests.service.job_ops:done", process=True),
+    "paced": Kind("tests.service.job_ops:paced"),
 }
 
 
@@ -212,6 +213,16 @@ def test_the_hidden_worker_command_runs_a_job(home, queue, monkeypatch):
     monkeypatch.setattr("wequant.service.queue.worker_command", lambda: command)
     jobs = queue(home)
     assert until(jobs, jobs.submit("done", {}).id, finished).state == "succeeded"
+
+
+def test_a_job_s_time_left_is_its_own_field(home, queue):
+    """F-33: a step's eta_seconds becomes JobInfo.eta_seconds, not a param of the stage's sentence."""
+    jobs = queue(home)
+    job = jobs.submit("paced", {})
+    until(jobs, job.id, lambda j: j.stage == "build_stocks")
+    info = service.jobs_show(service.JobRef(id=job.id), Context(home, jobs=jobs))
+    jobs.cancel(job.id)
+    assert info.eta_seconds == 30 and "eta_seconds" not in info.params
 
 
 def test_closing_the_queue_fails_the_jobs_it_leaves_unfinished(home, queue):

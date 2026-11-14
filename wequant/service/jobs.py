@@ -86,6 +86,9 @@ class JobInfo(Model):
     params: Params
     text: str
     """The stage in one Chinese sentence."""
+    eta_seconds: float | None = None
+    """Expected seconds left, for the jobs that measure their own pace (a first build, a backfill); null otherwise
+    (F-33)."""
     error: ErrorBody | None
     """Why a failed or cancelled job has no result; null otherwise."""
     created_at: str
@@ -158,6 +161,7 @@ def job_info(job: Job, every: list[Job], context: Context) -> JobInfo:
     """The JobInfo of job, every job giving its place in the queue."""
     version = job.request.get("data_version")
     params = _params(job, every)
+    eta = params.pop("eta_seconds", None)
     return JobInfo(
         id=job.id,
         kind=job.kind,
@@ -170,6 +174,7 @@ def job_info(job: Job, every: list[Job], context: Context) -> JobInfo:
         stage=job.stage,
         params=params,
         text=job_text(job.stage, params),
+        eta_seconds=eta,
         error=job.error,
         created_at=job.created_at,
         started_at=job.started_at,

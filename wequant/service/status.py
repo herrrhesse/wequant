@@ -10,6 +10,7 @@ from pydantic import JsonValue
 from wequant.data.raw import BaoStockRaw
 from wequant.data.store import OWN_KEYS, Store, version_name, version_reason
 from wequant.data.update import due_days
+from wequant.paths import absolute
 from wequant.rules.tables import limit_check_current
 from wequant.service.base import Context, DataRequest, Model, manifest, read_version
 from wequant.service.labels import reason_text
@@ -102,7 +103,7 @@ def data_status(request: StatusRequest, context: Context = Context()) -> DataSta
         limit_check_current=limit_check_current(shown),
         tables=[_table(name, entry) for name, entry in sorted(shown["tables"].items())],
         meta={key: value for key, value in shown.items() if key not in (*OWN_KEYS, "last_trade_date")},
-        home=str(store.home.absolute()),
+        home=str(absolute(store.home)),
     )
 
 
