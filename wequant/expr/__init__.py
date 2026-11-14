@@ -33,6 +33,7 @@ from wequant.expr.build import (
     MA,
     MAX,
     MIN,
+    MONTH,
     MUL,
     NOT,
     OR,
@@ -45,6 +46,7 @@ from wequant.expr.build import (
     SUM,
     TS_RANK,
     VALUEWHEN,
+    WEEK,
     WMA,
 )
 from wequant.expr.cache import Cache, panel_key
@@ -60,6 +62,8 @@ from wequant.expr.vocab import (
     INDEXES,
     NUM,
     OPERATORS,
+    PERIOD_FIELDS,
+    PERIODS,
     PLANNED,
     STORED_AS,
 )
@@ -94,6 +98,7 @@ __all__ = [
     "LLVBARS",
     "LN",
     "LT",
+    "MONTH",
     "MA",
     "MAX",
     "MIN",
@@ -109,6 +114,7 @@ __all__ = [
     "SUM",
     "TS_RANK",
     "VALUEWHEN",
+    "WEEK",
     "WMA",
     "Cache",
     "panel_key",
@@ -133,5 +139,7 @@ __all__ = [
     "INDEXES",
     "NUM",
     "OPERATORS",
+    "PERIOD_FIELDS",
+    "PERIODS",
     "STORED_AS",
 ]

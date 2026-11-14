@@ -17,6 +17,7 @@ from wequant.service.base import Context, DataRequest, Model, Names, manifest, n
 from wequant.service.details import Loc, spec_details, to_data, usage
 from wequant.service.notes import pool_note
 from wequant.service.outputs import DataAnomaly, Op, Role, SavedRef, Warning, data_anomaly, warnings_out
+from wequant.service.periods import PeriodValue, open_periods, period_after, period_values
 from wequant.service.scopes import beyond_data
 from wequant.service.specs import DataSpec, IsoDate
 from wequant.service.strategies import Hash, StrategyInput, resolve, saved_as
@@ -154,6 +155,9 @@ class ScreenResult(Model):
     anomalies: DataAnomaly | None
     """Anomalous data the scored stocks' signals read; null: none."""
     warnings: list[Warning]
+    periods: dict[str, list[PeriodValue]] = {}
+    """By condition, factor or formula name: the week or month its weekly or monthly parts read on the day (labels.periods
+    has the page's words); only the ones that read any."""
 
 
 def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult:
@@ -162,7 +166,9 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
     strategy, warnings = resolve(request, library)
     data = to_data(request.data)
     context.stage("compile")
-    panel = strategy_panel(strategy, read_version(context, request.data_version), data, context, _where(request))
+    version = read_version(context, request.data_version)
+    after = period_after(strategy, context, manifest(context.store(), version))
+    panel = strategy_panel(strategy, version, data, context, _where(request), after and after[0])
     with on_panel(_where(request)):
         shot = core_screen(strategy, panel, request.date, context.expr_cache, context.mark)
     section, choice, row = shot.section, shot.choice, int(shot.section.rows[0])
@@ -182,22 +188,36 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
         anomalies=data_anomaly(uses, panel.excluded, sample=None),
         warnings=warnings
         + warnings_out(screen_warnings(strategy, panel, section, choice, uses))
-        + beyond_data(strategy, context.store(), panel.manifest, panel.dates[row].item()),
+        + beyond_data(strategy, context.store(), panel.manifest, panel.dates[row].item())
+        + open_periods(strategy, panel, row, after),
+        periods=screen_periods(strategy, panel, row),
     )
     context.stage("result")
     return result
 
 
 def strategy_panel(
-    strategy: Strategy, version: int | None, data: DataOptions, context: Context, loc: Loc = ("strategy",)
+    strategy: Strategy,
+    version: int | None,
+    data: DataOptions,
+    context: Context,
+    loc: Loc = ("strategy",),
+    after: dt.date | None = None,
 ) -> Panel:
-    """The panel a backtest without an end runs on: every code from the strategy's anchor to the store's last day."""
+    """The panel a backtest without an end runs on: every code from the strategy's anchor to the store's last day;
+    after is the trading day after that day, for a strategy that reads weekly or monthly bars (period_after)."""
     store = context.store()
     manifest(store, version)  # NOT_FOUND that names the kept versions
     context.stage("open_store")
     try:
         panel = load_panel(
-            strategy.anchor, None, version=version, store=store, cache_dir=context.cache, exclude=data.excluded
+            strategy.anchor,
+            None,
+            version=version,
+            store=store,
+            cache_dir=context.cache,
+            exclude=data.excluded,
+            after=after,
         )
     except NotInPanel as error:
         raise not_found(error.code, error.args[0], [*loc, "anchor"]) from None
@@ -214,6 +234,15 @@ def on_panel(loc: Loc = ("strategy",)) -> Iterator[None]:
         raise usage(spec_details(error, loc), error.complete) from None
     except NotInPanel as error:
         raise not_found(error.code, error.args[0], ["date"]) from None
+
+
+def screen_periods(strategy: Strategy, panel: Panel, row: int) -> dict[str, list[PeriodValue]]:
+    """The week or month each root that reads weekly or monthly bars read on the decision row."""
+    roots = {step.name: step.expr for step in strategy.steps() if step.expr is not None}
+    roots |= {f.name: f.expr for f in strategy.factors if f.enabled}
+    roots |= {"formula": strategy.formula} if strategy.formula is not None else {}
+    found = {name: period_values(expr, panel, row) for name, expr in roots.items()}
+    return {name: values for name, values in found.items() if values}
 
 
 def funnel_steps(strategy: Strategy, funnel: pl.DataFrame) -> list[FunnelStep]:

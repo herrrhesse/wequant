@@ -400,6 +400,36 @@ uv run wequant expr indicators         # every indicator a condition or factor c
   older index's membership, and the first and last day the store version has a value for it (a common indicator's
   first day counts its lookback).
 
+## Weekly and monthly bars (S4.8)
+
+`["WEEK", expr]` and `["MONTH", expr]` compute expr on weekly or monthly bars and give its value back on the trading
+days, so weekly and daily conditions combine as any others do (`["AND", ["WEEK", ...], ["GT", "close", 5]]`).
+
+- **Bars:** a week is Monday to Sunday, a month a calendar month. A stock's bar takes its first open, highest high,
+  lowest low, last close and summed volume and amount over the days it traded in the period (the amount is unknown
+  when a traded day's is); its preclose is its previous bar's close (the first bar's: its first day's daily preclose);
+  the `adj_` fields come from the back-adjusted days. A stock that did not trade in a period has no bar there, and
+  REF, MA, SMA, HHV, COUNT and the other time-series operators count bars, skipping it as they skip a suspended day.
+- **Back on the days:** a period ends on the day whose next trading day falls in another period, the rule the
+  rebalance schedule follows, so a weekly value includes the week exactly on the weekly decision days. That day and
+  the days after it, up to the next period's end, read the period; nothing reads a period before it ends. A stock reads
+  its latest bar among the ended periods; a day without its own bar reads nothing.
+- **The store's last day:** its next trading day comes from BaoStock's published calendar when the raw layer has it,
+  else it is estimated as the next weekday (as `strategy schedule` counts). When only an estimate says the period goes
+  on, the period waits and screen and explain warn `week_open` / `month_open`; a backtest never decides on its last day.
+- **Inside a period** only `open high low close preclose volume amount` and their `adj_` versions can be read
+  (`period_field` refuses ST, limits, list days, delisting, members, boards, the factor and stock lists), periods do not
+  nest (`period_nested`) and cross-sectional operators are refused (`period_cross_section`): a rank is taken among a
+  decision day's pool, so it goes outside, as in `["CS_RANK", ["WEEK", ...]]`.
+- **Lookback:** a period counts 5 (week) or 23 (month) trading days a bar, plus the period a day inside the next one
+  reads: `["WEEK", ["HHV", "high", 9]]` reaches 49 trading days back.
+- **Explanations:** explain's steps name the week or month each weekly or monthly value came from (`periods`: its
+  last trading day), screen names it per condition, factor and formula, and `labels.periods` gives the page's words
+  (周线（截至 … 那周）). The funnel is unchanged.
+- **Cost:** the bars are built once per store version and field from the panel cache's daily arrays and kept there
+  (`cache/panel/<key>/week-<field>.npy`), the first week of a panel starting inside one remade from its own days. A
+  strategy without WEEK or MONTH runs exactly as before.
+
 ## Index bars, rebalance days and order causes
 
 - **`data index-bars`** gives indices' daily bars from the `index_bars` table, prices in index points, with each day's

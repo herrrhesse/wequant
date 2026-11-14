@@ -9,11 +9,10 @@ from functools import reduce
 from typing import TYPE_CHECKING, NamedTuple
 
 from wequant.expr import IF, Codes, Expr, Field, Op
+from wequant.expr.vocab import CROSS_SECTIONAL
 
 if TYPE_CHECKING:
     from wequant.strategy.strategy import Strategy
-
-CROSS_SECTIONAL = frozenset(("CS_RANK", "CS_PCT", "CS_ZSCORE", "CS_DEMEAN"))
 FLIPPED = {"GT": "lt", "GE": "le", "LT": "gt", "LE": "ge", "EQ": "eq"}  # the comparison with the constant moved right
 
 

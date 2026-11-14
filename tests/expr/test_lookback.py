@@ -2,7 +2,7 @@
 
 import pytest
 
-from wequant.expr import CROSS, CS_RANK, EMA, IF, MA, REF, SUM, Field
+from wequant.expr import CROSS, CS_RANK, EMA, HHV, IF, MA, MONTH, REF, SUM, WEEK, Field
 from wequant.expr.lookback import fields, lookback
 
 CLOSE, OPEN = Field("close"), Field("open")
@@ -18,6 +18,9 @@ CLOSE, OPEN = Field("close"), Field("open")
         (CS_RANK(CLOSE / REF(OPEN, 2)), 2),  # cross-sectional and element-wise operators add nothing
         (SUM(CLOSE, 0), None),  # a window of 0 bars is the whole history
         (MA(EMA(CLOSE, 3), 2), None),  # a recursive operator reads from the first row
+        (WEEK(HHV(CLOSE, 9)), 49),  # 8 weeks back from the week read, which a day inside the next reads: 5 days each
+        (MONTH(CLOSE), 45),  # the month read, from a day inside the next one: 23 days each
+        (WEEK(EMA(CLOSE, 3)), None),
     ],
 )
 def test_lookback_by_operator_family(expr, bars):

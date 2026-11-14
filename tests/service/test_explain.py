@@ -82,3 +82,10 @@ def test_what_explain_refuses(market_home, request_, exit, code, loc):
     with pytest.raises(ServiceError) as raised:
         explained(market_home, fields.pop("code", "600004.SH"), **{"date": "2024-01-05", **fields})
     assert raised.value.exit == exit and [(d.code, d.loc) for d in raised.value.detail] == [(code, loc)]
+
+
+def test_a_weekly_condition_names_the_week_its_value_came_from(market_home):
+    """On Wednesday 2024-01-10 a weekly value is the week ended on Friday 2024-01-05 (S4.8)."""
+    weekly = {"filters": [{"name": "weekly", "expr": ["WEEK", ["GT", "close", 0.0]]}]}
+    found = explained(market_home, "600004.SH", strategy=weekly, date=DAYS[6])
+    assert [(p.period, p.end) for p in found.steps[0].periods] == [("week", dt.date(2024, 1, 5))]
