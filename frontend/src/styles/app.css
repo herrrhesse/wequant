@@ -2,6 +2,9 @@
 
 /* Layout and components of the final design (version 56): soft cards, 24px radius, Space Grotesk numbers. */
 * { box-sizing: border-box; }
+/* The scrollbar's room is kept whether or not the page scrolls: a page growing taller (results arriving) does not
+   narrow and shift. */
+html { scrollbar-gutter: stable; }
 body { margin: 0; background: var(--bg); }
 .app {
   min-height: 100vh;
@@ -148,7 +151,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .bad { color: var(--acc); }
 .strat-layout { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
 .strat-main { flex: 3 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.strat-aside { flex: 2 1 380px; min-width: 0; position: sticky; top: 120px; max-height: calc(100vh - 130px); overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.strat-aside { flex: 2 1 380px; min-width: 0; position: sticky; top: 120px; max-height: calc(100vh - 130px); overflow-y: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 12px; }
 .drawer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: 48px; display: flex; flex-direction: column; box-shadow: var(--pop); border-radius: 20px 20px 0 0; background: var(--bg); }
 .drawer.open { max-height: 70vh; }
 .drawer-head { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 16px; border: 0; background: var(--card); border-radius: 20px 20px 0 0; cursor: pointer; text-align: left; font-size: 13px; }

@@ -276,6 +276,14 @@ test("picks with no saved strategy: the draft is computed; with no draft either,
   await fresh.close();
 });
 
+test("the scrollbar's room is always kept: a page growing taller does not shift sideways", async ({ page }) => {
+  // The test browser hides scrollbars, so the rule itself is checked: the page and the strategy preview keep the room.
+  await page.goto("#/strategy?new=1");
+  await expect(page.locator(".strat-aside")).toBeVisible();
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollbarGutter)).toBe("stable");
+  expect(await page.locator(".strat-aside").evaluate((e) => getComputedStyle(e).scrollbarGutter)).toBe("stable");
+});
+
 test("navigation order: 今日, 策略, 回测, 选股, 数据", async ({ page }) => {
   await page.goto("#/");
   await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link")).toHaveText(["今日", "策略", "回测", "选股", "数据"]);
