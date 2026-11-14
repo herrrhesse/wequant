@@ -61,7 +61,6 @@ import time
 from collections.abc import Callable, Iterator
 from importlib.metadata import version
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import polars as pl
 
@@ -76,6 +75,7 @@ from wequant.data.sources.baostock import (
     from_baostock,
 )
 from wequant.data.store import StoreLocked, exclusive, wequant_home
+from wequant.data.update import SHANGHAI
 
 Check = Callable[[pl.DataFrame], str | None]  # why a response must not be written, or None
 
@@ -112,7 +112,7 @@ class ServerDown(RuntimeError):
 
 
 def shanghai_today() -> dt.date:
-    return dt.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    return dt.datetime.now(SHANGHAI).date()
 
 
 def snapshot_problem(frame: pl.DataFrame, day: dt.date) -> str | None:

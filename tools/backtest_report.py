@@ -11,7 +11,6 @@ import argparse
 import datetime as dt
 import math
 import os
-import resource
 import statistics
 import tempfile
 import time
@@ -23,6 +22,7 @@ from typing import NamedTuple
 import numpy as np
 import polars as pl
 
+from tools.peak import peak_mib
 from tools.summary import Summary
 from wequant.account import EXECUTION_VERSION, Execution
 from wequant.analytics import METRICS_VERSION
@@ -149,7 +149,7 @@ def render(report: Report) -> str:
     """The Markdown report: the summary, the setup, every section, and the peak RSS taken after the last one."""
     load = os.getloadavg()
     body = [line for section in SECTIONS for line in section(report)]
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+    peak = peak_mib() * 2**20
     memory = report.summary.check("Memory: peak RSS", peak <= PEAK_LIMIT, f"{peak / 2**20:,.0f} MB (≤ 5 GB)")
     manifest = report.store.manifest(report.version)
     run_days = len(report.dates) - 1 - int(np.searchsorted(report.dates, np.datetime64(report.start)))

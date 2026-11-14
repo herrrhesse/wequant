@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import NamedTuple
-from zoneinfo import ZoneInfo
 
 import polars as pl
 
@@ -33,7 +32,7 @@ from wequant.data.schema import TABLES
 from wequant.data.sources.baostock import FIRST_DAY, INDEX_FIELDS, BaoStock, from_baostock, parse_index, to_baostock
 from wequant.data.store import Store, exclusive
 
-SHANGHAI = ZoneInfo("Asia/Shanghai")
+SHANGHAI = dt.timezone(dt.timedelta(hours=8), "Asia/Shanghai")  # no daylight saving since 1991; Windows has no tz data
 PUBLISHED = dt.time(18, 0)  # Shanghai time by which BaoStock has loaded a day's bars (about 17:30)
 STAGES = ("update_calendar", "update_snapshot", "update_factors", "update_indexes", "update_merge", "update_commit")
 
