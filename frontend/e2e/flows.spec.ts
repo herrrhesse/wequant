@@ -206,7 +206,7 @@ test("data: the page opens with its sections", async ({ page }) => {
 test("ordinary pages show no developer details: no curl, hashes, decision numbers, code names or English text", async ({ page }) => {
   const runs = await (await page.request.post("api/runs_list", { data: { limit: 1 } })).json();
   const run = runs.rows[0]?.id as string | undefined;
-  const pages = ["#/", `#/strategy?id=${preset}`, `#/strategy?view=list`, `#/picks?id=${preset}`, "#/backtest", "#/data", "#/stock/600030.SH"];
+  const pages = ["#/", `#/strategy?id=${preset}`, `#/strategy?view=list`, "#/strategy?new=pick", `#/picks?id=${preset}`, "#/backtest", "#/data", "#/stock/600030.SH"];
   if (run) pages.push(`#/backtest?run=${run}`);
   for (const at of pages) {
     await page.goto(at);
@@ -327,7 +327,9 @@ test("empty pages say what to do next, and their buttons go there", async ({ pag
   await page.unroute("**/api/runs_list");
   await page.route("**/api/strategy_list", (r) => r.fulfill({ json: { rows: [] } }));
   await page.goto("#/strategy?view=list");
-  await page.getByRole("region", { name: "我的策略" }).getByRole("link", { name: /新建空白策略/ }).click();
+  await page.getByRole("region", { name: "我的策略" }).getByRole("link", { name: /新建策略/ }).click();
+  await expect(page).toHaveURL(/#\/strategy\?new=pick/);
+  await page.getByRole("button", { name: /^空白策略/ }).click();
   await expect(page).toHaveURL(/#\/strategy\?new=1/);
   await page.unroute("**/api/strategy_list");
   await page.route("**/api/screen", async (route) => {
@@ -385,8 +387,9 @@ test("stock pool: built by search, paste, file and index, with unreadable items 
   expect(total).toBeGreaterThan(3);
   await d.getByRole("button", { name: "保存" }).click();
   await expect(page.locator(".pool-picker")).toContainText(`（${total} 只）`);
-  await expect(page.locator(".strat-aside .funnel")).toContainText("自定义名单");
   await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
+  // The list is the scope itself: the funnel has no separate step for it.
+  await expect(page.locator(".strat-aside .funnel")).not.toContainText("自定义名单");
   // Change the pool: one stock less; the strategy keeps its list until asked.
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const e = page.getByRole("dialog", { name: "编辑股票池" });
@@ -405,4 +408,101 @@ test("stock pool: built by search, paste, file and index, with unreadable items 
   await page.getByRole("button", { name: "开始回测" }).click();
   await expect(page).toHaveURL(/run=[0-9a-f]+/, { timeout: 90_000 });
   await expect(page.getByRole("region", { name: "回测结果" }).locator(".summary")).toContainText("自定义股票池");
+});
+
+interface Template {
+  id: string;
+  name: string;
+  description: string;
+  strategy: { filters: unknown[]; factors: { name: string }[]; top_n: number };
+}
+const strategyCount = async (page: Page) => ((await (await page.request.post("api/strategy_list", { data: {} })).json()).rows as unknown[]).length;
+
+test("new strategy: a template opens as an unsaved draft with its settings; nothing is saved by choosing; with nothing saved the page starts with the choice", async ({ page }) => {
+  const templates = (await (await page.request.post("api/strategy_templates", { data: {} })).json()).rows as Template[];
+  expect(templates.length).toBeGreaterThan(0);
+  const before = await strategyCount(page);
+  await page.goto("#/strategy?view=list");
+  await page.getByRole("region", { name: "我的策略" }).getByRole("link", { name: "＋ 新建策略" }).click();
+  await expect(page).toHaveURL(/new=pick/);
+  const chooser = page.getByRole("region", { name: "新建策略" });
+  // Every template the backend offers is a card with its description and key settings.
+  await expect(chooser.getByRole("button", { name: /^模板：/ })).toHaveCount(templates.length);
+  const t = templates.find((x) => x.strategy.filters.length > 0) ?? templates[0]!;
+  const card = chooser.getByRole("button", { name: `模板：${t.name}` });
+  await expect(card).toContainText(t.description);
+  await expect(card).toContainText(`持有 ${t.strategy.top_n} 只`);
+  await expect(card).toContainText(t.strategy.filters.length ? `筛选条件 ${t.strategy.filters.length} 条` : "不设筛选条件");
+  await card.click();
+  // An unsaved draft with the template's settings, previewed at once.
+  await expect(page).toHaveURL(/new=1/);
+  await expect(page.getByLabel("策略名称")).toHaveValue(t.name);
+  await expect(page.locator(".state.never")).toBeVisible();
+  await expect(page.locator(".strat-bar .summary")).toContainText(t.strategy.factors[0]!.name);
+  await expect(page.locator(".strat-aside .pv-status")).toHaveText(/已更新/);
+  await expect(page.locator(".strat-aside table tbody tr").first()).toBeVisible();
+  expect(await strategyCount(page)).toBe(before);
+  // Coming back offers to continue it; 空白策略 replaces it with an empty one.
+  await page.locator(".strat-bar").getByRole("link", { name: "新建", exact: true }).click();
+  await expect(chooser.getByRole("button", { name: "继续没保存的新策略" })).toContainText(t.name);
+  await chooser.getByRole("button", { name: /^空白策略/ }).click();
+  await expect(page.getByLabel("策略名称")).toHaveValue("新策略");
+  await expect(page.locator(".strat-aside").getByText("添加一个打分因子")).toBeVisible();
+  // With no saved strategy and nothing begun, the strategy page starts with the choice.
+  await page.route("**/api/strategy_list", (r) => r.fulfill({ json: { rows: [] } }));
+  await page.goto("#/data");
+  await page.evaluate(() => {
+    localStorage.removeItem("wequant.strategy.draft");
+    localStorage.removeItem("wequant.strategy.last");
+  });
+  await page.reload();
+  await page.goto("#/strategy");
+  await expect(page.getByRole("region", { name: "新建策略" })).toBeVisible();
+  await page.unroute("**/api/strategy_list");
+});
+
+interface Indicator {
+  form: unknown;
+  label: string;
+  help: string;
+  category: string;
+  kind: string;
+  available: boolean;
+  needs_merge: boolean;
+  legacy: boolean;
+}
+
+test("indicators: the condition picker shows each one's name, category and explanation, browses by category, searches by name; the row keeps the explanation", async ({ page }) => {
+  const rows = (await (await page.request.post("api/expr_indicators", { data: {} })).json()).rows as Indicator[];
+  const cats = (await (await page.request.post("api/labels", { data: {} })).json()).indicator_categories as { code: string; label: string }[];
+  const target = rows.find((r) => r.kind === "num" && r.available && !r.legacy && Array.isArray(r.form) && r.form[0] === "STD") ?? rows.find((r) => r.kind === "num" && r.available && Array.isArray(r.form))!;
+  const catLabel = cats.find((c) => c.code === target.category)!.label;
+  await page.goto("#/strategy?new=pick");
+  await page.getByRole("button", { name: /^空白策略/ }).click();
+  await page.getByRole("button", { name: "＋ 添加条件", exact: true }).click();
+  const panel = page.locator(".add-panel");
+  const card = panel.locator(".add-grid button").filter({ hasText: target.label });
+  await expect(card.first()).toContainText(target.help);
+  await expect(card.first().locator(".ind-cat")).toHaveText(catLabel);
+  // No English reaches the page, also for indicators that cannot be used yet.
+  expect(await panel.innerText()).not.toMatch(/[A-Za-z]{4,} [a-z]{3,} [a-z]{3,}/);
+  const off = rows.find((r) => r.kind === "num" && !r.available && r.needs_merge && !r.legacy);
+  if (off) {
+    const offCard = panel.locator(".add-grid button").filter({ hasText: off.label });
+    await expect(offCard).toBeDisabled();
+    await expect(offCard).toContainText("BaoStock");
+  }
+  // Browse by category: only that category's indicators are listed.
+  await panel.getByRole("group", { name: "指标分类" }).getByRole("button", { name: catLabel }).click();
+  await expect.poll(async () => [...new Set(await panel.locator(".ind-cat").allTextContents())]).toEqual([catLabel]);
+  // Search by name, across categories.
+  await panel.getByRole("group", { name: "指标分类" }).getByRole("button", { name: "全部" }).click();
+  const all = await panel.locator(".ind-cat").count();
+  await panel.getByRole("textbox").fill(target.label);
+  await expect(card.first()).toBeVisible();
+  expect(await panel.locator(".ind-cat").count()).toBeLessThan(all);
+  await card.first().click();
+  // The new condition explains its indicator, and its menu is grouped by category.
+  await expect(page.locator(".cond .cond-meta").first()).toContainText(`${target.label}：${target.help}`);
+  await expect(page.locator(`.cond select optgroup[label="${catLabel}"]`).first()).toBeAttached();
 });

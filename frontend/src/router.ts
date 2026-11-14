@@ -7,7 +7,7 @@ export type Route =
   | { page: "today" }
   | { page: "data"; code: string | null; date: string | null }
   | { page: "stock"; code: string; date: string | null; run: string | null; from: string | null }
-  | { page: "strategy"; id: string | null; list: boolean; fresh: boolean }
+  | { page: "strategy"; id: string | null; list: boolean; fresh: boolean; pick: boolean }
   | { page: "picks"; id: string | null; n: number | null; draft: boolean; date: string | null }
   | { page: "backtest"; run: string | null; cmp: string[]; day: string | null; use: string | null };
 
@@ -18,7 +18,7 @@ const int = (v: string | null) => (v && /^\d+$/.test(v) ? Number(v) : null);
 export function parse(hash: string): Route {
   const [path = "", query = ""] = hash.replace(/^#/, "").split("?");
   const q = new URLSearchParams(query);
-  if (path === "/strategy") return { page: "strategy", id: q.get("id"), list: q.get("view") === "list", fresh: q.get("new") === "1" };
+  if (path === "/strategy") return { page: "strategy", id: q.get("id"), list: q.get("view") === "list", fresh: q.get("new") === "1", pick: q.get("new") === "pick" };
   if (path === "/picks") return { page: "picks", id: q.get("id"), n: int(q.get("n")), draft: q.get("draft") === "1", date: q.get("date") };
   if (path === "/backtest")
     return { page: "backtest", run: q.get("run"), cmp: (q.get("cmp") ?? "").split(",").filter(Boolean).slice(0, 3), day: q.get("day"), use: q.get("use") };
@@ -38,7 +38,10 @@ const qs = (params: Record<string, string | number | null | undefined | false>) 
 export const href = {
   today: () => "#/",
   strategy: (id?: string | null, list = false) => `#/strategy${qs({ id, view: list ? "list" : null })}`,
-  newStrategy: () => "#/strategy?new=1",
+  /** Choose how to start: a blank strategy or a template. */
+  newStrategy: () => "#/strategy?new=pick",
+  /** The editor on the new-strategy draft (blank, or the template just chosen). */
+  draftStrategy: () => "#/strategy?new=1",
   data: (code?: string | null, date?: string | null) => `#/data${qs({ code, date })}`,
   stock: (code: string, opts: { date?: string | null; run?: string | null; from?: string | null } = {}) =>
     `#/stock/${encodeURIComponent(code)}${qs({ date: opts.date, run: opts.run, from: opts.from })}`,

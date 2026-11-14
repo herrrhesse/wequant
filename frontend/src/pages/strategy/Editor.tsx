@@ -6,6 +6,7 @@ import { useLabels } from "../../labels";
 import { NumInput } from "../../components/NumInput";
 import { IndexSeg, scopeOf } from "../../components/IndexSeg";
 import { fromPool, PoolPicker } from "./PoolPicker";
+import { MetricSelect, useIndicators } from "./indicators";
 import { metricForm, type Metric } from "../../strategy/expr";
 import { concerns, type Loc } from "../../strategy/locate";
 import {
@@ -14,8 +15,6 @@ import {
   exprOf,
   factorMetric,
   isGroup,
-  METRIC_PRESETS,
-  metricDesc,
   metricKey,
   metricName,
   namesIn,
@@ -182,6 +181,8 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, drift }: Edit
 export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
   const [adding, setAdding] = useState<number | null>(null);
   const [query, setQuery] = useState("");
+  const [cat, setCat] = useState("");
+  const ind = useIndicators();
   const list = boxes(spec);
   const at = (d: StrategySpec, path: Loc): ConditionSpec => {
     const f = d.filters![path[1] as number]!;
@@ -204,18 +205,36 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
   const addPanel = (bi: number) => (
                 <div className="add-panel">
                   <input className="input" aria-label={st.filters.addSearch} placeholder={st.filters.addPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+                  {ind.categories.length > 0 && (
+                    <div className="seg" role="group" aria-label="指标分类">
+                      <button type="button" aria-pressed={cat === ""} onClick={() => setCat("")}>
+                        全部
+                      </button>
+                      {ind.categories.map((c) => (
+                        <button key={c.code} type="button" aria-pressed={cat === c.code} title={c.help} onClick={() => setCat(c.code)}>
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="add-grid">
-                    {presets.map((m) => (
+                    {shown.map((i) => (
                       <button
-                        key={metricKey(m)}
+                        key={i.key}
                         type="button"
+                        disabled={!i.available}
                         onClick={() => {
-                          addTo(bi, m);
+                          addTo(bi, i.metric);
                           setAdding(null);
                         }}
                       >
-                        <span className="b">{metricName(m)}</span>
-                        <span className="tiny muted">{metricDesc(m)}</span>
+                        <span className="b">
+                          {i.label}
+                          {i.category && <span className="tag ind-cat">{ind.catName(i.category)}</span>}
+                        </span>
+                        <span className="tiny muted">{i.help}</span>
+                        {!i.available && <span className="tiny warn-text">{i.needsMerge ? st.filters.needsMergeOff : st.filters.unavailable}</span>}
+                        {i.available && i.needsMerge && <span className="tiny muted">{st.filters.needsMerge}</span>}
                       </button>
                     ))}
                     <button
@@ -235,7 +254,7 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
                 </div>
     );
   const q = query.trim();
-  const presets = METRIC_PRESETS.filter((m) => !q || metricName(m).includes(q) || metricDesc(m).includes(q));
+  const shown = ind.list.filter((i) => !i.legacy && (!cat || i.category === cat) && (!q || i.label.includes(q) || i.help.includes(q)));
   return (
     <section className="card" aria-label="筛选条件">
       <div className="card-head">
@@ -366,7 +385,9 @@ interface CondProps {
 }
 
 function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProps) {
+  const indicators = useIndicators();
   const row = readCondition(c.expr);
+  const info = row.custom ? undefined : indicators.byKey.get(metricKey(row.metric));
   const off = c.enabled === false;
   const auto = autoName(row);
   const named = !isAuto(c.name, auto);
@@ -388,7 +409,7 @@ function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProp
     const side = row.dir === "high" ? st.filters.high : st.filters.low;
     hint = st.filters.rankBase(side, row.mode === "topn" ? st.filters.topN(row.value) : st.filters.topPct(row.value));
   } else if (row.custom) hint = st.filters.customHint;
-  const metrics = row.custom ? [] : METRIC_PRESETS.some((m) => metricKey(m) === metricKey(row.metric)) ? METRIC_PRESETS : [row.metric, ...METRIC_PRESETS];
+  else if (info) hint = `${info.label}：${info.help}`;
   return (
     <div
       id={`loc-${path.join("-")}`}
@@ -404,16 +425,7 @@ function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProp
         ) : (
           <>
             <div className="row nowrap">
-              <select className="select grow" aria-label={st.filters.field} value={metricKey(row.metric)} onChange={(e) => {
-                const m = metrics.find((x) => metricKey(x) === e.target.value)!;
-                write({ ...row, metric: m, unit: metricUnit(m), value: row.mode === "gt" || row.mode === "lt" ? "0" : row.value });
-              }}>
-                {metrics.map((m) => (
-                  <option key={metricKey(m)} value={metricKey(m)}>
-                    {metricName(m)}
-                  </option>
-                ))}
-              </select>
+              <MetricSelect className="grow" label={st.filters.field} value={row.metric} onChange={(m) => write({ ...row, metric: m, unit: metricUnit(m), value: row.mode === "gt" || row.mode === "lt" ? "0" : row.value })} />
               <select className="select" style={{ width: 112 }} aria-label={st.filters.mode} value={row.mode} onChange={(e) => {
                 const mode = e.target.value as Mode;
                 const value = mode === "topn" ? (Number(row.value) >= 1 && row.mode !== "gt" && row.mode !== "lt" ? row.value : "50") : mode === "toppct" ? (Number(row.value) > 0 && Number(row.value) <= 100 && row.mode === "toppct" ? row.value : "30") : row.mode === mode ? row.value : "0";
@@ -494,7 +506,6 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
           <span className="head" />
           {factors.map((f, i) => {
             const m = factorMetric(f);
-            const metrics = m && !METRIC_PRESETS.some((x) => metricKey(x) === metricKey(m)) ? [m, ...METRIC_PRESETS] : METRIC_PRESETS;
             const fe = errsAt(errors, ["factors", i]);
             const share = shares?.[f.name];
             return (
@@ -502,12 +513,10 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
                 <input type="checkbox" aria-label={st.factors.on} checked={f.enabled !== false} onChange={() => up(i, (x) => void (x.enabled = f.enabled === false))} />
                 <div className="col tight">
                   {m ? (
-                    <select
-                      className="select"
-                      aria-label={st.factors.metric}
-                      value={metricKey(m)}
-                      onChange={(e) => {
-                        const next = metrics.find((x) => metricKey(x) === e.target.value)!;
+                    <MetricSelect
+                      label={st.factors.metric}
+                      value={m}
+                      onChange={(next) =>
                         edit((d) => {
                           const x = d.factors![i]!;
                           const wasAuto = isAuto(x.name, metricName(m));
@@ -517,15 +526,9 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
                             others.delete(x.name);
                             x.name = uniqueName(metricName(next), others);
                           }
-                        });
-                      }}
-                    >
-                      {metrics.map((x) => (
-                        <option key={metricKey(x)} value={metricKey(x)}>
-                          {metricName(x)}
-                        </option>
-                      ))}
-                    </select>
+                        })
+                      }
+                    />
                   ) : (
                     <input className="input mono" aria-label={st.factors.metric} defaultValue={typeof f.expr === "string" ? f.expr : JSON.stringify(f.expr)} onBlur={(e) => up(i, (x) => void (x.expr = readCustom(e.target.value)))} />
                   )}

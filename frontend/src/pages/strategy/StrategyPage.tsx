@@ -19,6 +19,7 @@ import { useUi } from "../../ui";
 import { FactorsCard, FiltersCard, ScopeCard, TradeCard, type Err } from "./Editor";
 import { History } from "./History";
 import { MyStrategies } from "./MyStrategies";
+import { leftOver, NewStrategy } from "./NewStrategy";
 import { Preview } from "./Preview";
 import { st } from "./text";
 
@@ -41,9 +42,12 @@ function readLast(): string | null {
 export function StrategyPage({ route }: { route: Extract<Route, { page: "strategy" }> }) {
   const list = useCall("strategy_list", {});
   if (route.list) return <MyStrategies />;
+  if (route.pick) return <NewStrategy />;
   if (route.fresh) return <Loader key="new" id={null} />;
   const id = route.id || readLast() || list.data?.rows[0]?.id || null;
   if (!route.id && !readLast() && list.isPending) return <main className="page"><StatusBar /></main>;
+  // Nothing saved and nothing begun: start by choosing a blank strategy or a template.
+  if (!route.id && !readLast() && list.data?.rows.length === 0 && !leftOver()) return <NewStrategy />;
   return <Loader key={id ?? "new"} id={id} />;
 }
 
@@ -210,6 +214,9 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
             <button type="button" className="btn soft" aria-pressed={showHistory} disabled={!origin} onClick={() => setShowHistory(!showHistory)}>
               {st.historyBtn}
             </button>
+            <a className="btn soft" href={href.newStrategy()}>
+              {st.newOne}
+            </a>
             <a className="btn soft" href={href.strategy(origin?.id, true)}>
               {st.mine}
             </a>

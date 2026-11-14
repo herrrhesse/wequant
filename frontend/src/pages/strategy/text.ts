@@ -23,6 +23,7 @@ export const st = {
   saveAs: "另存为",
   historyBtn: "修改历史",
   mine: "我的策略",
+  newOne: "新建",
   backtest: "回测",
   backtestTitle: "打开回测页，用当前策略设置日期和资金后开始回测",
   saved: "已保存，修改历史里多了一条。",
@@ -89,6 +90,9 @@ export const st = {
     collapse: "收起",
     customItem: "自定义表达式",
     customItemDesc: "直接写表达式，例如 GT(close, 5)",
+    unavailable: "这份数据里没有，暂不可用",
+    needsMergeOff: "要先合并 BaoStock 数据才有，现在还不能用",
+    needsMerge: "来自合并的 BaoStock 数据",
     addGroup: "＋ 添加条件组",
     note: "排名在股票池内计算，条件的顺序不影响选出的股票。组与组之间是“并且”。",
     empty: "还没有筛选条件，股票池里的股票都参与打分。",
@@ -197,7 +201,7 @@ export const st = {
   list: {
     title: "我的策略",
     count: (n: number) => `${n} 个策略`,
-    new: "＋ 新建空白策略",
+    new: "＋ 新建策略",
     back: "← 回到编辑",
     edit: "编辑",
     savedAt: (at: string) => `保存于 ${at}`,
@@ -209,5 +213,4 @@ export const POOL_STEP_NAMES: Record<string, string> = {
   boards: "板块",
   exclude_st: "剔除 ST",
   min_list_days: "剔除次新股",
-  stocks: "自定义名单",
 };

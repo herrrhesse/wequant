@@ -375,3 +375,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .pool-table { max-height: 320px; }
 .unparsed { background: var(--warn-t); gap: 6px; }
 .pool-picker { margin-top: 6px; }
+.ind-cat { margin-left: 6px; font-size: 10px; font-weight: 500; }
+.add-grid button:disabled { opacity: 0.55; cursor: not-allowed; }
+.tpl-card { border: 2px solid transparent; text-align: left; cursor: pointer; color: var(--ink); font: inherit; }
+.tpl-card:hover { border-color: var(--inv); }
+.tpl-card.blank { border-style: dashed; border-color: var(--track); }
+.tpl-facts { display: flex; flex-wrap: wrap; gap: 4px; }
