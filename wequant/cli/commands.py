@@ -232,6 +232,20 @@ def expr_eval(*, request: Annotated[service.EvalRequest, FLAT], common: Common =
     return run(service.expr_eval, request, common)
 
 
+@expr.command(name="indicators")
+def expr_indicators(
+    *, request: Annotated[service.IndicatorsRequest, FLAT] = service.IndicatorsRequest(), common: Common = COMMON
+) -> int:
+    """Every indicator a condition or a factor can use, in Chinese, with the days the data has for it."""
+    return run(service.expr_indicators, request, common)
+
+
+@strategies.command(name="templates")
+def strategy_templates(*, common: Common = COMMON) -> int:
+    """Starting points for a new strategy, from prices and volumes only, each a whole valid strategy."""
+    return run(service.strategy_templates, service.TemplatesRequest(), common)
+
+
 @strategies.command(name="validate")
 def strategy_validate(*, strategy: StrategyArg, common: Common = COMMON) -> int:
     """Check a strategy: its hash, canonical form, weight shares and the saved versions with the same content."""

@@ -11,7 +11,18 @@ from functools import cached_property
 import numpy as np
 
 from wequant.data.codes import is_code
-from wequant.expr.vocab import BOOL, DESCRIPTIVE, FAMILIES, FIELDS, FUTURE, NUM, OPERATORS, SAME, Signature
+from wequant.expr.vocab import (
+    BOOL,
+    DESCRIPTIVE,
+    FAMILIES,
+    FIELDS,
+    FUTURE,
+    NUM,
+    OPERATORS,
+    PLANNED,
+    SAME,
+    Signature,
+)
 
 MAX_NODES = 10_000  # nodes of the expanded tree: keeps keys and archived forms small
 MAX_DEPTH = 256  # levels of the tree: keeps form, key and evaluation inside Python's default recursion limit
@@ -219,6 +230,8 @@ def _field_kind(name: str) -> str:
         raise LookAheadError("descriptive_field", f"{name} is a descriptive day status that a later bar can change")
     if name in FUTURE:
         raise _future(name)
+    if name in PLANNED:
+        raise ExprError("not_available", f"{name} is not available yet: {PLANNED[name]}")
     if name in FIELDS:
         return FIELDS[name].kind
     family, _, param = name.partition("@")
