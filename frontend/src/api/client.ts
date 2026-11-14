@@ -1,7 +1,7 @@
 // Query hooks over `call`: the cache key is [operation, request], so one request is fetched once and an outdated
 // request is cancelled (its signal) when the key changes. Every result shown on a page comes through here.
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import contract from "../../contract/service-models.schema.json";
+import { MODEL_DEFAULTS } from "./contract.gen";
 import { call, curl } from "./http";
 import type { Operation, Operations } from "./operations.gen";
 
@@ -36,12 +36,9 @@ export function commandOf<O extends Operation>(op: O, request: Request<O> | null
   return request === null ? "" : curl(op, request);
 }
 
-type Defs = Record<string, { properties?: Record<string, { default?: unknown }> }>;
-
 /** A request model's defaults from the snapshot (BacktestRequest.cash, .execution, ...), never written in the UI. */
 export function modelDefaults(model: string): Record<string, unknown> {
-  const props = (contract.$defs as Defs)[model]?.properties ?? {};
-  return Object.fromEntries(Object.entries(props).filter(([, p]) => "default" in p).map(([k, p]) => [k, p.default]));
+  return { ...(MODEL_DEFAULTS[model] ?? {}) };
 }
 
 /** Moving-average windows the stock page shows; each is one `expr_eval`. */
