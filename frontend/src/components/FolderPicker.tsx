@@ -36,7 +36,8 @@ export function FolderPicker({ title, start, openParent = false, current = null,
   const [typed, setTyped] = useState<string | null>(null);
   const [name, setName] = useState("");
   const list = useCall("fs_list", { path }, { staleTime: 0, placeholderData: (prev) => prev });
-  const mkdir = useCallMutation("fs_mkdir", ["fs_list"]);
+  // The new folder is opened right after (a listing of its own); a folder listed before reads again when opened.
+  const mkdir = useCallMutation("fs_mkdir");
   const here = list.data && !list.isPlaceholderData && !list.isError ? list.data : undefined;
 
   useEffect(() => {

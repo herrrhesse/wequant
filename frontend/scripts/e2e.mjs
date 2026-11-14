@@ -85,12 +85,16 @@ function run(cmd, cwd) {
 }
 
 /** Background process; its output goes to e2e-logs/<name>.log, not the test report (Playwright empties test-results
- * when it starts, so the logs live beside it; CI uploads the folder when a run fails). */
+ * when it starts, so the logs live beside it; CI uploads the folder when a run fails).
+ * Windows: not detached. A detached shell has no console, so the programs it starts (uv, python, node) get consoles
+ * of their own and write there, leaving the log empty; stopAll ends the tree with taskkill /T anyway. Python writes
+ * through (PYTHONUNBUFFERED): taskkill /F gives it no chance to flush, which would lose the access log. */
 function start(name, cmd, cwd, extra = {}) {
   log(`& ${cmd}  (log: e2e-logs/${name}.log)`);
   mkdirSync(resolve(root, "e2e-logs"), { recursive: true });
   const out = openSync(resolve(root, `e2e-logs/${name}.log`), "w");
-  const child = spawn(cmd, { cwd, shell: true, stdio: ["ignore", out, out], env: { ...env, ...extra }, detached: true });
+  const windows = process.platform === "win32";
+  const child = spawn(cmd, { cwd, shell: true, stdio: ["ignore", out, out], env: { ...env, PYTHONUNBUFFERED: "1", ...extra }, detached: !windows, windowsHide: true });
   children.push(child);
   return child;
 }
