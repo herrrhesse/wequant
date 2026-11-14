@@ -4,8 +4,9 @@ import type { ReactNode } from "react";
 import type { JobInfo } from "../api/types.gen";
 import { useLabels } from "../labels";
 
-/** A duration as people say it: 约 40 分钟, 约 2.5 小时. */
+/** A duration as people say it: 不到 1 分钟, 约 40 分钟, 约 2.5 小时. */
 export function about(seconds: number): string {
+  if (seconds < 60) return "不到 1 分钟";
   if (seconds < 3600) return `约 ${Math.max(1, Math.round(seconds / 60))} 分钟`;
   return `约 ${Math.round((seconds / 3600) * 2) / 2} 小时`;
 }

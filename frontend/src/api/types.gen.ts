@@ -19,13 +19,15 @@ export type Exit = 0 | 1 | 2 | 3 | 4 | 5 | 70 | 130;
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "JobOutput".
  */
-export type JobOutput = BacktestResult | UpdateResult | Relocated | BuildResult | BackfillResult | OwnImported;
+export type JobOutput =
+  BacktestResult | UpdateResult | Relocated | BuildResult | BackfillResult | ExtendResult | OwnImported;
 
 export interface ServiceModels {
   AnomaliesPage?: AnomaliesPage;
   AnomaliesRequest?: AnomaliesRequest;
   AnomalyUse?: AnomalyUse;
   ArchiveRequest?: ArchiveRequest;
+  BackfillFloor?: BackfillFloor;
   BackfillRequest?: BackfillRequest;
   BackfillResult?: BackfillResult;
   BacktestRequest?: BacktestRequest;
@@ -46,6 +48,7 @@ export interface ServiceModels {
   CountSpan?: CountSpan;
   DailyRow?: DailyRow;
   DataAnomaly?: DataAnomaly;
+  DataScope?: DataScope;
   DataSpec?: DataSpec1;
   DataStatus?: DataStatus;
   Decision?: Decision;
@@ -71,6 +74,10 @@ export interface ServiceModels {
   Exported?: Exported;
   ExprCheck?: ExprCheck;
   ExprRequest?: ExprRequest;
+  ExtendEstimate?: ExtendEstimate;
+  ExtendEstimateRequest?: ExtendEstimateRequest;
+  ExtendRequest?: ExtendRequest;
+  ExtendResult?: ExtendResult;
   FactorCell?: FactorCell;
   FactorScore?: FactorScore;
   FactorSpec?: FactorSpec;
@@ -178,7 +185,10 @@ export interface ServiceModels {
   ScheduleRequest?: ScheduleRequest;
   ScheduledDay?: ScheduledDay;
   SchemaRequest?: SchemaRequest;
+  ScopeCover?: ScopeCover;
   ScopeLabel?: ScopeLabel;
+  ScopeLayer?: ScopeLayer;
+  ScopeStatus?: ScopeStatus1;
   ScoreCheck?: ScoreCheck;
   ScreenRequest?: ScreenRequest;
   ScreenResult?: ScreenResult;
@@ -333,6 +343,17 @@ export interface ArchiveRequest {
   restore?: boolean;
 }
 /**
+ * Where earlier history stops: the first member list of an index of the oldest layer's scope.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BackfillFloor".
+ */
+export interface BackfillFloor {
+  index: string;
+  name: string;
+  date: string;
+}
+/**
  * The history before the data root's first day, back to the start of `oldest`, one version per segment.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -350,6 +371,10 @@ export interface BackfillRequest {
 export interface BackfillResult {
   segments: BuildResult[];
   status: "complete";
+  /**
+   * Set when the history stops at the first member list of an index of the oldest layer (S2.11).
+   */
+  floor?: BackfillFloor | null;
 }
 /**
  * What a build or one backfill segment did.
@@ -370,6 +395,14 @@ export interface BuildResult {
   days: number;
   requests: number;
   seconds: number;
+  /**
+   * Stocks with bars in the version made; 0 without one.
+   */
+  stocks?: number;
+  /**
+   * The stock pool a build saved its scope's stocks as; null otherwise.
+   */
+  pool_id?: string | null;
 }
 /**
  * A strategy (inline or saved) over a date range.
@@ -962,6 +995,11 @@ export interface BarsRequest {
  */
 export interface BuildEstimate {
   years: number;
+  scope: DataScope;
+  /**
+   * Stocks to fetch: an index's from member counts measured over the last 1, 3 and 5 years, a list's its codes.
+   */
+  stocks: number;
   /**
    * Trading days, from BaoStock's calendar when the raw layer has it, else 243 a year.
    */
@@ -977,22 +1015,46 @@ export interface BuildEstimate {
   already: number;
 }
 /**
- * How long a first build of the last `years` years will take.
+ * What a data root holds bars for: every SH/SZ stock (all), or the stocks that were members of some offered
+ * indexes at any time in its window, and a list of stocks.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "DataScope".
+ */
+export interface DataScope {
+  all?: boolean;
+  /**
+   * Some of labels.scopes' offered index codes: 000300.SH, 000905.SH.
+   */
+  indexes?: ("000300.SH" | "000905.SH")[];
+  /**
+   * Codes such as 600519.SH.
+   */
+  stocks?: string[];
+}
+/**
+ * How long a first build of the last `years` years of a scope will take.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "BuildEstimateRequest".
  */
 export interface BuildEstimateRequest {
   years?: 1 | 3 | 5;
+  scope?: DataScope;
 }
 /**
- * A first build of an empty data root from BaoStock.
+ * A first build of an empty data root from BaoStock: the last `years` years of a scope.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "BuildRequest".
  */
 export interface BuildRequest {
   years?: 1 | 3 | 5;
+  scope?: DataScope;
+  /**
+   * The stock pool a scope's stocks are saved as once built (default 首次建库名单); unused without stocks.
+   */
+  pool_name?: string | null;
 }
 /**
  * A store version's trading days.
@@ -1313,6 +1375,7 @@ export interface DataStatus {
    * The data root's folder, absolute (round 3: the data page's 存储位置).
    */
   home: string;
+  scope: ScopeStatus;
 }
 /**
  * One version the store keeps.
@@ -1358,6 +1421,63 @@ export interface TableStatus {
   name: string;
   files: number;
   rows: number;
+}
+/**
+ * The stocks the version holds bars for, in layers by first day, and the strategy scopes they cover (S2.11).
+ */
+export interface ScopeStatus {
+  /**
+   * One layer for a data root built once; a wider scope added later is a layer of its own until it reaches back
+   * to the next one. Data roots made before S2.11, merged or imported, hold every stock (all) from their first day.
+   */
+  layers: ScopeLayer[];
+  /**
+   * The strategy scopes covered (all, the offered indexes, the legacy ones), each from its first day; a scope not
+   * listed is not covered. A list of stocks is checked by itself (stocks_not_in_data).
+   */
+  covers: ScopeCover[];
+  /**
+   * Stocks with bars in this version.
+   */
+  stock_count: number;
+  first_date: string;
+  /**
+   * Set once the history reaches the first member list of an index the oldest layer names: data_backfill adds no
+   * earlier history (labels.job_stages backfill_floor says why); a wider scope would.
+   */
+  backfill_floor: BackfillFloor | null;
+}
+/**
+ * Stocks of a scope that have bars from since on.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScopeLayer".
+ */
+export interface ScopeLayer {
+  all?: boolean;
+  /**
+   * Some of labels.scopes' offered index codes: 000300.SH, 000905.SH.
+   */
+  indexes?: ("000300.SH" | "000905.SH")[];
+  /**
+   * Codes such as 600519.SH.
+   */
+  stocks?: string[];
+  /**
+   * In Chinese, e.g. 沪深300 + 中证500, 沪深全部, 沪深300 + 自定义名单 12 只.
+   */
+  label: string;
+  since: string;
+}
+/**
+ * A strategy scope the data covers (labels.scopes' code) and the first day it holds every stock that scope picks.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScopeCover".
+ */
+export interface ScopeCover {
+  code: string;
+  since: string;
 }
 /**
  * What a decision changed.
@@ -2047,6 +2167,101 @@ export interface ExprRequest {
   form: string;
 }
 /**
+ * An extension's size and expected time; sends no request.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ExtendEstimate".
+ */
+export interface ExtendEstimate {
+  scope: DataScope1;
+  /**
+   * Nothing to fetch: the data holds it already from its first day, or holds every stock it picks.
+   */
+  covered: boolean;
+  /**
+   * Stocks to fetch: those new to the data and those it holds only from a later day.
+   */
+  stocks: number;
+  requests: number;
+  seconds: number;
+  /**
+   * The day the added stocks reach back to: the data's first day.
+   */
+  since: string;
+}
+/**
+ * What a data root holds bars for: every SH/SZ stock (all), or the stocks that were members of some offered
+ * indexes at any time in its window, and a list of stocks.
+ */
+export interface DataScope1 {
+  all?: boolean;
+  /**
+   * Some of labels.scopes' offered index codes: 000300.SH, 000905.SH.
+   */
+  indexes?: ("000300.SH" | "000905.SH")[];
+  /**
+   * Codes such as 600519.SH.
+   */
+  stocks?: string[];
+}
+/**
+ * How long adding scope to the data's widest layer will take.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ExtendEstimateRequest".
+ */
+export interface ExtendEstimateRequest {
+  scope: DataScope2;
+}
+/**
+ * What a data root holds bars for: every SH/SZ stock (all), or the stocks that were members of some offered
+ * indexes at any time in its window, and a list of stocks.
+ */
+export interface DataScope2 {
+  all?: boolean;
+  /**
+   * Some of labels.scopes' offered index codes: 000300.SH, 000905.SH.
+   */
+  indexes?: ("000300.SH" | "000905.SH")[];
+  /**
+   * Codes such as 600519.SH.
+   */
+  stocks?: string[];
+}
+/**
+ * Add scope to the data's widest layer, newest years first, SEGMENT_YEARS years a version, back to its first day;
+ * the same request again carries on a stopped extension.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ExtendRequest".
+ */
+export interface ExtendRequest {
+  scope: DataScope;
+  /**
+   * The stock pool the added stocks are saved as (default 扩大范围名单); unused without stocks.
+   */
+  pool_name?: string | null;
+}
+/**
+ * The segments added, newest first, and the layers after them.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ExtendResult".
+ */
+export interface ExtendResult {
+  /**
+   * built: at least one segment; covered: nothing to add (no version).
+   */
+  status: "built" | "covered";
+  segments: BuildResult[];
+  layers: ScopeLayer[];
+  /**
+   * Stocks with bars now that had none before.
+   */
+  added: number;
+  pool_id: string | null;
+}
+/**
  * One enabled factor of a scored stock.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2654,6 +2869,10 @@ export interface UpdateResult {
    * Requests to BaoStock, the login included.
    */
   requests: number;
+  /**
+   * New members of an index the data's scope names whose history was added (S2.11), as a version of its own.
+   */
+  joined?: number;
 }
 /**
  * A data root moved or copied and in use.
@@ -2709,7 +2928,8 @@ export interface JobRef {
  * via the `definition` "JobStartRequest".
  */
 export interface JobStartRequest {
-  kind: "backtest" | "data_update" | "data_relocate" | "data_build" | "data_backfill" | "data_own_import";
+  kind:
+    "backtest" | "data_update" | "data_relocate" | "data_build" | "data_backfill" | "data_own_import" | "data_extend";
   /**
    * The request the operation takes (backtest: a BacktestRequest, data_update: {}); a null data_version is pinned to
    * the version current now, so a version committed while the job waits or runs changes nothing. An update builds on
@@ -3924,6 +4144,34 @@ export interface ScheduleRequest {
  * via the `definition` "SchemaRequest".
  */
 export interface SchemaRequest {}
+/**
+ * The data's scope: its layers, widest first, and what they cover.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScopeStatus".
+ */
+export interface ScopeStatus1 {
+  /**
+   * One layer for a data root built once; a wider scope added later is a layer of its own until it reaches back
+   * to the next one. Data roots made before S2.11, merged or imported, hold every stock (all) from their first day.
+   */
+  layers: ScopeLayer[];
+  /**
+   * The strategy scopes covered (all, the offered indexes, the legacy ones), each from its first day; a scope not
+   * listed is not covered. A list of stocks is checked by itself (stocks_not_in_data).
+   */
+  covers: ScopeCover[];
+  /**
+   * Stocks with bars in this version.
+   */
+  stock_count: number;
+  first_date: string;
+  /**
+   * Set once the history reaches the first member list of an index the oldest layer names: data_backfill adds no
+   * earlier history (labels.job_stages backfill_floor says why); a wider scope would.
+   */
+  backfill_floor: BackfillFloor | null;
+}
 /**
  * A strategy (inline or saved) on one decision day.
  *

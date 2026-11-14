@@ -3,7 +3,6 @@
 // keeps it, shown as an old option it can be moved off. A scope whose stocks the data does not all hold (data_status
 // scope.covers) can still be chosen; it is marked, and the backend's warning says what that means for the results.
 import { useCall } from "../api/client";
-import { scopeStatus } from "../api/scope";
 import type { PoolSpec } from "../api/types.gen";
 import { st } from "../pages/strategy/text";
 
@@ -25,7 +24,7 @@ export const indexName = (code: string | null) => (code ? (st.scope.indexNames[c
 
 /** Which scopes the data holds every stock of, and from when; null before S2.11 or without data (nothing marked). */
 export function useCovers() {
-  const scope = scopeStatus(useCall("data_status", {}).data);
+  const scope = useCall("data_status", {}).data?.scope;
   if (!scope || !scope.first_date) return null;
   const since = new Map(scope.covers.map((c) => [c.code, c.since]));
   return {

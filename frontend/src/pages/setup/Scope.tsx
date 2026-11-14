@@ -3,10 +3,9 @@
 // reason). Beside each choice the backend's stock count and time for the years chosen; the build's total under the
 // years. The names are the strategy scope's (labels.scopes).
 import { useState } from "react";
-import { useCall, type Request } from "../../api/client";
+import { useCall } from "../../api/client";
 import { call } from "../../api/http";
-import { SCOPE_INDEXES, type DataScope, type ScopedEstimate } from "../../api/scope";
-import type { PoolStock, UnparsedItem } from "../../api/types.gen";
+import type { BuildEstimate, DataScope, PoolStock, UnparsedItem } from "../../api/types.gen";
 import { FileButton } from "../../components/FileButton";
 import { useScopes } from "../../components/IndexSeg";
 import { about } from "../../components/JobBar";
@@ -15,10 +14,14 @@ import { readText, Unparsed } from "../../components/Unparsed";
 import { show } from "../../format";
 import type { Years } from "./SetupPage";
 
+/** The indexes a build can download (their members over the years). */
+export const SCOPE_INDEXES = ["000300.SH", "000905.SH"] as const;
+type ScopeIndex = (typeof SCOPE_INDEXES)[number];
+
 export type Choice = "all" | "indexes" | "stocks";
 export interface Pick {
   choice: Choice;
-  indexes: string[];
+  indexes: ScopeIndex[];
   list: PoolStock[];
   poolName: string;
 }
@@ -39,10 +42,9 @@ export function pickOf(scope: DataScope | undefined, poolName: string | null | u
   return { ...DEFAULT_PICK, choice: "indexes", indexes: scope.indexes ?? [] };
 }
 
-/** The backend's estimate of a build; S2.11 adds scope to the request (types follow its snapshot). */
+/** The backend's estimate of a build of these stocks over these years. */
 export function useEstimate(years: Years, scope: DataScope | null, on = true) {
-  const r = useCall("data_build_estimate", on && scope ? ({ years, scope } as Request<"data_build_estimate">) : null);
-  return { ...r, data: r.data as ScopedEstimate | undefined };
+  return useCall("data_build_estimate", on && scope ? { years, scope } : null);
 }
 
 const DESC: Record<string, string> = {
@@ -52,7 +54,7 @@ const DESC: Record<string, string> = {
   stocks: "粘贴或导入一份名单，只下载这些股票",
 };
 
-function Cost({ est, label }: { est: ScopedEstimate | undefined; label: string }) {
+function Cost({ est, label }: { est: BuildEstimate | undefined; label: string }) {
   return (
     <span className="small scope-cost" aria-label={label}>
       {est ? `约 ${show(est.stocks)} 只 · 预计${about(est.seconds)}` : " "}
@@ -65,10 +67,10 @@ export function ScopeChoice({ years, pick, setPick }: { years: Years; pick: Pick
   const all = useEstimate(years, { all: true, indexes: [], stocks: [] });
   const hs300 = useEstimate(years, { all: false, indexes: ["000300.SH"], stocks: [] });
   const zz500 = useEstimate(years, { all: false, indexes: ["000905.SH"], stocks: [] });
-  const byIndex: Record<string, ScopedEstimate | undefined> = { "000300.SH": hs300.data, "000905.SH": zz500.data };
+  const byIndex: Record<string, BuildEstimate | undefined> = { "000300.SH": hs300.data, "000905.SH": zz500.data };
   const own = useEstimate(years, pick.list.length ? { all: false, indexes: [], stocks: pick.list.map((s) => s.code) } : null);
   const problem = all.error ?? hs300.error ?? zz500.error;
-  const toggle = (ix: string) => {
+  const toggle = (ix: ScopeIndex) => {
     const on = pick.choice === "indexes" ? pick.indexes : [];
     setPick({ ...pick, choice: "indexes", indexes: on.includes(ix) ? on.filter((i) => i !== ix) : [...on, ix] });
   };

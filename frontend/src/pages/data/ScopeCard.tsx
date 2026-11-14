@@ -3,18 +3,17 @@
 // backend's count and time for each choice, and runs in the background (status bar and here; pause and carry on:
 // what was committed stays). Going further back in time is the history backfill, which stops, with the backend's
 // reason, where an index's member list ends.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useCall, useCallMutation } from "../../api/client";
 import { cancelJob, finished, useJob } from "../../api/jobs";
-import { callS211, type DataScope, type ExtendEstimate, SCOPE_INDEXES, scopeStatus } from "../../api/scope";
-import type { JobInfo } from "../../api/types.gen";
+import type { DataScope, ExtendEstimate, JobInfo } from "../../api/types.gen";
 import { useScopes } from "../../components/IndexSeg";
 import { about, fillYears, JobBar } from "../../components/JobBar";
 import { Problem } from "../../components/Problem";
 import { show } from "../../format";
 import { useLabels } from "../../labels";
-import { DEFAULT_PICK, OwnList, type Pick, scopeOf } from "../setup/Scope";
+import { DEFAULT_PICK, OwnList, type Pick, SCOPE_INDEXES, scopeOf } from "../setup/Scope";
 
 /** The label of a running data_extend or data_backfill job: what it fills in and the years it is at now. */
 export function fillLabel(job: JobInfo): string {
@@ -26,19 +25,15 @@ export function fillLabel(job: JobInfo): string {
 const month = (d: string) => d.slice(0, 7);
 
 function useExtendEstimate(scope: DataScope | null) {
-  return useQuery({
-    queryKey: ["data_extend_estimate", scope] as const,
-    queryFn: ({ signal }) => callS211<ExtendEstimate>("data_extend_estimate", { scope }, signal),
-    enabled: scope !== null,
-  });
+  return useCall("data_extend_estimate", scope ? { scope } : null);
 }
 
 export function ScopeCard({ first, open }: { first: string | null; open?: boolean }) {
   const status = useCall("data_status", {});
-  const scope = scopeStatus(status.data);
+  const scope = status.data?.scope ?? null;
   const jobs = useCall("jobs_list", {}, { staleTime: 0 });
   // The extension running, else the newest one if it was paused (carrying on is offered here, never in the status bar).
-  const extends_ = jobs.data?.jobs.filter((j) => (j.kind as string) === "data_extend") ?? [];
+  const extends_ = jobs.data?.jobs.filter((j) => j.kind === "data_extend") ?? [];
   const running = extends_.find((j) => !finished(j)) ?? null;
   const newest = extends_.reduce<JobInfo | null>((a, j) => (!a || j.id > a.id ? j : a), null);
   const [jobId, setJobId] = useState<number | null>(null);
@@ -53,8 +48,11 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
   useEffect(() => {
     if (ended) void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "jobs_result" });
   }, [ended, client]);
+  // Opened by a link (去扩大数据范围), also while this page is already showing.
   useEffect(() => {
-    if (open) ref.current?.scrollIntoView({ block: "start" });
+    if (!open) return;
+    setChoosing(true);
+    ref.current?.scrollIntoView({ block: "start" });
   }, [open]);
   // An extension to carry on, as the data says: the widest layer does not reach back to the data's first day (the
   // narrowest layer's since). The backend carries on from where it stopped, whatever happened to the job (the queue
@@ -65,7 +63,7 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
   const paused = job?.state === "cancelled" ? (job.request.scope as DataScope | undefined) : undefined;
   const resume: DataScope | null = active ? null : wider ? { all: !!wider.all, indexes: wider.indexes ?? [], stocks: wider.stocks ?? [] } : (paused ?? null);
   const start = async (s: DataScope, poolName: string | null) => {
-    const j = await begin.mutateAsync({ kind: "data_extend" as JobInfo["kind"], request: { scope: s, pool_name: poolName } } as never);
+    const j = await begin.mutateAsync({ kind: "data_extend", request: { scope: s, pool_name: poolName } });
     setChoosing(false);
     setJobId(j.id);
   };
@@ -142,8 +140,10 @@ function Extend({ since, busy, error, onStart, onCancel }: { since: string | nul
   const byIndex: Record<string, ExtendEstimate | undefined> = { "000300.SH": hs300.data, "000905.SH": zz500.data };
   const scope = scopeOf(pick);
   const total = useExtendEstimate(scope);
-  const cost = (e: ExtendEstimate | undefined) => (!e ? " " : e.covered ? "已在数据里" : `新增约 ${show(e.stocks)} 只 · 预计${about(e.seconds)}`);
-  const toggle = (ix: string) => {
+  // Nothing to fetch (in the data already, or no stock to add): not offered, and no time shown.
+  const nothing = (e: ExtendEstimate | undefined) => !!e && (e.covered || e.stocks === 0);
+  const cost = (e: ExtendEstimate | undefined) => (!e ? " " : e.covered ? "已在数据里" : e.stocks === 0 ? "没有要补的股票" : `要补约 ${show(e.stocks)} 只 · 预计${about(e.seconds)}`);
+  const toggle = (ix: (typeof SCOPE_INDEXES)[number]) => {
     const on = pick.choice === "indexes" ? pick.indexes : [];
     setPick({ ...pick, choice: "indexes", indexes: on.includes(ix) ? on.filter((i) => i !== ix) : [...on, ix] });
   };
@@ -152,13 +152,13 @@ function Extend({ since, busy, error, onStart, onCancel }: { since: string | nul
     <div className="inner col" aria-label="扩大数据范围">
       <span className="b">要补进来哪些股票</span>
       <div className="list-grid setup-sources scope-cards" role="group" aria-label="要补进来的股票">
-        <button type="button" className="inner tpl-card" aria-pressed={pick.choice === "all"} disabled={all.data?.covered} onClick={() => setPick({ ...pick, choice: "all" })}>
+        <button type="button" className="inner tpl-card" aria-pressed={pick.choice === "all"} disabled={nothing(all.data)} onClick={() => setPick({ ...pick, choice: "all" })}>
           <span className="b">{name(null)}</span>
           <span className="small sub">沪深两市的全部股票</span>
           <span className="small scope-cost">{cost(all.data)}</span>
         </button>
         {SCOPE_INDEXES.map((ix) => (
-          <button key={ix} type="button" className="inner tpl-card" aria-pressed={pick.choice === "indexes" && pick.indexes.includes(ix)} disabled={byIndex[ix]?.covered} onClick={() => toggle(ix)}>
+          <button key={ix} type="button" className="inner tpl-card" aria-pressed={pick.choice === "indexes" && pick.indexes.includes(ix)} disabled={nothing(byIndex[ix])} onClick={() => toggle(ix)}>
             <span className="b">{name(ix)}</span>
             <span className="small sub">数据期间当过成分股的全部股票</span>
             <span className="small scope-cost">{cost(byIndex[ix])}</span>
@@ -176,7 +176,9 @@ function Extend({ since, busy, error, onStart, onCancel }: { since: string | nul
         <span className="small sub" role="status" aria-label="扩大范围的预计耗时">
           {total.data.covered
             ? "选的股票都已经在数据里，不用再下载。"
-            : `新增约 ${show(total.data.stocks)} 只股票，补到 ${total.data.since ?? since}，预计${about(total.data.seconds)}。从最近的年份往前补，每补完 3 年就能用上。`}
+            : total.data.stocks === 0
+              ? "选的范围里没有要补的股票。"
+            : `要补约 ${show(total.data.stocks)} 只股票的数据，补到 ${total.data.since ?? since}，预计${about(total.data.seconds)}。从最近的年份往前补，每补完 3 年就能用上。`}
         </span>
       )}
       {error !== null && error !== undefined && <Problem error={error} />}
@@ -187,7 +189,7 @@ function Extend({ since, busy, error, onStart, onCancel }: { since: string | nul
         <button
           type="button"
           className="btn acc"
-          disabled={!scope || !total.data || total.data.covered || busy || (pick.choice === "stocks" && !pick.poolName.trim())}
+          disabled={!scope || !total.data || nothing(total.data) || busy || (pick.choice === "stocks" && !pick.poolName.trim())}
           onClick={() => scope && void onStart(scope, pick.choice === "stocks" ? pick.poolName.trim() : null).catch(() => undefined)}
         >
           开始扩大

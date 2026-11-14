@@ -7,10 +7,14 @@ import { href } from "../router";
 export const SCOPE_WARNINGS = new Set(["scope_beyond_data", "scope_beyond_data_before"]);
 
 export function WarningText({ w }: { w: Warning }) {
+  const text = lb().warning(w);
+  const link = SCOPE_WARNINGS.has(w.code);
+  // The backend's sentences end without a full stop; one goes in before the link that follows.
   return (
     <>
-      {lb().warning(w)}
-      {SCOPE_WARNINGS.has(w.code) && (
+      {text}
+      {link && text && !/[。！？]$/.test(text) ? "。" : ""}
+      {link && (
         <>
           {" "}
           <a className="b nowrap" href={href.dataExtend()}>

@@ -6,6 +6,7 @@ import { commandOf, useCall } from "../../api/client";
 import type { RunDetail } from "../../api/types.gen";
 import { cssVar, EChart } from "../../components/EChart";
 import { Problem } from "../../components/Problem";
+import { SCOPE_WARNINGS, WarningText } from "../../components/WarningText";
 import { localTime } from "../../format";
 import { href } from "../../router";
 import { tx } from "../../text";
@@ -58,6 +59,14 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
         </div>
         {summary.data && <p className="summary">{summary.data.text}</p>}
         {changed && <span className="warnbox">这次回测之后策略改过，结果按回测时的策略。</span>}
+        {/* The scope went beyond the stocks the data holds: said where the result is read, with a way to widen it. */}
+        {run.warnings
+          .filter((w) => SCOPE_WARNINGS.has(w.code))
+          .map((w, i) => (
+            <span key={i} className="warnbox" role="note" aria-label="数据范围提示">
+              <WarningText w={w} />
+            </span>
+          ))}
         <Kpis run={run} />
         <NavChart daily={run.daily} look={ui.look} selected={day} onPick={pick} />
       </section>

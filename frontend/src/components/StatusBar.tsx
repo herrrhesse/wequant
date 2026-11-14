@@ -29,7 +29,7 @@ export function StatusBar({ right }: { right?: ReactNode }) {
   const [jobId, setJobId] = useState<number | null>(null);
   // Data filling in behind, one at a time on BaoStock: the earlier history (after a first build, or started on the data
   // page) or more stocks (扩大数据范围); the running one before one waiting its turn.
-  const fills = jobs.data?.jobs.filter((j) => FILLS.includes(j.kind as string) && !finished(j)) ?? [];
+  const fills = jobs.data?.jobs.filter((j) => FILLS.includes(j.kind) && !finished(j)) ?? [];
   const filling = fills.find((j) => j.state === "running") ?? fills[0] ?? null;
   const fill = useJob(filling?.id ?? null);
   const job = useJob(jobId ?? running?.id ?? null);
@@ -95,9 +95,9 @@ export function StatusBar({ right }: { right?: ReactNode }) {
           </>
         )}
         {fill && !finished(fill) && (
-          <span className="row nowrap" role="status" aria-label={(fill.kind as string) === "data_extend" ? "扩大数据范围" : "后台补齐历史"}>
+          <span className="row nowrap" role="status" aria-label={fill.kind === "data_extend" ? "扩大数据范围" : "后台补齐历史"}>
             <span className="small sub">
-              {(fill.kind as string) === "data_extend" ? `扩大数据范围${fill.params.name ? ` ${fill.params.name}` : ""}` : "后台补齐历史"}
+              {fill.kind === "data_extend" ? `扩大数据范围${fill.params.name ? ` ${fill.params.name}` : ""}` : "后台补齐历史"}
               {fillYears(fill) ? ` ${fillYears(fill)}` : ""} · {fill.state === "queued" ? L.stage("queued", { position: fill.position ?? "" }) : L.stage(fill.stage, fill.params) || fill.text}
             </span>
             <span className="progress status-progress">

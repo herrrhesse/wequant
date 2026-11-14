@@ -14,7 +14,7 @@ import { useLabels } from "../../labels";
 import { href } from "../../router";
 import { DEFAULT_PICK, type Pick, pickOf, scopeOf } from "./Scope";
 import { BuildStep, HistoryStep, ImportCheckStep, ImportFolderStep, ImportStep, ReadyStep, SourceStep } from "./steps";
-import type { DataScope } from "../../api/scope";
+import type { DataScope } from "../../api/types.gen";
 
 export type Source = "baostock" | "import" | "existing";
 export type Step = "source" | "build" | "history" | "import_folder" | "import_check" | "import" | "ready";
