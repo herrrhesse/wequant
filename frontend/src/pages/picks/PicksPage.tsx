@@ -344,7 +344,8 @@ function why(x: Reject, units: Map<string, Unit>): string {
   if (x.members) return x.members.map((m) => `${m.name} ${m.passed ? "✓" : "✗"}`).join("；");
   if (x.value !== null && x.threshold !== null)
     return `${v(x.value)} / 要求 ${x.op ? OPS[x.op] : ""} ${v(x.threshold)}${x.threshold_hi !== null ? ` 至 ${v(x.threshold_hi)}` : ""}`;
-  return "";
+  // A scope step's own sentence, as in the judgment chain (e.g. 处于退市整理期（第 3/15 天）).
+  return x.note ?? "";
 }
 
 function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string; back: () => void; pick: (c: string) => void; units: Map<string, Unit> }) {

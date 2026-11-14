@@ -1252,6 +1252,8 @@ test("剔除退市整理期: a stock in its last trading days is left out by its
   const funnel = page.getByRole("region", { name: "漏斗" });
   await funnel.getByRole("button", { name: /剔除退市整理期/ }).click();
   const out = page.getByRole("table", { name: "被剔除的股票" });
+  // The list says it too, in the chain's words.
+  await expect(out.getByRole("row").filter({ hasText: "600070.SH" })).toContainText("处于退市整理期（第 15/15 天）");
   await out.getByRole("row").filter({ hasText: "600070.SH" }).click();
   await expect(page.getByRole("complementary", { name: "600070.SH" })).toContainText("处于退市整理期（第 15/15 天）");
   const before = await (await request.post("api/screen", { data: { strategy, date: "2024-12-09" } })).json();

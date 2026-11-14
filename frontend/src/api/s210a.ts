@@ -15,6 +15,10 @@ declare module "./types.gen" {
     /** The same for the scope of this build. */
     member_floors?: BackfillFloor[];
   }
+  interface Reject {
+    /** A scope step's sentence, as the judgment chain's (PoolCheck.note); null: none. */
+    note?: string | null;
+  }
   interface Labels {
     /** Each scope item's short name (funnel, judgment chain) and its sentence (the strategy page's row). */
     pool_items?: Label[];
