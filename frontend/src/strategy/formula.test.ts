@@ -33,3 +33,13 @@ test("formulaWords: the failed parts first, then the others, then the numbers ro
   assert.deepEqual(w.parts, ["B ✗", "A ✓", "C —"]);
   assert.deepEqual(w.numbers, ["J 48.23", "K 45.1", "VOLSUM 123457"]);
 });
+
+test("rejectFormulaValues pairs the screen's lines with a reject's numbers in order", async () => {
+  const { rejectFormulaValues } = await import("./formula.ts");
+  const screen = { formula_lines: { KDJ: [{ name: "A", kind: "bool", direct: true }, { name: "J", kind: "num", direct: false }] } };
+  assert.deepEqual(rejectFormulaValues(screen, { step: "KDJ", formula_values: [0, 48.2] } as { step: string }), [
+    { name: "A", kind: "bool", direct: true, value: 0 },
+    { name: "J", kind: "num", direct: false, value: 48.2 },
+  ]);
+  assert.deepEqual(rejectFormulaValues(screen, { step: "other" }), []);
+});

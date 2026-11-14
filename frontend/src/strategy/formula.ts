@@ -84,5 +84,13 @@ export function formulaWords(values: FormulaValue[]): { parts: string[]; numbers
   return { parts, numbers };
 }
 
-/** formula_values of a StepCheck or a Reject (S4.1); empty when the condition is not a text formula. */
+/** formula_values of an explain StepCheck (S4.1): named values; empty when the condition is not a text formula. */
 export const formulaValuesOf = (x: unknown): FormulaValue[] => (x as { formula_values?: FormulaValue[] } | null | undefined)?.formula_values ?? [];
+
+/** A reject's formula values (S4.1, compact): the screen gives each formula condition's lines once
+ * (formula_lines[step]) and each reject only the numbers, in the same order. */
+export function rejectFormulaValues(screen: unknown, reject: { step: string }): FormulaValue[] {
+  const lines = (screen as { formula_lines?: Record<string, { name: string; kind: "num" | "bool"; direct: boolean }[]> } | null | undefined)?.formula_lines?.[reject.step] ?? [];
+  const values = (reject as { formula_values?: (number | null)[] }).formula_values ?? [];
+  return lines.map((l, i) => ({ ...l, value: values[i] ?? null }));
+}

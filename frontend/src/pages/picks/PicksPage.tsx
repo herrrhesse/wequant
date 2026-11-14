@@ -18,7 +18,7 @@ import { tx } from "../../text";
 import { useUi } from "../../ui";
 import { stepName } from "../strategy/Preview";
 import { screenHoldings } from "../../api/r4";
-import { formulaValuesOf, formulaWords, sellIsDefault, sellOf } from "../../strategy/formula";
+import { formulaWords, rejectFormulaValues, sellIsDefault, sellOf } from "../../strategy/formula";
 import { Holdings } from "./Holdings";
 import { PeriodTag } from "../../components/PeriodTag";
 import { MiniK } from "./MiniK";
@@ -346,13 +346,13 @@ function Scored({ r, pick }: { r: ScreenResult; pick: (c: string) => void }) {
   );
 }
 
-function why(x: Reject, units: Map<string, Unit>): string {
+function why(x: Reject, units: Map<string, Unit>, r: ScreenResult): string {
   if (x.missing) return "缺数据";
   const u = units.get(x.step);
   const v = (n: number) => (u ? `${Number(toDisplay(n, u).toPrecision(4))}${UNIT_TEXT[u]}` : String(Number(n.toPrecision(6))));
   if (x.members) return x.members.map((m) => `${m.name} ${m.passed ? "✓" : "✗"}`).join("；");
   // A text formula: its parts (failed first) and numbers on the day, as the backend gives them.
-  const fv = formulaWords(formulaValuesOf(x));
+  const fv = formulaWords(rejectFormulaValues(r, x));
   if (fv.parts.length || fv.numbers.length) return [fv.parts.join(" · "), fv.numbers.length ? `（${fv.numbers.join(" · ")}）` : ""].join("");
   if (x.value !== null && x.threshold !== null)
     return `${v(x.value)} / 要求 ${x.op ? OPS[x.op] : ""} ${v(x.threshold)}${x.threshold_hi !== null ? ` 至 ${v(x.threshold_hi)}` : ""}`;
@@ -392,7 +392,7 @@ function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string
                   {stepName(x.step, x.kind, L.of)}
                   <PeriodTag value={r.periods?.[x.step]} />
                 </td>
-                <td className="sub num">{why(x, units)}</td>
+                <td className="sub num">{why(x, units, r)}</td>
               </tr>
             ))}
           </tbody>
