@@ -1,24 +1,22 @@
 // A formula object in a strategy (S4.1): the text the user wrote and its period; the backend's compiled tree comes
-// back with it but is never sent (the backend compiles the text). TEMPORARY types until the schema snapshot has them.
-import type { ConditionSpec, JsonValue } from "../api/types.gen";
+// back with it but is never sent (the backend compiles the text). Sell rules (S4.2) below are TEMPORARY types until
+// the schema snapshot has them.
+import type { ConditionSpec, FormulaRequest, FormulaSpec, FormulaValue } from "../api/types.gen";
 
-export type FormulaPeriod = "day" | "week" | "month";
-
-export interface Formula {
-  text: string;
-  period?: FormulaPeriod;
-  tree?: JsonValue[] | string;
-}
+export type FormulaPeriod = NonNullable<FormulaSpec["period"]>;
+export type FormulaRole = NonNullable<FormulaRequest["role"]>;
+export type Formula = FormulaSpec;
+export type { FormulaValue };
 
 type Expr = ConditionSpec["expr"];
 
 /** A formula object (text written by the user) rather than a JSON tree or a string expression. */
-export function formulaOf(expr: unknown): Formula | null {
-  return expr !== null && typeof expr === "object" && !Array.isArray(expr) && typeof (expr as Formula).text === "string" ? (expr as Formula) : null;
+export function formulaOf(expr: unknown): FormulaSpec | null {
+  return expr !== null && typeof expr === "object" && !Array.isArray(expr) && typeof (expr as FormulaSpec).text === "string" ? (expr as FormulaSpec) : null;
 }
 
-/** A formula as the spec stores it: text and period only. */
-export const formulaExpr = (text: string, period: FormulaPeriod = "day"): Expr => ({ text, period }) as unknown as Expr;
+/** A formula as the spec stores it: text and period only (never the tree). */
+export const formulaExpr = (text: string, period: FormulaPeriod = "day"): Expr => ({ text, period });
 
 /** S4.2: how holdings are sold, as the strategy stores it (all defaults: not written, the rebalance engine). */
 export interface SellSpec {
@@ -62,15 +60,6 @@ export function editSell(spec: object, fn: (s: SellSpec) => void) {
   else d.sell = s;
 }
 
-/** S4.1: a formula condition's variables on the day (weekly: the week it read), for rejects and the chain. */
-export interface FormulaValue {
-  name: string;
-  kind: "num" | "bool";
-  value: number | null;
-  /** Used by the output line itself (A, B, C in XG: A AND B AND C). */
-  direct: boolean;
-}
-
 const num = (v: number) => String(Number(v.toFixed(Math.abs(v) >= 1000 ? 0 : 2)));
 
 /** The words for a formula condition's values: its direct parts as ✓ / ✗ (the failed ones first, as they explain
@@ -93,4 +82,26 @@ export function rejectFormulaValues(screen: unknown, reject: { step: string }): 
   const lines = (screen as { formula_lines?: Record<string, { name: string; kind: "num" | "bool"; direct: boolean }[]> } | null | undefined)?.formula_lines?.[reject.step] ?? [];
   const values = (reject as { formula_values?: (number | null)[] }).formula_values ?? [];
   return lines.map((l, i) => ({ ...l, value: values[i] ?? null }));
+}
+
+/** Every formula of a strategy as written (text and period, by place). Two strategies with the same hash can differ
+ * here: a comment or a variable name changes the text, not the compiled tree, and is still worth saving. */
+export function formulaTexts(spec: object | null | undefined): string {
+  if (!spec) return "";
+  const s = spec as { universe?: unknown; formula?: unknown; filters?: { expr?: unknown; conditions?: { expr: unknown }[] }[]; factors?: { expr: unknown }[]; sell?: SellSpec | null };
+  const out: [string, string, string][] = [];
+  const add = (at: string, e: unknown) => {
+    const f = formulaOf(e);
+    if (f) out.push([at, f.text, f.period ?? "day"]);
+  };
+  add("universe", s.universe);
+  add("formula", s.formula);
+  (s.filters ?? []).forEach((f, i) => {
+    add(`filters.${i}`, f.expr);
+    (f.conditions ?? []).forEach((c, j) => add(`filters.${i}.${j}`, c.expr));
+  });
+  (s.factors ?? []).forEach((f, i) => add(`factors.${i}`, f.expr));
+  add("sell_when", s.sell?.sell_when?.expr);
+  add("keep_when", s.sell?.keep_when?.expr);
+  return JSON.stringify(out);
 }

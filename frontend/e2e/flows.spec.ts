@@ -1382,3 +1382,129 @@ test("周线: a weekly condition is marked in the funnel and its rejects, a stoc
   const friday = await (await request.post("api/screen", { data: { saved: { id: saved.id }, date: week } })).json();
   expect(friday.warnings.map((w: { code: string }) => w.code)).not.toContain("week_open");
 });
+
+/* ---------- F10 S4.1: text formulas ---------- */
+
+// The user's weekly KDJ formula, exactly as given (notes/wequant-coordination/prompts/2026-11-14-backend-round4.md).
+const KDJ = `N:=9;M1:=3;M2:=3;
+RSV:=(CLOSE-LLV(LOW,N))/(HHV(HIGH,N)-LLV(LOW,N))*100;
+K:=SMA(RSV,M1,1);
+D:=SMA(K,M2,1);
+J:=3*K-2*D;
+{本周 J>K>D}
+A:= J>K AND K>D;
+{上周（前1根周K线）}
+J1:=REF(J,1);
+K1:=REF(K,1);
+D1:=REF(D,1);
+{两两相对差值≤10%，分母>0防除零}
+COND_JK:= ABS(J1-K1)/MAX(J1,K1)<=0.10 AND MAX(J1,K1)>0;
+COND_KD:= ABS(K1-D1)/MAX(K1,D1)<=0.10 AND MAX(K1,D1)>0;
+COND_JD:= ABS(J1-D1)/MAX(J1,D1)<=0.10 AND MAX(J1,D1)>0;
+B:= COND_JK AND COND_KD AND COND_JD;
+{上上周（前2根周K线）J>K>D}
+C:= REF(J,2)>REF(K,2) AND REF(K,2)>REF(D,2);
+XG: A AND B AND C;`;
+const KDJ_BASE = KDJ.split("\n").slice(0, 5).join("\n");
+
+test("公式: the user's weekly KDJ pasted into a condition passes, on 周线, and is its own funnel step; as A, B and C it is three", async ({ page, request }) => {
+  await page.goto("#/strategy?new=1");
+  await page.getByRole("button", { name: "＋ 添加因子" }).click();
+  await page.getByRole("button", { name: "＋ 添加条件", exact: true }).click();
+  await page.getByRole("button", { name: /自定义公式/ }).click();
+  const row = page.locator(".cond").filter({ has: page.getByLabel("公式", { exact: true }) });
+  const box = row.getByLabel("公式", { exact: true });
+  // The backend's one-line example is where a new formula starts.
+  await expect(box).toHaveValue(/MA\(CLOSE/);
+  await box.fill(KDJ);
+  await row.getByRole("group", { name: "周期" }).getByRole("button", { name: "周线" }).click();
+  await expect(row.getByRole("status", { name: "公式检查结果" })).toContainText("条件公式，输出 XG");
+  // Kept as written: comments and line breaks.
+  await expect(box).toHaveValue(KDJ);
+  const funnel = page.locator(".strat-aside .funnel");
+  await expect(funnel.getByRole("button", { name: /周线公式/ })).toBeVisible();
+  await expect(funnel.getByRole("button", { name: /周线公式/ }).locator(".period-tag")).toHaveText("周线");
+  await expect(page.locator(".has-err")).toHaveCount(0);
+  // The same formula as three conditions: three steps.
+  const parts = { A: "A:= J>K AND K>D;\nXG: A;", B: KDJ.split("\n").slice(8, 16).join("\n") + "\nXG: B;", C: "C:= REF(J,2)>REF(K,2) AND REF(K,2)>REF(D,2);\nXG: C;" };
+  const strategy = { ...spec, pool: { index: null, exclude_st: true }, filters: Object.entries(parts).map(([name, tail]) => ({ name: `KDJ ${name}`, expr: { text: `${KDJ_BASE}\n${tail}`, period: "week" } })) };
+  const saved = await (await request.post("api/strategy_save", { data: { strategy, name: `e2e-kdj-abc-${STAMP}` } })).json();
+  await page.goto(`#/picks?id=${saved.id}`);
+  const picks = page.getByRole("region", { name: "漏斗" });
+  for (const name of ["KDJ A", "KDJ B", "KDJ C"]) await expect(picks.getByRole("button", { name: new RegExp(name) }).locator(".period-tag")).toHaveText("周线");
+});
+
+test("公式: a misspelt function is underlined where it is, its line marked, with the backend's Chinese hint", async ({ page }) => {
+  await page.goto("#/strategy?new=1");
+  await page.getByRole("button", { name: "＋ 添加条件", exact: true }).click();
+  await page.getByRole("button", { name: /自定义公式/ }).click();
+  const row = page.locator(".cond").filter({ has: page.getByLabel("公式", { exact: true }) });
+  await row.getByLabel("公式", { exact: true }).fill("N:=9;\nK:=SMAA(C,N,1);\nXG:K>50;");
+  const problem = row.getByRole("alert", { name: "公式有问题" });
+  await expect(problem).toContainText("第 2 行第 4 列");
+  await expect(problem).toContainText(/不认识 SMAA.*SMA/);
+  await expect(row.getByTestId("formula-underline")).toHaveText("SMAA");
+  await expect(row.locator(".fx-gutter .err")).toHaveText("2");
+});
+
+test("公式: the trial lists one row per weekly bar of the stock in the dates, and copies as a table", async ({ page, request, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const start = "2025-10-01";
+  const end = "2025-12-26";
+  const found = await (await request.post("api/data_securities", { data: { query: "6000", limit: 1 } })).json();
+  const code = found.rows[0].code as string;
+  const bars = await (await request.post("api/data_bars", { data: { codes: [code], start, end, fields: ["close"] } })).json();
+  const dates: string[] = bars.rows.filter((b: { status: string }) => b.status === "traded").map((b: { date: string }) => b.date);
+  const weekOf = (d: string) => {
+    const t = new Date(`${d}T00:00:00Z`);
+    const monday = new Date(t.getTime() - ((t.getUTCDay() + 6) % 7) * 86400000);
+    return monday.toISOString().slice(0, 10);
+  };
+  const weeks = new Set(dates.map(weekOf)).size;
+  expect(weeks).toBeGreaterThan(5);
+  await page.goto("#/strategy?new=1");
+  await page.getByRole("button", { name: "＋ 添加条件", exact: true }).click();
+  await page.getByRole("button", { name: /自定义公式/ }).click();
+  const row = page.locator(".cond").filter({ has: page.getByLabel("公式", { exact: true }) });
+  await row.getByLabel("公式", { exact: true }).fill(KDJ);
+  await row.getByRole("button", { name: "展开编辑、帮助和试算" }).click();
+  const d = page.getByRole("dialog");
+  await d.getByRole("group", { name: "周期" }).getByRole("button", { name: "周线" }).click();
+  await d.getByRole("searchbox", { name: "试算的股票" }).fill(code);
+  await expect(d.getByRole("listbox", { name: "试算的股票" }).getByRole("option").first()).toBeVisible();
+  await d.getByRole("searchbox", { name: "试算的股票" }).press("Enter");
+  await d.getByLabel("试算开始日").fill(start);
+  await d.getByLabel("试算结束日").fill(end);
+  await d.getByRole("button", { name: "试算", exact: true }).click();
+  const table = d.getByRole("table", { name: "试算结果" });
+  await expect(table.locator("tbody tr")).toHaveCount(weeks);
+  await expect(table.locator("thead")).toContainText("RSV");
+  await expect(table.locator("thead")).toContainText("XG");
+  await d.getByRole("button", { name: "复制表格" }).click();
+  await expect(d.getByRole("status").filter({ hasText: "已复制" })).toContainText(`已复制 ${weeks} 行`);
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied.split("\n")).toHaveLength(weeks + 1);
+  expect(copied.split("\n")[0].split("\t")).toContain("XG");
+});
+
+test("公式: an existing JSON expression opens as text; leaving it unchanged keeps it a tree, a comment added keeps the hash", async ({ page, request }) => {
+  const tree = ["GT", ["MA", "adj_close", 5], ["MA", "adj_close", 20]];
+  const strategy = { ...spec, filters: [{ name: "短均线在长均线上", expr: tree }] };
+  const saved = await (await request.post("api/strategy_save", { data: { strategy, name: `e2e-json-${STAMP}` } })).json();
+  const before = await (await request.post("api/strategy_show", { data: { id: saved.id } })).json();
+  await page.goto(`#/strategy?id=${saved.id}`);
+  const box = page.locator("#loc-filters-0").getByLabel("公式", { exact: true });
+  await expect(box).toHaveValue("MA(CLOSE, 5) > MA(CLOSE, 20)");
+  await box.focus();
+  await blur(page);
+  // Nothing changed: nothing to save, and the strategy keeps its tree.
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  await box.fill("{五日均线在二十日均线上}\nMA(CLOSE, 5) > MA(CLOSE, 20)");
+  await blur(page);
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+  const after = await (await request.post("api/strategy_show", { data: { id: saved.id } })).json();
+  expect(after.strategy.filters[0].expr.text).toBe("{五日均线在二十日均线上}\nMA(CLOSE, 5) > MA(CLOSE, 20)");
+  expect(after.strategy_hash).toBe(before.strategy_hash);
+  expect(before.strategy.filters[0].expr).toEqual(tree);
+});

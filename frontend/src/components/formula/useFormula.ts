@@ -3,7 +3,9 @@
 // place belongs to the older text).
 import { keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useR4, type FormulaCheck, type FormulaPeriod, type FormulaRole } from "../../api/r4";
+import { useCall } from "../../api/client";
+import type { FormulaCheck } from "../../api/types.gen";
+import type { FormulaPeriod, FormulaRole } from "../../strategy/formula";
 import { useDebounced } from "../../hooks";
 import type { FormulaStatus } from "./FormulaBox";
 
@@ -14,12 +16,13 @@ export function statusOf(check: FormulaCheck | undefined, stale: boolean): Formu
   return {
     pending: false,
     stale,
+    // The hint is the Chinese sentence naming the words at fault (message is English); a place-less problem sits at 1:1.
     problems: check.errors.map((e) => ({
-      line: e.line,
-      col: e.col,
-      length: e.token ? e.token.length : e.end_line === e.line ? e.end_col - e.col : null,
-      text: e.message,
-      hint: e.hint,
+      line: e.line ?? 1,
+      col: e.col ?? 1,
+      length: e.token ? e.token.length : e.end_line === e.line && e.end_col !== null && e.col !== null ? e.end_col - e.col : null,
+      text: e.hint || e.message,
+      hint: null,
     })),
     notes: check.warnings.map((w) => w.hint || w.message),
     kind: check.kind ? KIND[check.kind] : null,
@@ -33,7 +36,7 @@ export function useFormula(text: string, period: FormulaPeriod, role: FormulaRol
   // A change from outside (another version opened, a template) replaces the draft.
   useEffect(() => setDraft(text), [text]);
   const settled = useDebounced(draft, 300);
-  const check = useR4("formula_check", { text: settled, period, role }, { placeholderData: keepPreviousData, staleTime: Infinity });
+  const check = useCall("formula_check", { text: settled, period, role }, { placeholderData: keepPreviousData, staleTime: Infinity });
   const answered = check.data && !check.isPlaceholderData;
   const status: FormulaStatus | null = check.data ? statusOf(check.data, draft !== settled || !answered) : check.isError ? null : { pending: true, problems: [] };
   return { draft, setDraft, status, check: check.data, error: check.error };

@@ -2,8 +2,9 @@
 // the functions and fields (formula_vocab) and a trial on one stock. The text goes into the strategy when the box
 // loses focus, the large editor closes, or the period changes; the backend compiles it.
 import { useRef, useState } from "react";
-import { useR4, useR4Labels, type FormulaPeriod, type FormulaRole } from "../../api/r4";
+import { useCall } from "../../api/client";
 import { useLabels } from "../../labels";
+import type { FormulaPeriod, FormulaRole } from "../../strategy/formula";
 import { Problem } from "../Problem";
 import { StockPick } from "../StockPick";
 import { FormulaBox, type Period } from "./FormulaBox";
@@ -58,12 +59,12 @@ export function FormulaField({ label, text, period, role, onCommit, periods = tr
 
 function Large({ label, draft, setDraft, status, period, onPeriod, onClose }: { label: string; draft: string; setDraft: (t: string) => void; status: ReturnType<typeof useFormula>["status"]; period: FormulaPeriod; onPeriod?: (p: Period) => void; onClose: () => void }) {
   const box = useRef<HTMLTextAreaElement>(null);
-  const vocab = useR4("formula_vocab", {});
-  const R = useR4Labels();
+  const vocab = useCall("formula_vocab", {}, { staleTime: Infinity });
+  const L = useLabels();
   const items: HelpItem[] = [
     ...(vocab.data?.functions ?? []).map((x) => ({
       name: x.name,
-      group: R.category(x.category),
+      group: L.of("formula_categories", x.category) || x.category,
       title: x.aliases.length ? `也可写 ${x.aliases.join("、")}` : "",
       desc: x.description,
       example: x.example,
@@ -71,9 +72,9 @@ function Large({ label, draft, setDraft, status, period, onPeriod, onClose }: { 
     })),
     ...(vocab.data?.fields ?? []).map((x) => ({
       name: x.name,
-      group: "字段",
+      group: L.of("formula_categories", x.category) || "字段",
       title: x.aliases.length ? `也可写 ${x.aliases.join("、")}` : "",
-      desc: [x.description, x.unit ? `单位：${x.unit}` : ""].filter(Boolean).join("；"),
+      desc: [x.description, L.of("units", x.unit) ? `单位：${L.of("units", x.unit)}` : ""].filter(Boolean).join("；"),
     })),
   ];
   const insert = (piece: string) => {
@@ -94,7 +95,7 @@ function Large({ label, draft, setDraft, status, period, onPeriod, onClose }: { 
         vocab.isError ? (
           <Problem error={vocab.error} />
         ) : (
-          <HelpList items={items} examples={(vocab.data?.examples ?? []).map((x) => ({ title: x.title, desc: x.description, text: x.text }))} onInsert={insert} onUse={(t) => setDraft(t)} />
+          <HelpList items={items} examples={(vocab.data?.examples ?? []).filter((x) => x.complete).map((x) => ({ title: x.title, desc: x.description, text: x.text }))} onInsert={insert} onUse={(t) => setDraft(t)} />
         )
       }
       trial={<Trial text={draft} period={period} />}
@@ -109,7 +110,7 @@ function Trial({ text, period }: { text: string; period: FormulaPeriod }) {
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [asked, setAsked] = useState<{ text: string; period: FormulaPeriod; code: string; start: string | null; end: string | null } | null>(null);
-  const trial = useR4("formula_trial", asked ? { ...asked, max_bars: 1000 } : null);
+  const trial = useCall("formula_trial", asked ? { ...asked, max_bars: 1000 } : null);
   const r = trial.data;
   const bar = L.periodName(period) || "";
   const columns: TrialColumn[] = [

@@ -43,3 +43,12 @@ test("rejectFormulaValues pairs the screen's lines with a reject's numbers in or
   ]);
   assert.deepEqual(rejectFormulaValues(screen, { step: "other" }), []);
 });
+
+test("formulaTexts: a comment changes the formulas as written; a tree has none", async () => {
+  const { formulaTexts } = await import("./formula.ts");
+  const a = { filters: [{ name: "x", expr: { text: "C>MA(C,20)", period: "day", tree: ["GT"] } }], factors: [{ name: "f", expr: ["SUB", 0, "close"] }] };
+  const b = { filters: [{ name: "x", expr: { text: "{均线}\nC>MA(C,20)", period: "day" } }], factors: [{ name: "f", expr: ["SUB", 0, "close"] }] };
+  assert.notEqual(formulaTexts(a), formulaTexts(b));
+  assert.equal(formulaTexts({ filters: [{ name: "x", expr: ["GT", "close", 5] }] }), "[]");
+  assert.equal(formulaTexts(a), formulaTexts({ ...a, filters: [{ name: "x", expr: { text: "C>MA(C,20)" } }] }));
+});

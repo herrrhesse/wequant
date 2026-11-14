@@ -2,15 +2,19 @@
 // and sell by rules only; each rule a switch and a number, the sell and keep formulas in the formula editor. A
 // strategy saved before S4.2 opens as the default with no rule, and an all-default section is not written.
 import type { ConditionSpec, StrategySpec } from "../../api/types.gen";
-import { formulaExpr, useR4Labels } from "../../api/r4";
+import { MODEL_DEFAULTS } from "../../api/contract.gen";
+import { useR4Labels } from "../../api/r4";
 import { Help } from "../../components/Help";
 import { NumInput } from "../../components/NumInput";
 import { concerns, type Loc } from "../../strategy/locate";
-import { editSell, sellOf, type SellSpec } from "../../strategy/formula";
+import { editSell, formulaExpr, sellOf, type SellSpec } from "../../strategy/formula";
 import { namesIn, uniqueName } from "../../strategy/model";
 import { ExprFormula, useExample } from "./ExprFormula";
 import type { EditorProps, Err } from "./Editor";
 import { st } from "./text";
+
+/** The backend takes a sell section (S4.2 in its schema): until then the section is not offered. */
+export const SELL_RULES = "sell" in (MODEL_DEFAULTS.StrategySpec ?? {});
 
 type Num = "stop_loss" | "take_profit" | "trailing_stop" | "max_hold_days" | "min_hold_days" | "cooldown_days";
 

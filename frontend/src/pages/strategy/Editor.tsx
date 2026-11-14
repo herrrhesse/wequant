@@ -29,7 +29,7 @@ import {
 import { metricUnit } from "../../strategy/fields";
 import { cnDate, tx } from "../../text";
 import { st } from "./text";
-import { formulaExpr } from "../../api/r4";
+import { formulaExpr } from "../../strategy/formula";
 import { ExprFormula, useExample } from "./ExprFormula";
 
 export interface Err {
