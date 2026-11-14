@@ -43,6 +43,7 @@ FIELD_TEXT: dict[str, tuple[str, Unit, Category, str]] = {  # name -> (Chinese n
     "limit_locked": ("一字板", "bool", "limit", "全天最高价等于最低价，并且收在涨停或跌停"),
     "limit_known": ("涨跌停已知", "bool", "limit", "当天的涨跌幅规则是已知的；不知道时涨停、跌停都读作否"),
     "st": ("ST", "bool", "status", "当天被实施风险警示（ST）"),
+    "delisting": ("退市整理期", "bool", "status", "处于退市整理期：简称带“退”的股票退市前最后一段交易日"),
     "st_known": ("ST 状态已知", "bool", "status", "当天是不是 ST 有记录；没有记录时 ST 读作否"),
     "list_days": ("上市交易日数", "trading_days", "listing", "从上市第一天算起已经交易的天数，当天也算"),
     "board@main": ("主板", "bool", "classification", "沪深主板的股票"),

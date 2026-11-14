@@ -1,0 +1,19 @@
+# The delisting period (退市整理期): the trading days a stock trades under a name carrying 退 after the exchange has
+# decided to delist it, by the date its rules took effect. A row applies from `since` until the next row; before the
+# first there was no such period. Suspended days are not counted (the period is extended by them).
+#
+# Delistings on trading measures (price, market value, volume) have had no period since 2020-12-31; the rule reading
+# this table only takes stocks whose final name carries 退, which are the ones that had one. Kept apart from
+# rules.toml so that its digest, which recorded limit checks carry, stays the same.
+
+[[period]]
+id = "delisting-2012"
+since = 2012-07-07
+days = 30
+source = "SSE and SZSE listing rules revised 2012-07-07, in force on publication: 30 trading days on the delisting board (退市整理板), full-day suspensions extending it (SZSE notice of 2012-07-07; 每日经济新闻 2012-07-09)"
+
+[[period]]
+id = "delisting-2020"
+since = 2020-12-31
+days = 15
+source = "SSE and SZSE listing rules revised 2020-12-31, in force on publication: 15 trading days, the first without a price limit, and none for delistings on trading measures (SSE answers to reporters, 2020-12-31; cs.com.cn)"

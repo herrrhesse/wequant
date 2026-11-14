@@ -62,6 +62,8 @@ def _decision_params(
         found["no_picks"] = {}
     if uncovered := index_uncovered(fields, panel, section):
         found["index_uncovered"] = _numbered(uncovered)
+    if "delisting" in fields and not panel.named.any():
+        found["delisting_unknown"] = {}
     if "list_days" in fields and (bounds := list_days_bounds(panel, section))[1]:
         found["list_days_approximate"] = {"codes_at_calendar_start": bounds[0], "cells": bounds[1]}
     if (kept := choice.cash[choice.cash > 0]).size:

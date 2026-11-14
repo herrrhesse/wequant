@@ -39,6 +39,7 @@ from wequant.service.screen import StepKind
 from wequant.service.update import Status as UpdateStatus
 from wequant.strategy import SELL_KINDS
 from wequant.strategy.library import READ_TEXTS
+from wequant.strategy.strategy import POOL_ITEMS
 
 ERRORS = {"SpecError", "ExprError", "LookAheadError", "NotSaved", "NotInPanel", "not_found", "PydanticCustomError"}
 ERRORS |= {"Refused"}  # wequant.storage.relocate: the folder refusals the data root operations report by their code
@@ -89,6 +90,7 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "order_causes": lambda: set(CAUSES),
     "day_sources": lambda: set(get_args(Source)),
     "scopes": lambda: {"all", "stocks", *INDEXES},
+    "pool_items": lambda: {*POOL_ITEMS, "stocks"},
     "parse_reasons": lambda: set(PARSE_REASONS),
     "indicator_categories": lambda: set(get_args(Category)),
     "own_rules": lambda: set(get_args(Rule)),

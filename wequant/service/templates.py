@@ -10,7 +10,8 @@ from wequant.strategy import Strategy
 from wequant.strategy.summary import sentence, summary
 
 FORM = {id: entry[4] for id, entry in DERIVED.items()}  # the common indicators' forms, by id
-LISTED = {"exclude_st": True, "min_list_days": 60}  # leave out ST stocks and those listed under about three months
+LISTED = {"exclude_st": True, "exclude_delisting": True, "min_list_days": 60}  # leave out ST stocks, stocks in their
+# delisting period (S2.10a) and those listed under about three months
 
 TEMPLATES: dict[str, tuple[str, str, dict]] = {  # id -> (Chinese name, description, strategy form)
     "momentum": (
@@ -29,7 +30,7 @@ TEMPLATES: dict[str, tuple[str, str, dict]] = {  # id -> (Chinese name, descript
         "买入最近 60 个交易日涨跌最平稳的 30 只股票，每月调仓。市场震荡或下跌时可能更抗跌；"
         "单边快速上涨的行情里往往涨得比大盘慢。",
         {
-            "pool": {"exclude_st": True, "min_list_days": 120},
+            "pool": {"exclude_st": True, "exclude_delisting": True, "min_list_days": 120},
             "factors": [{"name": "60 日波动率", "expr": FORM["volatility_60"], "prefer": "low"}],
             "top_n": 30,
             "period": "month",
@@ -76,7 +77,7 @@ TEMPLATES: dict[str, tuple[str, str, dict]] = {  # id -> (Chinese name, descript
         "在沪深300成分股里，买最近 60 个交易日涨跌最平稳的 30 只，每月调仓。大盘股成交活跃、波动较小；"
         "市场偏爱小盘股或单边上涨时可能落后。",
         {
-            "pool": {"index": "000300.SH", "exclude_st": True},
+            "pool": {"index": "000300.SH", "exclude_st": True, "exclude_delisting": True},
             "factors": [{"name": "60 日波动率", "expr": FORM["volatility_60"], "prefer": "low"}],
             "top_n": 30,
             "period": "month",

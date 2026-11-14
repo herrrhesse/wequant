@@ -75,10 +75,12 @@ class PoolCheck(Model):
     passed: bool | None
     """null: no value, which fails too."""
     value: float | bool | str | None
-    """bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days.
+    """bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; exclude_delisting: "k/N"
+    in its delisting period, null outside; min_list_days: list days.
     universe passes on the strategy's fixed list only, when it has one."""
     note: str | None
-    """A Chinese sentence for the page, e.g. that listing days count from the data's first day; null: none."""
+    """A Chinese sentence for the page: list days counted by a lower bound, the day of a delisting period; null:
+    none."""
 
 
 class StepCheck(Model):
@@ -146,7 +148,8 @@ class Explain(Model):
     warnings: list[Warning]
 
 
-LIST_DAYS_NOTE = "上市天数从数据里这只股票的第一天算起，不一定是真正的上市日期"  # shown on the page (F-31)
+LIST_DAYS_NOTE = "这只股票不知道上市日期或在数据的日历之前上市，上市天数按下限估算"  # shown on the page (F-31)
+DELISTING_NOTE = "处于退市整理期（第 {} 天）"  # k/N of its delisting period (S2.10a)
 
 
 def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
@@ -251,12 +254,28 @@ def _checks(strategy: Strategy, panel: Panel, shot: Screen, col: int) -> dict:
     }
 
 
+def _delisting_day(panel: Panel, row: int, col: int) -> str | None:
+    """ "k/N" on the k-th of the N days of the stock's delisting period; None outside it."""
+    day = int(panel.delisting[row, col])
+    return f"{day}/{int(panel.delisting_days[col])}" if day else None
+
+
+def _note(name: str, value: object, panel: Panel, col: int) -> str | None:
+    """The page's sentence for a pool item: list days counted by a lower bound, the delisting period's day."""
+    if name == "min_list_days" and panel.list_days_bound[col]:
+        return LIST_DAYS_NOTE
+    if name == "exclude_delisting" and value is not None:
+        return DELISTING_NOTE.format(value)
+    return None
+
+
 def _pool(strategy: Strategy, panel: Panel, section: Section, row: int, col: int) -> list[PoolCheck]:
     """bar, universe, then each set pool item: its verdict and the value it read."""
     values = {
         "index": None,
         "boards": str(panel.boards[col]),
         "exclude_st": bool(panel.st[row, col]) if panel.st_known[row, col] else None,
+        "exclude_delisting": _delisting_day(panel, row, col),
         "min_list_days": int(panel.list_days[row, col]),
     }
     checks = [
@@ -268,9 +287,7 @@ def _pool(strategy: Strategy, panel: Panel, section: Section, row: int, col: int
     for name in pool_items(strategy):
         passed = verdict(section.steps[name][0, col])
         value = passed if name == "index" else values[name]
-        checks.append(
-            PoolCheck(name=name, passed=passed, value=value, note=LIST_DAYS_NOTE if name == "min_list_days" else None)
-        )
+        checks.append(PoolCheck(name=name, passed=passed, value=value, note=_note(name, value, panel, col)))
     return checks
 
 
