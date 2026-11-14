@@ -737,11 +737,15 @@ async function replayBuilds(page: Page) {
     return r.fulfill({ json: j.kind === "data_build" ? built : j.kind === "data_extend" ? extended : { segments: [], status: "complete" } });
   });
   await page.route("**/api/jobs_list", async (r) => {
-    const res = await r.fetch();
-    const body = await res.json();
     // Running first, then finished ones, newest first: as the backend lists them.
     const mine = [...jobs.values()].sort((a, b) => Number(a.state !== "running") - Number(b.state !== "running") || b.id - a.id).map(info);
-    return r.fulfill({ response: res, json: { ...body, jobs: [...mine, ...body.jobs] } });
+    try {
+      const res = await r.fetch();
+      const body = await res.json();
+      await r.fulfill({ response: res, json: { ...body, jobs: [...mine, ...body.jobs] } });
+    } catch {
+      // The page closed while the real list was on its way (the test is over): nothing left to answer.
+    }
   });
   return { jobs, starts };
 }
