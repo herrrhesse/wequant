@@ -557,6 +557,12 @@ export interface PoolSpec {
    */
   exclude_st?: boolean;
   /**
+   * 剔除退市整理期股票: leave out a stock in its delisting period on the decision day (its final name carries 退:
+   * its last 15 trading days since 2020-12-31, 30 before). False when left out, so that saved strategies keep their
+   * results; new strategies and the templates set it.
+   */
+  exclude_delisting?: boolean;
+  /**
    * Leave out stocks listed for fewer trading days; null: no limit.
    */
   min_list_days?: number | null;
@@ -880,6 +886,7 @@ export interface Bars {
     | "st"
     | "st_known"
     | "list_days"
+    | "delisting"
   )[];
   /**
    * Each code's stock name today (newest store version); null when no source gave one.
@@ -960,6 +967,7 @@ export interface BarsRequest {
       | "st"
       | "st_known"
       | "list_days"
+      | "delisting"
     ),
     ...(
       | "open"
@@ -984,6 +992,7 @@ export interface BarsRequest {
       | "st"
       | "st_known"
       | "list_days"
+      | "delisting"
     )[]
   ];
 }
@@ -1013,6 +1022,11 @@ export interface BuildEstimate {
    * Stocks whose history files the raw layer holds from an earlier, stopped build: they cost nothing again.
    */
   already: number;
+  /**
+   * The first member-list day of each index of the scope (empty for every stock or a list alone): a backfill after
+   * the build stops at the latest of them.
+   */
+  member_floors: BackfillFloor[];
 }
 /**
  * What a data root holds bars for: every SH/SZ stock (all), or the stocks that were members of some offered
@@ -1446,6 +1460,11 @@ export interface ScopeStatus {
    * earlier history (labels.job_stages backfill_floor says why); a wider scope would.
    */
   backfill_floor: BackfillFloor | null;
+  /**
+   * The first member-list day of each index the oldest layer names (empty for every stock or a list alone): a
+   * backfill stops at the latest of them.
+   */
+  member_floors: BackfillFloor[];
 }
 /**
  * Stocks of a scope that have bars from since on.
@@ -1896,12 +1915,14 @@ export interface PoolCheck {
    */
   passed: boolean | null;
   /**
-   * bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days.
+   * bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; exclude_delisting: "k/N"
+   * in its delisting period, null outside; min_list_days: list days.
    * universe passes on the strategy's fixed list only, when it has one.
    */
   value: number | boolean | string | null;
   /**
-   * A Chinese sentence for the page, e.g. that listing days count from the data's first day; null: none.
+   * A Chinese sentence for the page: list days counted by a lower bound, the day of a delisting period; null:
+   * none.
    */
   note: string | null;
 }
@@ -3008,6 +3029,10 @@ export interface Labels {
    */
   scopes: ScopeLabel[];
   /**
+   * The pool's items (strategy pool fields, funnel steps of kind pool): a short name and the page's sentence.
+   */
+  pool_items: Label[];
+  /**
    * Why an item of a pasted list or file names no stock (UnparsedItem.reason).
    */
   parse_reasons: Label[];
@@ -3595,6 +3620,12 @@ export interface PoolSpec1 {
    */
   exclude_st?: boolean;
   /**
+   * 剔除退市整理期股票: leave out a stock in its delisting period on the decision day (its final name carries 退:
+   * its last 15 trading days since 2020-12-31, 30 before). False when left out, so that saved strategies keep their
+   * results; new strategies and the templates set it.
+   */
+  exclude_delisting?: boolean;
+  /**
    * Leave out stocks listed for fewer trading days; null: no limit.
    */
   min_list_days?: number | null;
@@ -3689,6 +3720,11 @@ export interface Reject {
    * Groups only.
    */
   members: MemberResult[] | null;
+  /**
+   * The page's sentence for a pool level, as the decision chain gives it: 处于退市整理期（第 k/N 天）, list days counted
+   * by a lower bound; null otherwise (S2.10a).
+   */
+  note?: string | null;
   /**
    * At scored: the first factor without a value, or formula.
    */
@@ -4171,6 +4207,11 @@ export interface ScopeStatus1 {
    * earlier history (labels.job_stages backfill_floor says why); a wider scope would.
    */
   backfill_floor: BackfillFloor | null;
+  /**
+   * The first member-list day of each index the oldest layer names (empty for every stock or a list alone): a
+   * backfill stops at the latest of them.
+   */
+  member_floors: BackfillFloor[];
 }
 /**
  * A strategy (inline or saved) on one decision day.
