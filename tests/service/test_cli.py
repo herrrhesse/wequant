@@ -65,6 +65,25 @@ CASES = [
     (["schema"], "schema", service.SchemaRequest(), "home"),
     (["labels"], "labels", service.LabelsRequest(), "home"),
     (["expr", "indicators"], "expr_indicators", service.IndicatorsRequest(), "market_home"),
+    (
+        ["formula", "check", "--text", "N:=3; XG: C>MA(C,N);", "--period", "week", "--role", "condition"],
+        "formula_check",
+        service.FormulaRequest(text="N:=3; XG: C>MA(C,N);", period="week", role="condition"),
+        "home",
+    ),
+    (
+        ["formula", "trial", "--text", "XG: C/REF(C,1);", "--code", "000001.SZ", "--max-bars", "3"],
+        "formula_trial",
+        service.TrialRequest(text="XG: C/REF(C,1);", code="000001.SZ", max_bars=3),
+        "market_home",
+    ),
+    (
+        ["formula", "format", '["GT","adj_close",5]'],
+        "formula_format",
+        service.FormatRequest(forms=[["GT", "adj_close", 5]]),
+        "home",
+    ),
+    (["formula", "vocab"], "formula_vocab", service.VocabRequest(), "home"),
     (["strategy", "templates"], "strategy_templates", service.TemplatesRequest(), "home"),
     (
         ["strategy", "validate", "--strategy", "s@1"],

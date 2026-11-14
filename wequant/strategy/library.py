@@ -18,6 +18,7 @@ from wequant.canonical import digest, document
 from wequant.data.files import atomic_write, read_text, utc_now
 from wequant.data.store import exclusive
 from wequant.strategy.errors import SpecError
+from wequant.strategy.form import identity
 from wequant.strategy.strategy import STRATEGY_VERSION, Strategy
 
 FORMAT = 1  # bump when a version file or meta.json changes meaning
@@ -78,22 +79,28 @@ READ_TEXTS = {  # the English text of each read warning, filled from its params
     "meta_rebuilt": lambda p: (
         f"meta.json disagreed with the version files on {p['versions']} versions; the files were read instead"
     ),
+    "formula_recompiled": lambda p: (
+        f"its formulas compile to other trees than when saved: the strategy now hashes {p['now']}, not {p['saved']}"
+    ),
 }
 
 
-def read_warnings(entry: Entry, version: Version) -> dict[str, tuple[str, dict]]:
-    """code -> (text, params) of what reading this version cannot vouch for."""
+def read_warnings(entry: Entry, version: Version, strategy: Strategy | None = None) -> dict[str, tuple[str, dict]]:
+    """code -> (text, params) of what reading this version, read as strategy, cannot vouch for."""
     found = {}
     if version.strategy_version not in (None, STRATEGY_VERSION):
         found["strategy_version_changed"] = {"saved": version.strategy_version, "current": STRATEGY_VERSION}
     if entry.rebuilt:
         found["meta_rebuilt"] = {"versions": entry.rebuilt}
+    if strategy is not None and (now := strategy_hash(strategy)) != version.strategy_hash:
+        found["formula_recompiled"] = {"saved": version.strategy_hash, "now": now}
     return {code: (READ_TEXTS[code](params), params) for code, params in found.items()}
 
 
 def strategy_hash(strategy: Strategy) -> str:
-    """digest(strategy.form): what saved versions and runs are matched by."""
-    return digest(strategy.form)
+    """digest(identity(strategy.form)): what saved versions and runs are matched by; a formula's tree counts, not its
+    text (S4.1)."""
+    return digest(identity(strategy.form))
 
 
 def check_id(id: str) -> str:
@@ -126,11 +133,12 @@ class Library:
         return entry
 
     def load(self, id: str, n: int | None = None) -> tuple[Entry, Version, Strategy]:
-        """Version n of id (None: the current one) with its strategy; hash_mismatch if its file was changed."""
+        """Version n of id (None: the current one) with its strategy, its formulas compiled anew from their text;
+        hash_mismatch if its file was changed (read_warnings tells a formula that now compiles to another tree)."""
         entry = self.entry(id)
         version = entry.version(n)
         form = json.loads(read_text(self._file(id, version.n)))
-        if digest(form) != version.strategy_hash:
+        if digest(identity(form)) != version.strategy_hash:
             message = f"{id}@{version.n} was changed after it was saved: its hash is no longer {version.strategy_hash}"
             raise SpecError("hash_mismatch", (), message)
         return entry, version, Strategy.from_form(form)
@@ -142,7 +150,8 @@ class Library:
     def save(
         self, strategy: Strategy, id: str | None = None, name: str | None = None, note: str | None = None
     ) -> tuple[Entry, bool]:
-        """strategy as the next version of id (None: a new id); no new version (False) when it equals the current one.
+        """strategy as the next version of id (None: a new id); no new version (False) when it equals the current one,
+        formulas' text included: a version whose text alone differs has the hash of the one before (S4.1).
 
         name None keeps the name (the id for a new strategy); note is kept with a new version only.
         """
@@ -150,7 +159,7 @@ class Library:
         (self.root / id).mkdir(parents=True, exist_ok=True)
         with exclusive(self.root / id / ".lock"):
             entry = self._read(id) or Entry(id, id, self.clock(), False, ())
-            created = not entry.versions or entry.current.strategy_hash != strategy_hash(strategy)
+            created = not entry.versions or read_text(self._file(id, entry.current.n)) != strategy.key + "\n"
             if created:
                 n = entry.current.n + 1 if entry.versions else 1
                 path = self._file(id, n)
@@ -212,4 +221,4 @@ def _meta(path: Path) -> dict | None:
 def _rebuilt(n: int, path: Path) -> Version:
     """The index entry of a version file meta.json does not list: saved_at its mtime, version and note unknown."""
     mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.UTC).isoformat(timespec="seconds")
-    return Version(n, digest(json.loads(read_text(path))), mtime, None, None)
+    return Version(n, digest(identity(json.loads(read_text(path)))), mtime, None, None)

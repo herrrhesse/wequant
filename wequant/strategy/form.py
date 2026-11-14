@@ -9,15 +9,19 @@ from dataclasses import MISSING, Field, fields, is_dataclass
 from functools import cache
 from typing import get_args, get_origin, get_type_hints
 
-from wequant.expr import Expr, ExprError, from_form
+from wequant.expr import Expr, ExprError, Source, from_form, with_source
+from wequant.formula import PERIODS, FormulaError, compile_formula
 from wequant.strategy.errors import Collector, SpecError, SpecErrors
+
+FORMULA = ("text", "period", "tree")  # a formula object's keys (S4.1)
 
 
 def to_form(value: object) -> object:
     """value as plain JSON: a dataclass as its fields in order without those equal to their defaults (Execution and
-    MetricSpec always in full, as to_dict()), Expr as its form, tuples as lists, dates as ISO text, floats + 0.0."""
+    MetricSpec always in full, as to_dict()), Expr as its form (a formula object, text, period and tree, for one
+    compiled from a formula), tuples as lists, dates as ISO text, floats + 0.0."""
     if isinstance(value, Expr):
-        return value.form
+        return value.form if value.source is None else dict(zip(FORMULA, (*value.source, value.form)))
     if _pinned(value):
         return {name: to_form(v) for name, v in value.to_dict().items()}
     if is_dataclass(value):
@@ -30,6 +34,18 @@ def to_form(value: object) -> object:
     if isinstance(value, float):
         return value + 0.0
     return value
+
+
+def identity(form: object) -> object:
+    """form with each formula object replaced by its tree: what a strategy's hash and a run's id are made of, so that
+    a comment, a blank or a variable's name never changes them (S4.1)."""
+    if isinstance(form, dict) and "text" in form and form.keys() <= set(FORMULA):
+        return form.get("tree")
+    if isinstance(form, dict):
+        return {key: identity(value) for key, value in form.items()}
+    if isinstance(form, list):
+        return [identity(value) for value in form]
+    return form
 
 
 def parse_form[T](cls: type[T], form: object) -> T:
@@ -87,11 +103,31 @@ def _read(hint: object, value: object) -> object:
 
 
 def _expr(form: object) -> Expr:
-    """The expression of a form; its ExprError becomes a SpecError with the same code and path."""
+    """The expression of a form, or of a formula object compiled from its text; an ExprError becomes a SpecError with
+    the same code and path."""
+    if isinstance(form, dict):
+        return _formula(form)
     try:
         return from_form(form)
     except ExprError as error:
         raise SpecError(error.code, (), str(error), error.path) from None
+
+
+def _formula(form: dict) -> Expr:
+    """A formula object's expression: its text compiled on its period (a tree given with it is ignored, the text is
+    the source), remembering the text; a FormulaError becomes a SpecError located in the text."""
+    for key in form.keys() - set(FORMULA):
+        raise SpecError("unknown_key", (key,), f"a formula has no field {key!r}; it has {', '.join(FORMULA)}")
+    text, period = form.get("text"), form.get("period", "day")
+    if not isinstance(text, str):
+        raise SpecError("wrong_type", ("text",), f"{text!r} is not a formula's text")
+    if period not in PERIODS:
+        raise SpecError("not_a_choice", ("period",), f"{period!r} is not one of {PERIODS}")
+    try:
+        compiled = compile_formula(text, period)
+    except FormulaError as error:
+        raise SpecError(error.code, (), str(error), position=error.position) from None
+    return with_source(compiled.expr, Source(text, period))
 
 
 def _option(options: tuple, value: object) -> object:

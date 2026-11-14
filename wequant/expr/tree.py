@@ -7,6 +7,7 @@ import math
 import operator
 from collections.abc import Iterable
 from functools import cached_property
+from typing import NamedTuple
 
 import numpy as np
 
@@ -46,12 +47,21 @@ class LookAheadError(ExprError):
     """An expression that would read data from after the day its value is for."""
 
 
+class Source(NamedTuple):
+    """The formula text an expression was compiled from and its period (S4.1): kept with the expression for the user
+    to read again, never part of its key."""
+
+    text: str
+    period: str
+
+
 class Expr:
     """An immutable checked node; nodes are equal when their canonical forms are."""
 
     kind: str
     size: int
     depth: int
+    source: Source | None = None  # set on the root a formula compiled to (with_source)
     __array_ufunc__ = None
 
     def __setattr__(self, name: str, value: object) -> None:
@@ -202,6 +212,13 @@ class Codes(Expr):
 def from_form(form: str | list) -> Expr:
     """The expression of a canonical form, built and checked exactly as in Python."""
     return _from_form(form, 1)
+
+
+def with_source(expr: Expr, source: Source) -> Expr:
+    """expr remembering the formula text it was compiled from; equal to expr, with the same key."""
+    copy = object.__new__(type(expr))
+    vars(copy).update(vars(expr), source=source)
+    return copy
 
 
 def _from_form(form: object, level: int) -> Expr:

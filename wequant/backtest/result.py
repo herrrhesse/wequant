@@ -19,6 +19,7 @@ from wequant.expr import EXPR_VERSION, panel_key
 from wequant.panel import Panel
 from wequant.runs.run import Run
 from wequant.strategy import STRATEGY_VERSION, Choice, Section, SpecError, detail_frame, funnel_frame, picks_frame
+from wequant.strategy.form import identity
 
 
 def versions(engine: str, version: int) -> dict[str, int]:
@@ -73,5 +74,5 @@ def assemble(
     )
     warnings = run_warnings(strategy, panel, section, choice, ledger, uses)
     mark("frames")
-    meta = (engine, backtest.form, versions(engine, version), panel_key(panel), panel.dates[0].item())
+    meta = (engine, identity(backtest.form), versions(engine, version), panel_key(panel), panel.dates[0].item())
     return Run(*meta, ledger, metrics, spec, *frames, uses, warnings)
