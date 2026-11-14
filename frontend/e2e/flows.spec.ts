@@ -210,6 +210,12 @@ test("data: the page opens with its sections", async ({ page }) => {
   await page.goto("#/data");
   await expect(page.getByRole("region", { name: "数据问题" })).toBeVisible();
   await expect(page.getByRole("region", { name: "存储位置" })).toContainText("交易日历");
+  // The demo home holds every stock from its first day: nothing to widen, said in small print instead of a button.
+  const scope = page.getByRole("region", { name: "数据范围" });
+  await expect(scope).toContainText("已包含沪深全部股票");
+  await expect(scope.getByRole("button", { name: "扩大数据范围…" })).toHaveCount(0);
+  await page.goto("#/data?extend=1");
+  await expect(scope.getByRole("group", { name: "要补进来的股票" })).toHaveCount(0);
 });
 
 test("ordinary pages show no developer details: no curl, hashes, decision numbers, code names or English text", async ({ page }) => {
@@ -782,7 +788,7 @@ test.describe("first-run setup", () => {
     await expect(page.getByLabel("数据文件夹")).toHaveText(EMPTY_HOME);
     await expect(page.getByRole("button", { name: /用 BaoStock 新建/ })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("group", { name: "建最近几年" }).getByRole("button", { name: "1 年" }).click();
-    await expect(page.getByRole("status", { name: "预计耗时" })).toContainText(/合计约 [\d,]+ 只股票、\d+ 个交易日，预计(约|不到)/);
+    await expect(page.getByRole("status", { name: "预计耗时" })).toContainText(/合计约 [\d,]+ 只股票、[\d,]+ 个交易日，预计(约|不到)/);
     await page.getByRole("button", { name: "下一步" }).click();
     const build = page.getByRole("status", { name: "用 BaoStock 建最近 1 年的数据" });
     await expect(build).toContainText("正在下载 600000.SH 的行情（已完成 120/5566 只）");
@@ -840,12 +846,13 @@ test.describe("first-run setup", () => {
     await expect(cost).toContainText(/约 [\d,]+ 只 · 预计(约|不到)/);
     await expect(page.getByLabel("沪深全部的股票数和耗时")).toContainText(/约 [\d,]+ 只 · 预计(约|不到)/);
     await expect(page.getByText("先下载一部分股票会快很多，之后随时可以在数据页扩大范围。")).toBeVisible();
-    // The years change the times.
+    // The years change the times; numbers have thousands separators, the trading days too.
     const three = (await cost.innerText()).trim();
     const threeTotal = (await total.innerText()).trim();
     await page.getByRole("group", { name: "建最近几年" }).getByRole("button", { name: "5 年" }).click();
     await expect(cost).not.toHaveText(three);
     await expect(total).not.toHaveText(threeTotal);
+    await expect(total).toContainText(/、\d{1,3}(,\d{3})+ 个交易日/);
     // One index alone: fewer stocks in the total; none at all cannot go on.
     const both = (await total.innerText()).trim();
     await choices.getByRole("button", { name: /^中证500/ }).click();

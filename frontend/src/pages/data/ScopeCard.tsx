@@ -60,6 +60,8 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
   const layers = scope?.layers ?? [];
   const firstDay = layers.at(-1)?.since ?? null;
   const wider = layers.length > 1 && firstDay && layers[0]!.since > firstDay ? layers[0]! : null;
+  // Every stock of the market from the first day: nothing left to widen to (a deeper history is the backfill's).
+  const whole = !!layers[0]?.all && !wider && !active;
   const paused = job?.state === "cancelled" ? (job.request.scope as DataScope | undefined) : undefined;
   const resume: DataScope | null = active ? null : wider ? { all: !!wider.all, indexes: wider.indexes ?? [], stocks: wider.stocks ?? [] } : (paused ?? null);
   const start = async (s: DataScope, poolName: string | null) => {
@@ -78,9 +80,13 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
             {scope.stock_count > 0 ? `${layers.length === 1 ? " · " : ""}有日线的股票 ${show(scope.stock_count)} 只` : ""}
           </span>
         )}
-        <button type="button" className="btn push" disabled={!scope || active || choosing || begin.isPending} onClick={() => setChoosing(true)}>
-          扩大数据范围…
-        </button>
+        {whole ? (
+          <span className="small muted push">已包含沪深全部股票</span>
+        ) : (
+          <button type="button" className="btn push" disabled={!scope || active || choosing || begin.isPending} onClick={() => setChoosing(true)}>
+            扩大数据范围…
+          </button>
+        )}
       </div>
       {layers.length > 1 && (
         <div className="scope-layers" aria-label="各部分的起始日">
@@ -93,7 +99,7 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
         </div>
       )}
       {status.isError && <Problem error={status.error} />}
-      {choosing && scope && <Extend since={scope.first_date} busy={begin.isPending} error={begin.error} onStart={start} onCancel={() => { setChoosing(false); begin.reset(); }} />}
+      {choosing && scope && !whole && <Extend since={scope.first_date} busy={begin.isPending} error={begin.error} onStart={start} onCancel={() => { setChoosing(false); begin.reset(); }} />}
       {job && active && (
         <JobBar job={job} label={fillLabel(job)}>
           <button type="button" className="btn sm soft" onClick={() => void cancelJob(job.id)}>

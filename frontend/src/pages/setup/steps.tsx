@@ -154,7 +154,7 @@ export function SourceStep(props: {
             </div>
             {estimate.data && scope && (
               <span className="small sub" role="status" aria-label="预计耗时">
-                合计约 {show(estimate.data.stocks)} 只股票、{estimate.data.days} 个交易日，预计
+                合计约 {show(estimate.data.stocks)} 只股票、{show(estimate.data.days)} 个交易日，预计
                 {about(estimate.data.seconds)}
                 {estimate.data.already > 0
                   ? `；上次已经下载了 ${estimate.data.already} 只股票，这次不用重下`
@@ -260,7 +260,7 @@ export function BuildStep({
             >
               {L.of("build_statuses", result.status)}
               {result.first && result.last
-                ? `：${result.first} 至 ${result.last}，${result.days} 个交易日`
+                ? `：${result.first} 至 ${result.last}，${show(result.days)} 个交易日`
                 : `：${L.help("build_statuses", result.status)}`}
             </span>
           )}
@@ -620,7 +620,7 @@ export function ImportStep({
       {job && running && <JobBar job={job} label="正在导入" />}
       {job?.state === "succeeded" && result && (
         <span className="small ok b" role="status">
-          导入完成：{result.codes} 只股票、{result.days} 个交易日，数据版本{" "}
+          导入完成：{show(result.codes)} 只股票、{show(result.days)} 个交易日，数据版本{" "}
           {result.version_name}
           {result.issues > 0
             ? `；有 ${result.issues} 条没导入或标出来的行，列在数据页`
