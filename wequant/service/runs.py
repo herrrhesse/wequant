@@ -143,7 +143,8 @@ class DailyRow(Model):
     nav: float
     """equity / initial cash, 1 on the base day."""
     benchmark_nav: float | None
-    """benchmark / its base-day close; null: no benchmark or no close."""
+    """The benchmark scaled to nav on its first day with a close (nav that day, so 1 when that is the base day); null:
+    no benchmark, no close that day, or a day before its first close."""
     excess: float | None
     """nav / benchmark_nav - 1; null with benchmark_nav."""
     drawdown: float
