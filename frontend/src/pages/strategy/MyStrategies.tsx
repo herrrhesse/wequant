@@ -66,7 +66,6 @@ export function MyStrategies() {
 }
 
 function Item({ s, run, on }: { s: StrategyInfo; run: RunRow | null; on: boolean }) {
-  const show = useCall("strategy_show", { id: s.id });
   return (
     <div className="inner">
       <div className="row">
@@ -75,7 +74,6 @@ function Item({ s, run, on }: { s: StrategyInfo; run: RunRow | null; on: boolean
         </a>
         <span className="push tiny muted">{st.list.savedAt(localTime(s.current_saved_at))}</span>
       </div>
-      {show.data && <span className="small sub clamp2">{show.data.summary}</span>}
       <span className="small muted">{run ? `最近回测：年化 ${pct(run.annual_return, 1, true)} · 最大回撤 ${pct(run.max_drawdown, 1)}` : st.preview.noRun}</span>
       <div className="row">
         <label className="switch card-switch" title={st.followTitle}>

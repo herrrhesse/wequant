@@ -5,7 +5,7 @@ import { keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
 import { ApiError } from "../../api/http";
-import type { StrategySpec, SummaryPart } from "../../api/types.gen";
+import type { StrategySpec } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
 import { SCOPE_WARNINGS, WarningText } from "../../components/WarningText";
@@ -16,7 +16,6 @@ import { href, type Route } from "../../router";
 import { strategyLoc } from "../../strategy/locate";
 import { PAGE_DRAFT as DRAFT, writePageDraft } from "../../strategy/pageDraft";
 import { blank } from "../../strategy/model";
-import { summarySegments } from "../../strategy/summary";
 import { useUi } from "../../ui";
 import { FactorsCard, FiltersCard, ScopeCard, TradeCard, type Err } from "./Editor";
 import { History } from "./History";
@@ -117,7 +116,6 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
     loc: strategyLoc(d.loc ?? []),
     text: L.detail(d),
   }));
-  const summary = useCall("strategy_summary", check.isSuccess && !noFactors ? { strategy: asked } : null, { placeholderData: keepPreviousData });
   const screen = useCall("screen", check.isSuccess ? { strategy: asked } : null, { placeholderData: keepPreviousData });
   const schedule = useCall("strategy_schedule", check.isSuccess ? { strategy: asked, count: 3 } : null, { placeholderData: keepPreviousData });
   const blocked = errors.length > 0 || (check.isError && !apiErr);
@@ -157,12 +155,6 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const nT = screen.data?.rows.filter((r) => r.role === "target").length ?? 0;
   const nB = screen.data?.rows.filter((r) => r.role === "backup").length ?? 0;
   const following = origin ? followed.includes(origin.id) : false;
-  const segments = summary.data ? summarySegments(summary.data.text, summary.data.parts) : [];
-  const jumpTo = (part: SummaryPart) => {
-    const loc = part.loc[0];
-    if (!loc) return;
-    document.getElementById(`loc-${loc.join("-")}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
 
   const props = { spec, edit, errors, hl, setHl, stNone, drift: check.data?.pool_drift ?? null };
   const preview = <Preview spec={asked} screen={screen.data} updating={updating} errors={errors.length} blocked={blocked} noFactors={noFactors} hl={hl} setHl={setHl} />;
@@ -236,19 +228,6 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
             )}
           </div>
         </div>
-        {!blocked && summary.data && (
-          <p className="summary">
-            {segments.map((s, i) =>
-              s.part ? (
-                <button key={i} type="button" className="summary-part" onClick={() => jumpTo(s.part!)}>
-                  {s.text}
-                </button>
-              ) : (
-                <span key={i}>{s.text}</span>
-              ),
-            )}
-          </p>
-        )}
         {warnings.length > 0 && (
           <ul className="warn-list" aria-label="提示">
             {warnings.map((w, i) => (
