@@ -37,6 +37,7 @@ PERIODS = ("day", "week", "month")
 WEIGHTINGS = ("equal", "score", "formula")
 POOL_BOARDS = ("main", "chinext", "star")
 POOL_ITEMS = ("index", "boards", "exclude_st", "exclude_delisting", "min_list_days")
+SELL_MODES = ("rebalance", "rules")  # sold when no longer chosen at a rebalance (today's), or only by the sell rules
 RESERVED = (
     *("code", "date", "universe", "scored", "score", "rank", "role", "weight", "targets", "backups", "formula"),
     *("listed", "bar", "pool", *POOL_ITEMS, "stocks", "held", "action"),
@@ -158,6 +159,44 @@ class Pool(Checked):
     }
 
 
+@dataclass(frozen=True)
+class Sell(Checked):
+    """When holdings are sold (S4.2): at rebalances when no longer chosen ("rebalance"), or only by the rules
+    ("rules"), chosen stocks then filling free slots. Each rule is checked at every close; a rule's sale fills the next
+    day, tried again while it cannot. The defaults sell as before S4.2."""
+
+    mode: str = "rebalance"  # SELL_MODES
+    stop_loss: float | None = None  # in (0, 1): the back-adjusted close at or below cost x (1 - x)
+    take_profit: float | None = None  # > 0: the back-adjusted close at or above cost x (1 + x)
+    trailing_stop: float | None = (
+        None  # in (0, 1): the back-adjusted close at or below its highest since bought x (1 - x)
+    )
+    max_hold_days: int | None = None  # >= 1: held this many trading days, the first fill's day counted as 1
+    sell_when: Condition | None = None  # a condition that sells (sell formula)
+    keep_when: Condition | None = None  # a condition under which a holding is not sold (keep formula)
+    keep_over_stops: bool = False  # keep_when holds against the stop rules too (stop and take profit, trailing, days)
+    min_hold_days: int | None = None  # >= 1: a rebalance does not sell a holding held fewer trading days
+    cooldown_days: int = 0  # a stock sold is not bought again for this many trading days after the sale's day
+    RULES: ClassVar[dict[str, Rule]] = {
+        "mode": choice(SELL_MODES),
+        "stop_loss": optional(number_where(lambda x: 0 < x < 1, "between 0 and 1, both excluded")),
+        "take_profit": optional(number_where(lambda x: x > 0, "positive")),
+        "trailing_stop": optional(number_where(lambda x: 0 < x < 1, "between 0 and 1, both excluded")),
+        "max_hold_days": optional(count(1)),
+        "sell_when": optional(instance(Condition)),
+        "keep_when": optional(instance(Condition)),
+        "keep_over_stops": flag,
+        "min_hold_days": optional(count(1)),
+        "cooldown_days": count(0),
+    }
+
+    @property
+    def exits(self) -> bool:
+        """A rule that sells is on: a stop, a take profit, a trailing stop, a holding period or an enabled formula."""
+        stops = (self.stop_loss, self.take_profit, self.trailing_stop, self.max_hold_days)
+        return any(x is not None for x in stops) or bool(self.sell_when and self.sell_when.enabled)
+
+
 class Step(NamedTuple):
     """A funnel step: a condition (expr) or a group (members combined by mode); chain steps narrow the funnel."""
 
@@ -186,6 +225,7 @@ class Strategy(Checked):
     hold_rank: int | None = None  # > top_n: a held stock stays a target while ranked this high; None: while in top_n
     max_weight: float | None = None  # in (0, 1): no target weighs more, the excess going to the others; None: no cap
     pool: Pool = Pool()  # items the pool adds to the universe
+    sell: Sell = Sell()  # when holdings are sold (S4.2); the default sells at rebalances, as before
     # Later optional fields go after pool with defaults that keep today's behaviour; existing ones never change.
     RULES: ClassVar[dict[str, Rule]] = {
         "universe": condition,
@@ -202,6 +242,7 @@ class Strategy(Checked):
         "hold_rank": optional(count(1)),
         "max_weight": optional(number_where(lambda x: 0 < x < 1, "between 0 and 1, both excluded")),
         "pool": instance(Pool),
+        "sell": instance(Sell),
     }
 
     def check(self) -> None:
@@ -244,6 +285,9 @@ def _names(strategy: Strategy) -> Iterator[tuple[str, Loc]]:
             yield member.name, ("filters", i, "conditions", k, "name")
     for i, factor in enumerate(strategy.factors):
         yield factor.name, ("factors", i, "name")
+    for name in ("sell_when", "keep_when"):
+        if (formula := getattr(strategy.sell, name)) is not None:
+            yield formula.name, ("sell", name, "name")
 
 
 def _wrapped(strategy: Strategy) -> Iterator[tuple[Expr, Loc]]:
@@ -260,6 +304,9 @@ def _wrapped(strategy: Strategy) -> Iterator[tuple[Expr, Loc]]:
             yield factor.expr, ("factors", i, "expr")
     if strategy.formula is not None:
         yield strategy.formula, ("formula",)
+    for name in ("sell_when", "keep_when"):
+        if (formula := getattr(strategy.sell, name)) is not None and formula.enabled:
+            yield formula.expr, ("sell", name, "expr")
 
 
 def _duplicates(strategy: Strategy) -> Iterator[SpecError]:
@@ -282,6 +329,12 @@ def _selection(strategy: Strategy) -> Iterator[SpecError]:
         yield SpecError("requires", ("weighting",), "score weighting needs an enabled factor")
     if (strategy.weighting == "formula") != (strategy.formula is not None):
         yield SpecError("requires", ("formula",), "a formula is given exactly when weighting is 'formula'")
+    if strategy.sell.mode == "rules" and top_n is None:
+        yield SpecError("requires", ("sell", "mode"), "selling by the rules needs an int top_n: the slots to fill")
+    if strategy.sell.mode == "rules" and not strategy.sell.exits:
+        yield SpecError("requires", ("sell", "mode"), "selling by the rules needs a rule that sells")
+    if strategy.sell.mode == "rules" and strategy.hold_rank is not None:
+        yield SpecError("requires", ("hold_rank",), "hold_rank needs sell mode 'rebalance': the rules decide the sales")
     if strategy.hold_rank is not None and top_n is None:
         yield SpecError("requires", ("hold_rank",), "hold_rank needs an int top_n")
     elif strategy.hold_rank is not None and strategy.hold_rank <= top_n:

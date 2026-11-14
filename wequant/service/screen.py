@@ -17,6 +17,7 @@ from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.base import Context, DataRequest, Model, Names, manifest, named, names_of, not_found, read_version
 from wequant.service.details import Loc, spec_details, to_data, usage
 from wequant.service.formula_values import FormulaLine, header, lines, numbers_at
+from wequant.service.holdings import YEAR, Holdings, SimulateSpec, holdings, no_holdings, simulated
 from wequant.service.notes import pool_note
 from wequant.service.outputs import DataAnomaly, Op, Role, SavedRef, Warning, data_anomaly, warnings_out
 from wequant.service.periods import PeriodValue, open_periods, period_after, period_values
@@ -32,6 +33,7 @@ from wequant.strategy import (
     comparison,
     percentiles,
     pool_items,
+    stack,
     weight_shares,
 )
 from wequant.strategy import screen as core_screen
@@ -46,6 +48,9 @@ class ScreenRequest(StrategyInput, DataRequest):
     date: IsoDate | None = None
     """The decision day t; null: the store's last trading day."""
     data: DataSpec = DataSpec()
+    simulate: SimulateSpec | None = None
+    """Screen with the holdings of the strategy's backtest played to the day (S4.2): targets and backups then count
+    them, and holdings says what each rule makes of them; null: without holdings, as a backtest's first day."""
 
 
 class FunnelStep(Model):
@@ -163,6 +168,8 @@ class ScreenResult(Model):
     formula_lines: dict[str, list[FormulaLine]] = {}
     """By condition name, for a condition written as a formula that turned stocks away: the lines each such reject's
     formula_values give, the variables its output line uses first, then its numbers (S4.1)."""
+    holdings: Holdings | None = None
+    """The simulated holdings at the day's close and what the rules make of them, when simulate was given (S4.2)."""
     periods: dict[str, list[PeriodValue]] = {}
     """By condition, factor or formula name: the week or month its weekly or monthly parts read on the day (labels.periods
     has the page's words); only the ones that read any."""
@@ -180,6 +187,9 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
     with on_panel(_where(request)):
         shot = core_screen(strategy, panel, request.date, context.expr_cache, context.mark)
     section, choice, row = shot.section, shot.choice, int(shot.section.rows[0])
+    simulation = simulated(strategy, panel, row, request.simulate) if request.simulate is not None else None
+    if simulation is not None:
+        choice = held_choice(strategy, section, simulation)
     uses = screen_uses(strategy, panel, section, choice)
     formulas = formula_rejects(strategy, shot.rejects, panel, row, context.expr_cache)
     found, names = strategy_hash(strategy), names_of(context, panel.codes.tolist())
@@ -199,11 +209,27 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
         warnings=warnings
         + warnings_out(screen_warnings(strategy, panel, section, choice, uses))
         + beyond_data(strategy, context.store(), panel.manifest, panel.dates[row].item())
-        + open_periods(strategy, panel, row, after),
+        + open_periods(strategy, panel, row, after)
+        + (no_holdings(strategy) if simulation is None else []),
         periods=screen_periods(strategy, panel, row),
+        holdings=simulation
+        and holdings(strategy, panel, simulation, _start(request, panel, row), choice.target[0], names),
     )
     context.stage("result")
     return result
+
+
+def held_choice(strategy: Strategy, section: Section, found) -> Choice:
+    """The day's choice given the simulation's holdings at its close, as the holding engine makes it."""
+    from wequant.backtest.holding import _choose
+
+    book, held = found.book, found.account.shares > 0
+    selling = np.isin(np.arange(len(held)), list(book.marked))
+    return stack([_choose(strategy, section, 0, held & ~selling, selling, book, found.formulas, found.last)])
+
+
+def _start(request: ScreenRequest, panel: Panel, row: int) -> dt.date:
+    return request.simulate.start or panel.dates[max(row - YEAR, 0)].item()
 
 
 def strategy_panel(

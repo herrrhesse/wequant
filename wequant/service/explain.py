@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 from typing import Literal
 
 import numpy as np
@@ -12,6 +13,7 @@ from pydantic_core import PydanticCustomError
 
 from wequant.backtest import Backtest, screen_warnings
 from wequant.backtest.anomalies import screen_uses
+from wequant.backtest.holding import simulate
 from wequant.panel import Panel
 from wequant.runs.causes import with_causes
 from wequant.runs.run import Run
@@ -28,6 +30,7 @@ from wequant.service.base import (
 )
 from wequant.service.details import to_data, usage
 from wequant.service.formula_values import FormulaValue, lines, values_at
+from wequant.service.holdings import RuleCheck, rule_checks
 from wequant.service.notes import delisting_day, pool_note
 from wequant.service.outputs import (
     Action,
@@ -165,6 +168,9 @@ class Explain(Model):
     """t+1's orders of this stock, forced exits included; null without a run."""
     anomalies: list[AnomalyUse]
     warnings: list[Warning]
+    rules: list[RuleCheck] | None = None
+    """With a run of a strategy with sell rules, the stock held at the day's close: each rule's state then (S4.2);
+    null otherwise."""
 
 
 def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
@@ -257,7 +263,17 @@ def _with_run(request: ExplainRequest, context: Context) -> Explain:
         execution=[order_row(order, names) for order in orders.iter_rows(named=True)],
         anomalies=[anomaly_use(use) for use in uses.iter_rows(named=True)],
         warnings=warnings_out(screen_warnings(spec.strategy, panel, shot.section, shot.choice, screened)),
+        rules=_rules(run, spec, panel, day, col),
     )
+
+
+def _rules(run: Run, spec: Backtest, panel: Panel, day: dt.date, col: int) -> list[RuleCheck] | None:
+    """The sell rules' states on the stock at day's close, the run played again to that day; null for a run without
+    sell rules or a stock not held then."""
+    if run.engine != "holding" or day <= (spec.start or panel.dates[0].item()):
+        return None
+    found = simulate(replace(spec, end=day), panel)
+    return rule_checks(spec.strategy, panel, found, col) if found.account.shares[col] > 0 else None
 
 
 def _checks(strategy: Strategy, panel: Panel, shot: Screen, col: int, context: Context) -> dict:

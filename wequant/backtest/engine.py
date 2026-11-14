@@ -15,7 +15,7 @@ from wequant.backtest.result import assemble, benchmark_closes, versions
 from wequant.expr import Cache, panel_key
 from wequant.panel import Panel
 from wequant.runs.run import Run, run_id, run_inputs
-from wequant.strategy import Choice, Section, choose, decision_rows, select, stack
+from wequant.strategy import Choice, Section, Sell, choose, decision_rows, select, stack
 from wequant.strategy.form import identity
 
 if TYPE_CHECKING:
@@ -35,7 +35,12 @@ def run(
     mark: Callable[[str], None] | None = None,
 ) -> Run:
     """The backtest on panel: one Account, orders only on the day after a decision, metrics from wequant.analytics;
-    mark(stage) as each stage ends: evaluate:<root>, cross_section, day_loop, then assemble's."""
+    mark(stage) as each stage ends: evaluate:<root>, cross_section, day_loop, then assemble's. A strategy with sell
+    rules runs on the holding engine (S4.2)."""
+    if backtest.strategy.sell != Sell():
+        from wequant.backtest.holding import run as holding  # it builds on this module's targets
+
+        return holding(backtest, panel, cache=cache, progress=progress, cancel=cancel, mark=mark)
     strategy, mark = backtest.strategy, mark or (lambda stage: None)
     base, last = span(backtest, panel)
     closes = benchmark_closes(backtest, panel, base, last)
@@ -82,16 +87,27 @@ def run_form(
 
 def planned_id(backtest: Backtest, panel: Panel) -> str:
     """The id run(backtest, panel) returns, known before it runs."""
+    engine, version = engine_of(backtest.strategy)
     inputs = run_inputs(
-        ENGINE,
+        engine,
         identity(backtest.form),
-        versions(ENGINE, REBALANCE_VERSION),
+        versions(engine, version),
         store_version=panel.version,
         data_key=panel.key,
         rules_key=panel.rules_key,
         panel_key=panel_key(panel),
     )
     return run_id(inputs)
+
+
+def engine_of(strategy) -> tuple[str, int]:
+    """The engine a strategy runs on and its version: the holding engine with sell rules, else this one."""
+    if strategy.sell == Sell():
+        return ENGINE, REBALANCE_VERSION
+    from wequant.backtest.holding import ENGINE as HOLDING
+    from wequant.backtest.holding import HOLDING_VERSION
+
+    return HOLDING, HOLDING_VERSION
 
 
 def targets(section: Section, i: int, choice: Choice) -> Target:

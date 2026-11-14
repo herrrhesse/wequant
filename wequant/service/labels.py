@@ -111,6 +111,12 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
         {},
         None,
     ),
+    "screen_without_holdings": (
+        "没有持仓的选股",
+        "这个策略只按卖出规则卖，要知道持仓才能判断今天卖什么；这里按没有持仓选股，可以打开模拟持仓",
+        {},
+        None,
+    ),
     "week_open": (
         "本周的周线还没算进去",
         "{day} 是数据的最后一天，还不知道下一个交易日是不是在下周，周线条件用的是截至 {end} 的上一周的值",
@@ -440,6 +446,14 @@ ORDER_CAUSES = {  # code -> (name, template over the order's cause_params)
     "exit_rank": ("跌出持有范围", "跌出持有范围卖出（排第 {rank} 名，持有前 {limit} 名）"),
     "exit_slots": ("名额已满", "持有名额已满，被排名更前的股票替换卖出（排第 {rank} 名，名额 {limit} 个）"),
     "delisting": ("退市处理", "按退市规则处理"),
+    "stop_loss": ("止损", "止损：较成本下跌 {drop:.1%}（成本 {cost:.2f}，{first} 收盘 {close:.2f}）"),
+    "take_profit": ("止盈", "止盈：较成本上涨 {gain:.1%}（成本 {cost:.2f}，{first} 收盘 {close:.2f}）"),
+    "trailing_stop": (
+        "移动止损",
+        "移动止损：较持有以来最高收盘回落 {drop:.1%}（最高 {peak:.2f}，{first} 收盘 {close:.2f}）",
+    ),
+    "max_hold": ("持满卖出", "持满卖出：到 {first} 已持有 {days} 个交易日（上限 {limit} 天）"),
+    "sell_formula": ("卖出公式", "卖出公式：{name}（{period}，{first} 成立）"),
     "unrecorded": ("未记录", "这笔订单没有可对应的决策记录，原因未记录"),
 }
 
@@ -466,6 +480,22 @@ PERIOD_TEXT = {  # code -> (name, the page's words for a value of that period; {
     "day": ("日线", "日线"),
     "week": ("周线", "周线（截至 {end} 那周）"),
     "month": ("月线", "月线（截至 {end} 那月）"),
+}
+
+SELL_MODES = {
+    "rebalance": ("调仓时不再入选就卖", "每次调仓时，不再入选的持仓卖出；卖出规则另外按天检查"),
+    "rules": ("入选只决定买入", "入选只决定买入，持仓只按卖出规则卖；持仓满了不买，空出位置时调仓日按排名补"),
+}
+
+SELL_RULES = {
+    "stop_loss": ("止损", "收盘价（后复权）较持仓成本下跌到这个比例就卖"),
+    "take_profit": ("止盈", "收盘价（后复权）较持仓成本上涨到这个比例就卖"),
+    "trailing_stop": ("移动止损", "收盘价（后复权）较持有以来最高收盘回落到这个比例就卖"),
+    "max_hold": ("持满卖出", "持有满这么多个交易日就卖，买入那天算第 1 天"),
+    "sell_formula": ("卖出公式", "公式成立就卖，可以选周期"),
+    "keep_formula": ("不卖公式", "公式成立时不卖：挡住卖出公式和调仓卖出；打开“也挡止损”时止损类规则也挡"),
+    "min_hold": ("最短持有", "持有不满这么多个交易日时，调仓不卖；止损、止盈和卖出公式照常"),
+    "cooldown": ("冷却期", "卖出后这么多个交易日内不再买回"),
 }
 
 DAY_SOURCES = {
@@ -705,6 +735,11 @@ class Labels(Model):
     """formula check's warnings (FormulaIssue.code); each issue also carries its own Chinese hint (S4.1)."""
     formula_categories: list[Label]
     """formula vocab's categories (FormulaFunction.category, FormulaField.category) (S4.1)."""
+    sell_modes: list[Label]
+    """strategy sell.mode (S4.2)."""
+    sell_rules: list[Label]
+    """The sell rules (S4.2): stop_loss, take_profit, trailing_stop, max_hold, sell_formula (also the order causes
+    of their sales), keep_formula, min_hold, cooldown."""
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -743,6 +778,8 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         periods=[_template(code, name, text) for code, (name, text) in PERIOD_TEXT.items()],
         formula_warnings=_labels(FORMULA_WARNINGS),
         formula_categories=_labels(FORMULA_CATEGORIES),
+        sell_modes=_labels(SELL_MODES),
+        sell_rules=_labels(SELL_RULES),
     )
 
 
