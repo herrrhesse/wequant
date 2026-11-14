@@ -23,7 +23,7 @@ from wequant.data.files import check_inside
 from wequant.data.indexes import MEMBER_QUERIES, OFFERED, stored_as
 from wequant.data.members import member_rows
 from wequant.data.merge import apply_merge, plan_merge
-from wequant.data.merge.daily import read_daily
+from wequant.data.merge.daily import read_daily, read_history
 from wequant.data.merge.propose import propose
 from wequant.data.merge.resolutions import add, default_path
 from wequant.data.merge.resolutions import load as load_resolutions
@@ -31,12 +31,22 @@ from wequant.data.names import basic_rows, with_basic
 from wequant.data.raw import BaoStockRaw, raw_frame
 from wequant.data.schema import TABLES
 from wequant.data.scope import layers
-from wequant.data.sources.baostock import FIRST_DAY, INDEX_FIELDS, BaoStock, from_baostock, parse_index, to_baostock
+from wequant.data.sources.baostock import (
+    FIRST_DAY,
+    HISTORY_FIELDS,
+    INDEX_FIELDS,
+    BaoStock,
+    from_baostock,
+    parse_index,
+    to_baostock,
+)
 from wequant.data.store import Store, exclusive
 
 SHANGHAI = dt.timezone(dt.timedelta(hours=8), "Asia/Shanghai")  # no daylight saving since 1991; Windows has no tz data
 PUBLISHED = dt.time(18, 0)  # Shanghai time by which BaoStock has loaded a day's bars (about 17:30)
 STAGES = ("update_calendar", "update_snapshot", "update_factors", "update_indexes", "update_merge", "update_commit")
+SECONDS_PER_DAY = 60.0  # one day's cross-section of every stock (59.8 s, S2.11 probe of 2026-11-14)
+SECONDS_PER_STOCK = 0.8  # one stock's days (0.3 to 1.5 s, the same probe)
 
 
 class Step(NamedTuple):
@@ -119,18 +129,24 @@ def refresh(source: BaoStock, raw: BaoStockRaw, last: dt.date, now: dt.datetime)
 
 
 def _merge(store, source, raw, base, due, now, say, cancel) -> Outcome:
-    """Fetch the due days, then plan, check and commit their merge."""
-    days, waiting = _fetch_days(source, raw, due, say, cancel)
+    """Fetch the due days (by stock for a small list, else by day), then plan, check and commit their merge."""
+    stocks = _by_stock(store, base, due)
+    if stocks is None:
+        days, waiting = _fetch_days(source, raw, due, say, cancel)
+        daily = read_daily(raw, days) if days else None
+    else:
+        days, waiting, daily = _fetch_stocks(source, raw, stocks, due, say, cancel)
     if not days:
         return Outcome("not_published", base["version"], waiting=waiting)
     basic = _fetch(source, raw, raw.stock_basic, "query_stock_basic", {}, force=True)
     members = _fetch_members(source, raw, store, base, days)
     kept = _in_scope(store, base, members, days[-1])
-    codes = [code for code in _factor_codes(store, base, raw, days) if kept is None or code in kept]
+    listed = set(daily["code"])
+    codes = [code for code in _factor_codes(store, base, raw, days, listed) if kept is None or code in kept]
     _fetch_factors(source, raw, codes, now, say, cancel)
     indexes = _fetch_indexes(source, raw, days, say)
     say(Step(STAGES[4], 0.8, {}))
-    daily = None if kept is None else read_daily(raw, days).filter(pl.col("code").is_in(sorted(kept)))
+    daily = daily if kept is None else daily.filter(pl.col("code").is_in(sorted(kept)))
     plan = plan_merge(store, raw, days=days, factor_codes=codes, daily=daily)
     if plan.unresolved.height:
         path = default_path(store.home)
@@ -167,6 +183,47 @@ def _in_scope(store: Store, base: dict, members: dict[str, pl.DataFrame], last: 
     return held | current | set(scope.stocks)
 
 
+def _by_stock(store: Store, base: dict, due: list[dt.date]) -> list[str] | None:
+    """The stocks of a data root whose widest layer is a list alone, short enough that fetching each stock's days costs
+    less than each day's cross-section (S2.11); None otherwise."""
+    first = store.read_table("calendar", columns=["date"], manifest=base)["date"].min()
+    scope = layers(base, first)[0].scope
+    if scope.all or scope.indexes or len(scope.stocks) * SECONDS_PER_STOCK >= len(due) * SECONDS_PER_DAY:
+        return None
+    return list(scope.stocks)
+
+
+def _fetch_stocks(source, raw, stocks, due, say, cancel) -> tuple[list[dt.date], dt.date | None, pl.DataFrame]:
+    """Each stock's rows over the due days and each such day's adjustment events: (the days up to the last with a
+    row, the first due day after it, the rows)."""
+    window = {"start_date": due[0].isoformat(), "end_date": due[-1].isoformat(), "frequency": "d", "adjustflag": "3"}
+    paths = []
+    for n, code in enumerate(stocks):
+        _check(cancel)
+        say(
+            Step(
+                STAGES[1], 0.05 + 0.55 * n / len(stocks), {"day": due[-1].isoformat(), "done": n, "total": len(stocks)}
+            )
+        )
+        paths.append(raw.history(code, due[0], due[-1]))
+        params = {"code": to_baostock(code), "fields": HISTORY_FIELDS, **window}
+        _fetch(source, raw, paths[-1], "query_history_k_data_plus", params, empty=True)
+    daily = read_history(paths, due)
+    last = daily["date"].max()
+    days = [day for day in due if last is not None and day <= last]
+    for day in days:
+        _fetch(
+            source,
+            raw,
+            raw.daily_factor(day),
+            "query_daily_adjust_factor",
+            {"date": day.isoformat()},
+            empty=True,
+            day=day,
+        )
+    return days, next((day for day in due if day not in days), None), daily.filter(pl.col("date").is_in(days))
+
+
 def _fetch_days(source, raw, due, say, cancel) -> tuple[list[dt.date], dt.date | None]:
     """(days whose snapshot and events are on disk, in order; the first day BaoStock has not published)."""
     days = []
@@ -181,10 +238,10 @@ def _fetch_days(source, raw, due, say, cancel) -> tuple[list[dt.date], dt.date |
     return days, None
 
 
-def _factor_codes(store, base, raw, days) -> list[str]:
-    """Stocks whose factors the merge rebuilds: those with an event on the days, and those new to the store."""
+def _factor_codes(store, base, raw, days, listed: set[str]) -> list[str]:
+    """Stocks whose factors the merge rebuilds: those with an event on the days, and those of the days' rows (listed)
+    new to the store."""
     stored = set(store.read_table("securities", columns=["code"], manifest=base)["code"])
-    listed = {from_baostock(code) for day in days for code in _codes(raw.daily(day))}
     events = {from_baostock(code) for day in days for code in _codes(raw.daily_factor(day))}
     return sorted((events & (listed | stored)) | (listed - stored))
 

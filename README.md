@@ -326,7 +326,8 @@ uv run wequant data names [--commit]  # "补充股票名称", once, from raw/bao
 - **A data root's scope (S2.11):** when its widest layer is not every stock, the update keeps only the stocks with
   bars, the members of its indexes on the last new day and its listed stocks (factors only for those). A new member
   without bars then gets its history from the layer's first day as a version of its own (reason 补新调入成分股,
-  `UpdateResult.joined`).
+  `UpdateResult.joined`). A scope of a short list alone fetches each stock's new days instead of each day's
+  cross-section when that costs less (0.8 s a stock against 60 s a day, measured 2026-11-14: under 75 stocks a day).
 - **Failures leave the store as it was:** BaoStock unreachable or refusing the login is exit 4
   (`source_unreachable`), another writer or BaoStock session exit 5 (`store_busy`), cancel exit 130; a day already
   fetched stays in the raw layer and is not fetched again. The update holds `raw/baostock/.lock`, as the backfill does,
