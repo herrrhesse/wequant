@@ -27,6 +27,9 @@ NOT_LOGGED_IN = "10001001"
 REPLY_TIMEOUT = 60.0  # seconds a reply may stall before the request fails and the caller may log in again
 
 
+HISTORY_FIELDS = "date,code,open,high,low,close,preclose,volume,amount,turn,tradestatus,isST"  # one stock's days
+
+
 class BaoStockError(RuntimeError):
     def __init__(self, method: str, code: str, message: str):
         super().__init__(f"{method}: {code} {message}")
