@@ -107,3 +107,26 @@ def test_an_import_reports_its_stages(tmp_path):
         service.OwnRequest(path=str(own_folder(tmp_path))), context(tmp_path / "home", progress=steps.append)
     )
     assert [s.stage for s in steps] == ["own_read", "own_commit"]
+
+
+def test_a_build_reaches_baostock_again_and_carries_on_after_it_fails(tmp_path, monkeypatch):
+    """BaoStock dropping the connection mid-build: a new session after a pause, from the files fetched so far."""
+    fails = iter([True])  # the second stock's history fails once
+
+    def client():
+        found = market()
+        history = found._query_history_k_data_plus
+
+        def flaky(**params):
+            if params["code"] == "sh.600001" and next(fails, False):
+                raise ConnectionError("BaoStock closed the connection")
+            return history(**params)
+
+        found._query_history_k_data_plus = flaky
+        return found
+
+    monkeypatch.setattr("wequant.data.sources.baostock.import_baostock", client)
+    monkeypatch.setattr("wequant.service.build.PAUSE", 0.0)
+    steps = []
+    built = service.data_build(service.BuildRequest(years=1), context(tmp_path / "home", progress=steps.append))
+    assert built.status == "built" and [s.params["attempt"] for s in steps if s.stage == "build_reconnect"] == [1]
