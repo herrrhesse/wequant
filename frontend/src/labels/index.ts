@@ -2,12 +2,12 @@
 // Until it has answered, a code shows as an empty string, never as the raw code.
 import { useMemo } from "react";
 import { useCall } from "../api/client";
-import type { Labels, Warning } from "../api/types.gen";
+import type { Labels, PeriodValue, Warning } from "../api/types.gen";
 import { fill } from "./fill";
 
 export { fill } from "./fill";
 
-type Table = Exclude<keyof Labels, "warnings" | "version_reasons" | "job_stages" | "update_statuses" | "order_causes">;
+type Table = Exclude<keyof Labels, "warnings" | "version_reasons" | "job_stages" | "update_statuses" | "order_causes" | "periods">;
 
 export interface LabelBook {
   ready: boolean;
@@ -29,6 +29,10 @@ export interface LabelBook {
   detail: (d: { code: string; hint?: string | null }) => string;
   /** Why an order was placed, as a sentence. */
   cause: (code: string | null | undefined, params: Record<string, number | string | null> | null | undefined) => string;
+  /** A period's name: "周线", "月线". */
+  periodName: (period: string) => string;
+  /** Which week or month a weekly or monthly value came from: "周线（截至 2026-11-06 那周）" (the name alone without an end). */
+  period: (v: PeriodValue) => string;
 }
 
 export function makeBook(labels: Labels | undefined): LabelBook {
@@ -46,6 +50,7 @@ export function makeBook(labels: Labels | undefined): LabelBook {
   const stages = new Map((labels?.job_stages ?? []).map((r) => [r.code, r]));
   const updates = new Map((labels?.update_statuses ?? []).map((r) => [r.code, r]));
   const causes = new Map((labels?.order_causes ?? []).map((r) => [r.code, r]));
+  const periods = new Map((labels?.periods ?? []).map((r) => [r.code, r]));
   return {
     ready: labels !== undefined,
     of: (table, code) => (code ? (index.get(table)?.get(code)?.label ?? "") : ""),
@@ -74,6 +79,12 @@ export function makeBook(labels: Labels | undefined): LabelBook {
     cause: (code, params) => {
       const label = code ? causes.get(code) : undefined;
       return label ? fill(label, params ?? {}) : "";
+    },
+    periodName: (period) => periods.get(period)?.label ?? "",
+    period: (v) => {
+      const label = periods.get(v.period);
+      if (!label) return "";
+      return v.end ? fill(label, { end: v.end }) : label.label;
     },
   };
 }

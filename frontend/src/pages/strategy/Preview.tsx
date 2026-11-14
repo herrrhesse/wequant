@@ -12,6 +12,7 @@ import { href } from "../../router";
 import { counts, cutAlone } from "../../strategy/model";
 import { tx } from "../../text";
 import { POOL_STEP_NAMES, st } from "./text";
+import { PeriodTag } from "../../components/PeriodTag";
 
 const OPS: Record<string, string> = { gt: ">", ge: "≥", lt: "<", le: "≤", eq: "=", between: "介于" };
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
@@ -118,6 +119,7 @@ function Funnel(props: Props & { fading: string }) {
                   <span className="funnel-name">
                     {s.chain ? "" : "└ "}
                     {stepName(s.step, s.kind, L.of)}
+                    <PeriodTag value={screen.periods?.[s.step]} />
                     {s.left === null ? "（命中）" : ""}
                     {alone !== null && s.left !== null && <span className="tiny muted funnel-alone">{st.filters.cut(alone)}</span>}
                   </span>

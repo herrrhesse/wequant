@@ -447,3 +447,4 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .seg button[aria-pressed="true"] .seg-note { color: inherit; opacity: 0.8; }
 .scope-layers { display: flex; flex-direction: column; gap: 4px; }
 .tpl-card:disabled { opacity: 0.55; cursor: default; border-color: transparent; }
+.period-tag { margin-left: 6px; font-size: 10px; font-weight: 500; vertical-align: 1px; }

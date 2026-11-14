@@ -23,6 +23,11 @@ export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null 
         <div key={s.name} className={`chain-row ${s.chain ? "" : "sub-row"}`}>
           {mark(s.passed)}
           <span>{s.name}</span>
+          {(s.periods ?? []).map((p, i) => (
+            <span key={i} className="muted small">
+              {L.period(p)}
+            </span>
+          ))}
           {stepValue(spec, s) && <span className="muted small num">{stepValue(spec, s)}</span>}
         </div>
       ))}
