@@ -15,7 +15,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from wequant.canonical import digest, document
-from wequant.data.files import atomic_write, utc_now
+from wequant.data.files import atomic_write, read_text, utc_now
 from wequant.data.store import exclusive
 from wequant.strategy.errors import SpecError
 from wequant.strategy.strategy import STRATEGY_VERSION, Strategy
@@ -129,7 +129,7 @@ class Library:
         """Version n of id (None: the current one) with its strategy; hash_mismatch if its file was changed."""
         entry = self.entry(id)
         version = entry.version(n)
-        form = json.loads(self._file(id, version.n).read_text("utf-8"))
+        form = json.loads(read_text(self._file(id, version.n)))
         if digest(form) != version.strategy_hash:
             message = f"{id}@{version.n} was changed after it was saved: its hash is no longer {version.strategy_hash}"
             raise SpecError("hash_mismatch", (), message)
@@ -203,7 +203,7 @@ def _meta(path: Path) -> dict | None:
     """The index at path; None if it was never written."""
     if not path.exists():
         return None
-    meta = json.loads(path.read_text("utf-8"))
+    meta = json.loads(read_text(path))
     if meta.get("format") != FORMAT:
         raise ValueError(f"{path} has format {meta.get('format')}; this code reads format {FORMAT}")
     return meta
@@ -212,4 +212,4 @@ def _meta(path: Path) -> dict | None:
 def _rebuilt(n: int, path: Path) -> Version:
     """The index entry of a version file meta.json does not list: saved_at its mtime, version and note unknown."""
     mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.UTC).isoformat(timespec="seconds")
-    return Version(n, digest(json.loads(path.read_text("utf-8"))), mtime, None, None)
+    return Version(n, digest(json.loads(read_text(path))), mtime, None, None)

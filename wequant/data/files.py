@@ -62,6 +62,12 @@ def atomic_write(path: Path, data: bytes) -> None:
             os.close(fd)
 
 
+def read_text(path: Path) -> str:
+    """path's UTF-8 text, read again while the system refuses: Windows does while another thread replaces the file;
+    FileInUse after the last try."""
+    return _retried(lambda: Path(path).read_text("utf-8"), path)
+
+
 def replace(source: Path, target: Path) -> None:
     """os.replace, tried again while the system refuses; FileInUse after the last try, target unchanged."""
     _retried(lambda: os.replace(source, target), target)
@@ -77,11 +83,10 @@ def remove_tree(path: Path) -> None:
     _retried(lambda: shutil.rmtree(path) if Path(path).exists() else None, path)
 
 
-def _retried(change: Callable[[], None], path: Path) -> None:
+def _retried[T](change: Callable[[], T], path: Path) -> T:
     for pause in (*PAUSES, None):
         try:
-            change()
-            return
+            return change()
         except PermissionError:
             if pause is None:
                 raise FileInUse(path) from None
