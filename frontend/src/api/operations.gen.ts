@@ -36,6 +36,14 @@ export interface Operations {
   strategy_export: { request: M.ExportStrategyRequest; result: M.Exported };
   strategy_import: { request: M.ImportRequest; result: M.StrategyImported };
   strategy_schedule: { request: M.ScheduleRequest; result: M.Schedule };
+  pools_list: { request: M.PoolsListRequest; result: M.PoolList };
+  pools_show: { request: M.PoolRequest; result: M.PoolOut };
+  pools_save: { request: M.PoolSaveRequest; result: M.PoolOut };
+  pools_delete: { request: M.PoolRequest; result: M.PoolOut };
+  pools_parse: { request: M.ParseRequest; result: M.ParsedStocks };
+  pools_from_index: { request: M.IndexPoolRequest; result: M.IndexPool };
+  pools_export: { request: M.PoolRequest; result: M.PoolCsv };
+  pools_import: { request: M.PoolImportRequest; result: M.PoolImported };
   screen: { request: M.ScreenRequest; result: M.ScreenResult };
   backtest: { request: M.BacktestRequest; result: M.BacktestResult };
   runs_list: { request: M.RunsListRequest; result: M.RunsPage };
@@ -101,6 +109,14 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   strategy_export: { method: "POST", path: "/api/strategy_export" },
   strategy_import: { method: "POST", path: "/api/strategy_import" },
   strategy_schedule: { method: "POST", path: "/api/strategy_schedule" },
+  pools_list: { method: "POST", path: "/api/pools_list" },
+  pools_show: { method: "POST", path: "/api/pools_show" },
+  pools_save: { method: "POST", path: "/api/pools_save" },
+  pools_delete: { method: "POST", path: "/api/pools_delete" },
+  pools_parse: { method: "POST", path: "/api/pools_parse" },
+  pools_from_index: { method: "POST", path: "/api/pools_from_index" },
+  pools_export: { method: "POST", path: "/api/pools_export" },
+  pools_import: { method: "POST", path: "/api/pools_import" },
   screen: { method: "POST", path: "/api/screen" },
   backtest: { method: "POST", path: "/api/backtest" },
   runs_list: { method: "POST", path: "/api/runs_list" },

@@ -78,6 +78,8 @@ export interface ServiceModels {
   IndexCheck?: IndexCheck;
   IndexCheckRequest?: IndexCheckRequest;
   IndexCoverage?: IndexCoverage;
+  IndexPool?: IndexPool;
+  IndexPoolRequest?: IndexPoolRequest;
   IssueCount?: IssueCount;
   IssueKindLabel?: IssueKindLabel;
   IssueRow?: IssueRow;
@@ -105,12 +107,25 @@ export interface ServiceModels {
   OrderRow?: OrderRow;
   OrdersPage?: OrdersPage;
   OrdersRequest?: OrdersRequest;
+  ParseRequest?: ParseRequest;
+  ParsedStocks?: ParsedStocks;
   PeriodRow?: PeriodRow;
   Periods?: Periods;
   PinRunRequest?: PinRunRequest;
   PinVersionRequest?: PinVersionRequest;
   PoolCheck?: PoolCheck;
+  PoolCsv?: PoolCsv;
+  PoolDrift?: PoolDrift;
+  PoolImportRequest?: PoolImportRequest;
+  PoolImported?: PoolImported;
+  PoolList?: PoolList;
+  PoolOut?: PoolOut;
+  PoolRequest?: PoolRequest;
+  PoolRow?: PoolRow;
+  PoolSaveRequest?: PoolSaveRequest;
   PoolSpec?: PoolSpec1;
+  PoolStock?: PoolStock;
+  PoolsListRequest?: PoolsListRequest;
   PositionRow?: PositionRow;
   ProfileReport?: ProfileReport;
   Reject?: Reject;
@@ -139,6 +154,7 @@ export interface ServiceModels {
   ScheduleRequest?: ScheduleRequest;
   ScheduledDay?: ScheduledDay;
   SchemaRequest?: SchemaRequest;
+  ScopeLabel?: ScopeLabel;
   ScoreCheck?: ScoreCheck;
   ScreenRequest?: ScreenRequest;
   ScreenResult?: ScreenResult;
@@ -157,6 +173,7 @@ export interface ServiceModels {
   StatusCount?: StatusCount;
   StatusRequest?: StatusRequest;
   StepCheck?: StepCheck;
+  StocksSpec?: StocksSpec;
   StorageUsage?: StorageUsage;
   StrategyCheck?: StrategyCheck;
   StrategyImported?: StrategyImported;
@@ -173,6 +190,7 @@ export interface ServiceModels {
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
   TemplateLabel?: TemplateLabel;
+  UnparsedItem?: UnparsedItem;
   UpdateRequest?: UpdateRequest;
   UpdateResult?: UpdateResult;
   UsageRequest?: UsageRequest;
@@ -422,7 +440,8 @@ export interface FactorSpec {
  */
 export interface PoolSpec {
   /**
-   * Members of this index on the decision day; null: any.
+   * Members of this index on the decision day; null: any. labels.scopes lists the ones offered; 000906.SH,
+   * 000852.SH and 000985.SH are older options that existing strategies still read.
    */
   index?: ("000300.SH" | "000905.SH" | "000906.SH" | "000852.SH" | "000985.SH") | null;
   /**
@@ -437,6 +456,33 @@ export interface PoolSpec {
    * Leave out stocks listed for fewer trading days; null: no limit.
    */
   min_list_days?: number | null;
+  /**
+   * Only the stocks on this fixed list (round 3); never together with index.
+   */
+  stocks?: StocksSpec | null;
+}
+/**
+ * A fixed list of stocks: the strategy keeps its own copy, so a later change to the stock pool leaves it as it
+ * was.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "StocksSpec".
+ */
+export interface StocksSpec {
+  /**
+   * Codes such as 600000.SH, in the order shown.
+   *
+   * @minItems 1
+   */
+  codes: [string, ...string[]];
+  /**
+   * The stock pool they were copied from (pools_list); shown only.
+   */
+  pool_id?: string | null;
+  /**
+   * That pool's name when copied; shown only.
+   */
+  pool_name?: string | null;
 }
 /**
  * A saved strategy version.
@@ -1615,7 +1661,8 @@ export interface PoolCheck {
    */
   passed: boolean | null;
   /**
-   * bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days.
+   * bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days;
+   * stocks: on the fixed list.
    */
   value: number | boolean | string | null;
   /**
@@ -2089,6 +2136,48 @@ export interface IndexCheckRequest {
   data_version?: number | null;
 }
 /**
+ * An index's members on one day.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexPool".
+ */
+export interface IndexPool {
+  index: string;
+  /**
+   * The members' day: the version's last trading day, or the last day it has members for.
+   */
+  date: string;
+  data_version: number;
+  data_version_name: string;
+  stocks: PoolStock[];
+}
+/**
+ * A stock of a pool or a parsed list, with its name.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolStock".
+ */
+export interface PoolStock {
+  code: string;
+  /**
+   * As the data has it now; null: the data has no name (or no such stock).
+   */
+  name: string | null;
+}
+/**
+ * An index's members on the data's last day with members, as a list to start a pool from.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexPoolRequest".
+ */
+export interface IndexPoolRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  index: "000300.SH" | "000905.SH";
+}
+/**
  * Matching rows of one (table, kind, action).
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2408,6 +2497,14 @@ export interface Labels {
    * Where a scheduled rebalance day comes from (ScheduledDay.source).
    */
   day_sources: Label[];
+  /**
+   * The scopes a strategy may have, the offered ones first in the order to show; legacy ones last.
+   */
+  scopes: ScopeLabel[];
+  /**
+   * Why an item of a pasted list or file names no stock (UnparsedItem.reason).
+   */
+  parse_reasons: Label[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -2448,6 +2545,28 @@ export interface TemplateLabel {
    * The keys template uses.
    */
   params: string[];
+}
+/**
+ * A scope a strategy may have: all stocks, an index's members, or a fixed list of stocks.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScopeLabel".
+ */
+export interface ScopeLabel {
+  code: string;
+  /**
+   * Short, for tables and chips.
+   */
+  label: string;
+  /**
+   * One sentence, for tooltips.
+   */
+  help: string;
+  kind: "all" | "index" | "stocks";
+  /**
+   * True: an older index option, still read in existing strategies, never offered for new ones.
+   */
+  legacy: boolean;
 }
 /**
  * Every label table.
@@ -2586,6 +2705,53 @@ export interface OrdersRequest {
   end?: string | null;
 }
 /**
+ * A pasted list, or the text of an uploaded CSV or TXT file (first column codes, second names).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ParseRequest".
+ */
+export interface ParseRequest {
+  /**
+   * Items split at line breaks, commas, spaces, tabs and semicolons: codes such as 600519, 600519.SH, sh600519,
+   * sh.600519 or SH600519, or stocks' current names.
+   */
+  text: string;
+}
+/**
+ * Every item accounted for: the stocks found, the items that named none, the repeats.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ParsedStocks".
+ */
+export interface ParsedStocks {
+  /**
+   * In the order first named, each once.
+   */
+  stocks: PoolStock[];
+  unparsed: UnparsedItem[];
+  /**
+   * Items naming a stock already found, kept once.
+   */
+  duplicates: string[];
+}
+/**
+ * An item that names no one stock.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UnparsedItem".
+ */
+export interface UnparsedItem {
+  item: string;
+  /**
+   * labels.parse_reasons: not_found, ambiguous, beijing, not_a_stock or header.
+   */
+  reason: "not_found" | "ambiguous" | "beijing" | "not_a_stock" | "header";
+  /**
+   * The stocks an ambiguous item could mean; empty otherwise.
+   */
+  candidates: PoolStock[];
+}
+/**
  * One year or month of a run, not annualised.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2641,6 +2807,132 @@ export interface PinVersionRequest {
   pinned?: boolean;
 }
 /**
+ * A stock pool as a CSV file: a header row, then code and name per row.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolCsv".
+ */
+export interface PoolCsv {
+  file_name: string;
+  /**
+   * UTF-8 text with a byte order mark, so that spreadsheet programs read the names.
+   */
+  csv: string;
+}
+/**
+ * How a strategy's copied list differs from its stock pool now.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolDrift".
+ */
+export interface PoolDrift {
+  pool_id: string;
+  /**
+   * The pool's name now; null: the pool was deleted.
+   */
+  pool_name: string | null;
+  /**
+   * On the pool now, not on the strategy's list.
+   */
+  added: string[];
+  /**
+   * On the strategy's list, no longer on the pool.
+   */
+  removed: string[];
+}
+/**
+ * A new stock pool from a CSV or TXT file's text, read as parse reads it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolImportRequest".
+ */
+export interface PoolImportRequest {
+  name: string;
+  text: string;
+}
+/**
+ * The pool made, and the items that named no stock or repeated one.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolImported".
+ */
+export interface PoolImported {
+  pool: PoolOut;
+  unparsed: UnparsedItem[];
+  duplicates: string[];
+}
+/**
+ * A stock pool with its stocks, in the user's order.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolOut".
+ */
+export interface PoolOut {
+  id: string;
+  name: string;
+  stocks: PoolStock[];
+  /**
+   * ISO 8601 with offset.
+   */
+  created_at: string;
+  modified_at: string;
+  /**
+   * Codes the data (the version in use) has no stock for; empty without data.
+   */
+  missing: string[];
+}
+/**
+ * The stock pools, oldest first.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolList".
+ */
+export interface PoolList {
+  rows: PoolRow[];
+}
+/**
+ * One stock pool in the list.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolRow".
+ */
+export interface PoolRow {
+  id: string;
+  name: string;
+  /**
+   * Stocks on it.
+   */
+  count: number;
+  created_at: string;
+  modified_at: string;
+}
+/**
+ * One stock pool.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolRequest".
+ */
+export interface PoolRequest {
+  id: string;
+}
+/**
+ * A new stock pool, or a pool renamed and refilled.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolSaveRequest".
+ */
+export interface PoolSaveRequest {
+  /**
+   * null: a new pool with a generated id.
+   */
+  id?: string | null;
+  name: string;
+  /**
+   * Codes such as 600000.SH, in the order to keep.
+   */
+  codes?: string[];
+}
+/**
  * Explicit pool items, ANDed with the universe; all defaults leave the pool as the universe.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2648,7 +2940,8 @@ export interface PinVersionRequest {
  */
 export interface PoolSpec1 {
   /**
-   * Members of this index on the decision day; null: any.
+   * Members of this index on the decision day; null: any. labels.scopes lists the ones offered; 000906.SH,
+   * 000852.SH and 000985.SH are older options that existing strategies still read.
    */
   index?: ("000300.SH" | "000905.SH" | "000906.SH" | "000852.SH" | "000985.SH") | null;
   /**
@@ -2663,7 +2956,18 @@ export interface PoolSpec1 {
    * Leave out stocks listed for fewer trading days; null: no limit.
    */
   min_list_days?: number | null;
+  /**
+   * Only the stocks on this fixed list (round 3); never together with index.
+   */
+  stocks?: StocksSpec | null;
 }
+/**
+ * Every stock pool.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolsListRequest".
+ */
+export interface PoolsListRequest {}
 /**
  * A holding at a day's close.
  *
@@ -3104,9 +3408,13 @@ export interface SavedStrategy {
   strategy: StrategySpec;
   summary: string;
   /**
-   * e.g. strategy_version_changed, meta_rebuilt.
+   * e.g. strategy_version_changed, meta_rebuilt, legacy_index, stocks_not_in_data.
    */
   warnings: Warning[];
+  /**
+   * How the copied stock list differs from its stock pool now; null: no pool, or no difference.
+   */
+  pool_drift?: PoolDrift | null;
 }
 /**
  * The version a save produced, or the current one when the content was unchanged.
@@ -3468,7 +3776,14 @@ export interface StrategyCheck {
   weight_shares: {
     [k: string]: number;
   };
+  /**
+   * e.g. legacy_index, stocks_not_in_data, and those of reading a saved version.
+   */
   warnings: Warning[];
+  /**
+   * How the copied stock list differs from its stock pool now; null: no pool, or no difference.
+   */
+  pool_drift?: PoolDrift | null;
 }
 /**
  * What a rebalance strategy holds and when; defaults are left out of its canonical form.
