@@ -2,7 +2,7 @@
 // names and the funnel numbers each row shows. Only the user's choices are written; no stock data is computed here.
 import type { ConditionSpec, FactorSpec, FunnelStep, GroupSpec, StepCheck, StrategySpec } from "../api/types.gen";
 import { conditionForm, metricForm, parseCondition, parseMetric, type Compare, type Form, type Metric } from "./expr.ts";
-import { formulaOf, type Formula } from "./formula.ts";
+import { formulaOf, sellOf, type Formula } from "./formula.ts";
 import { metricUnit, toBackend, toDisplay, type Unit } from "./fields.ts";
 
 export type Filter = ConditionSpec | GroupSpec;
@@ -137,6 +137,9 @@ export function namesIn(spec: StrategySpec): Set<string> {
     if (isGroup(f)) for (const c of f.conditions) out.add(c.name);
   }
   for (const f of spec.factors ?? []) out.add(f.name);
+  // Sell and keep formulas share the names (their names appear in order causes).
+  const sell = sellOf(spec);
+  for (const c of [sell.sell_when, sell.keep_when]) if (c) out.add(c.name);
   return out;
 }
 

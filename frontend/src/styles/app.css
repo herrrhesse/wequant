@@ -489,3 +489,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .period-tag { margin-left: 6px; font-size: 10px; font-weight: 500; vertical-align: 1px; }
 .fx-help > .input { flex-shrink: 0; }
 .fx-modal-back { color: var(--ink); font-family: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; font-size: 14px; }
+/* Sell rules: one rule per row, a switch, its number, the backend's sentence under it. */
+.sell-rules { display: flex; flex-direction: column; gap: 4px; }
+.sell-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); column-gap: 12px; row-gap: 4px; align-items: center; padding: 6px 8px; border-radius: 10px; }
+.sell-row:hover { background: var(--soft2); }
+.sell-row.has-err { box-shadow: inset 0 0 0 1px var(--red); }
+.sell-name { font-size: 13px; font-weight: 600; }
+.sell-help, .sell-formula, .sell-sub, .sell-row .err-text { grid-column: 2; }
+.sell-row .input:disabled { opacity: 0.5; }

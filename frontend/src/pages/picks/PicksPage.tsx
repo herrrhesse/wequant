@@ -17,7 +17,9 @@ import { href, type Route } from "../../router";
 import { tx } from "../../text";
 import { useUi } from "../../ui";
 import { stepName } from "../strategy/Preview";
-import { screenPeriods } from "../../api/r4";
+import { screenHoldings, screenPeriods } from "../../api/r4";
+import { sellIsDefault, sellOf } from "../../strategy/formula";
+import { Holdings } from "./Holdings";
 import { PeriodTag } from "../../components/PeriodTag";
 import { MiniK } from "./MiniK";
 import { ChainView } from "../../components/ChainView";
@@ -63,7 +65,9 @@ export function PicksPage({ route }: { route: PicksRoute }) {
   // A draft not complete yet is not sent (the backend would refuse it): the page says what is missing instead.
   const gap = d ? draftGap(variant ? { ...d, spec: variant, errors: undefined } : d) : null;
   const subject = gap ? null : variant || d ? (spec ? { strategy: spec } : null) : id ? { saved: { id, n: route.n } } : null;
-  const request = subject ? { ...subject, date: route.date } : null;
+  // A strategy with sell rules needs holdings to say what to sell today: the backend simulates them (S4.2).
+  const simulate = !!spec && !sellIsDefault(sellOf(spec));
+  const request = subject ? { ...subject, date: route.date, ...(simulate ? { simulate: { start: null } } : {}) } : null;
   const screen = useCall("screen", request, { placeholderData: keepPreviousData });
   const save = useCallMutation("strategy_save", ["strategy_list"]);
   const r = screen.data;
@@ -216,6 +220,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
           ))}
         </div>
       )}
+      {r && screenHoldings(r) && <Holdings h={screenHoldings(r)!} pick={setCode} />}
       {r && (
         <div className={`picks-layout ${screen.isFetching ? "pending" : ""}`}>
           <Funnel r={r} step={step} setStep={(s) => setStep(s === step ? null : s)} />

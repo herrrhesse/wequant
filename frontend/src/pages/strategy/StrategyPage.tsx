@@ -1,6 +1,7 @@
 // The strategy page: a one-page editor (scope, filters, ranking, trading on the left; a live preview on the right),
 // the change history drawer and "我的策略". Every edit re-checks the draft (strategy validate) and re-screens it on the
 // latest trading day (about 300 ms after the last change); an older answer never replaces a newer one.
+import { SellCard } from "./SellCard";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
@@ -278,6 +279,7 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
           <FiltersCard {...props} />
           <FactorsCard {...props} shares={check.data?.weight_shares ?? null} />
           <TradeCard {...props} schedule={schedule.data ?? null} />
+          <SellCard {...props} />
         </div>
         {narrow ? (
           <aside className={`drawer ${drawer ? "open" : ""}`} aria-label={st.preview.title}>

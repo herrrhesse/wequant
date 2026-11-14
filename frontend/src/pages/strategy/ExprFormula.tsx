@@ -23,7 +23,12 @@ export function ExprFormula({ expr, role, label, onCommit, rows }: { expr: Expr;
 export function useExample(role: FormulaRole) {
   const vocab = useR4("formula_vocab", {}, { staleTime: Infinity });
   const list = vocab.data?.examples ?? [];
-  const short = list.filter((x) => !x.text.includes("\n"));
-  const mine = short.find((x) => x.role === role) ?? (role === "condition" ? short[0] : undefined);
+  const isShort = (x: { text: string }) => !x.text.includes("\n");
+  const own = list.filter((x) => x.role === role);
+  // A new condition starts from a one-line example (the weekly KDJ is a whole example, not a start); a sell formula
+  // may start from a longer one. A sell or keep formula is a condition too: the condition example serves until there
+  // is one of its own.
+  const bool = role === "condition" || role === "sell" || role === "keep";
+  const mine = (role === "sell" || role === "keep" ? own[0] : own.find(isShort)) ?? (bool ? list.find((x) => x.role === "condition" && isShort(x)) : undefined);
   return mine ?? null;
 }

@@ -215,7 +215,7 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
     edit((d) => {
       const b = bi < 0 ? null : boxes(d)[bi];
       if (bi >= 0 && !b) return;
-      const expr = metric ? (writeCondition({ custom: false, metric, mode: "gt", dir: "high", value: "0", unit: metricUnit(metric) }) ?? exprOf(metricForm(metric))) : formulaExpr(example?.text ?? "", "day");
+      const expr = metric ? (writeCondition({ custom: false, metric, mode: "gt", dir: "high", value: "0", unit: metricUnit(metric) }) ?? exprOf(metricForm(metric))) : formulaExpr(example?.text ?? "", example?.period ?? "day");
       const row = readCondition(expr);
       const c: ConditionSpec = { name: uniqueName(autoName(row), namesIn(d)), expr };
       if (!b) d.filters = [...(d.filters ?? []), c];
@@ -615,7 +615,7 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
           type="button"
           className="btn sm soft"
           style={{ alignSelf: "flex-start" }}
-          onClick={() => edit((d) => void (d.factors = [...(d.factors ?? []), { name: uniqueName(st.factors.formula, namesIn(d)), expr: formulaExpr(factorExample.text, "day"), prefer: "high", weight: 1 }]))}
+          onClick={() => edit((d) => void (d.factors = [...(d.factors ?? []), { name: uniqueName(st.factors.formula, namesIn(d)), expr: formulaExpr(factorExample.text, factorExample.period), prefer: "high", weight: 1 }]))}
         >
           {st.factors.addFormula}
         </button>
@@ -720,7 +720,7 @@ export function TradeCard({ spec, edit, errors, schedule }: EditorProps & { sche
             onClick={() =>
               edit((d) => {
                 d.weighting = "formula";
-                if (!d.formula && weightExample) d.formula = formulaExpr(weightExample.text, "day");
+                if (!d.formula && weightExample) d.formula = formulaExpr(weightExample.text, weightExample.period);
               })
             }
           >

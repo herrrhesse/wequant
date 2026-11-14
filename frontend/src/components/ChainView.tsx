@@ -4,7 +4,7 @@ import { stepValue } from "../strategy/model";
 import { pct } from "../format";
 import { useLabels } from "../labels";
 import { POOL_STEP_NAMES } from "../pages/strategy/text";
-import { stepPeriods, useR4Labels } from "../api/r4";
+import { explainRules, stepPeriods, useR4Labels } from "../api/r4";
 
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
 
@@ -49,6 +49,14 @@ export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null 
         </span>
       )}
       {e.sell_reason && <span className="small">将卖出：{L.of("sell_kinds", e.sell_reason.kind)}</span>}
+      {/* Sell rules (S4.2) for a stock held that day: each rule's state in the backend's words. */}
+      {explainRules(e)?.map((r) => (
+        <div key={r.rule} className="chain-row">
+          {r.triggered === null ? <span className="muted">·</span> : r.triggered ? <span className="bad">卖</span> : <span className="ok">✓</span>}
+          <span>{r.text}</span>
+          {r.blocked_by && <span className="muted small">被挡住</span>}
+        </div>
+      ))}
       {e.warnings.map((w, i) => (
         <span key={i} className="note">
           {L.warning(w)}

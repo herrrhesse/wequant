@@ -155,6 +155,8 @@ export function useR4<O extends R4>(
 interface R4Labels {
   periods?: { code: string; name?: string; label?: string; template?: string }[];
   formula_categories?: { code: string; label: string }[];
+  sell_modes?: { code: string; label: string; help?: string }[];
+  sell_rules?: { code: string; label: string; help?: string }[];
 }
 
 /** Round 4's labels: a period's name ("周线"), which week a value came from ("周线（截至 2026-11-06 那周）"), and a
@@ -166,7 +168,13 @@ export function useR4Labels() {
     const periods = new Map((raw?.periods ?? []).map((p) => [p.code, p]));
     const cats = new Map((raw?.formula_categories ?? []).map((c) => [c.code, c.label]));
     const periodName = (p: string) => periods.get(p)?.name ?? periods.get(p)?.label ?? "";
+    const modes = new Map((raw?.sell_modes ?? []).map((m) => [m.code, m]));
+    const rules = new Map((raw?.sell_rules ?? []).map((m) => [m.code, m]));
     return {
+      /** labels.sell_modes: name and one-sentence difference; empty until the backend has them. */
+      sellMode: (code: string) => ({ label: modes.get(code)?.label ?? "", help: modes.get(code)?.help ?? "" }),
+      /** labels.sell_rules: name and sentence of a sell rule. */
+      sellRule: (code: string) => ({ label: rules.get(code)?.label ?? "", help: rules.get(code)?.help ?? "" }),
       periodName,
       periodValue: (v: PeriodValue) => {
         const t = periods.get(v.period)?.template;
@@ -182,3 +190,40 @@ export const screenPeriods = (screen: unknown): Record<string, PeriodValue> => (
 
 /** explain StepCheck's periods (S4.8): empty for a daily condition. */
 export const stepPeriods = (step: unknown): PeriodValue[] => (step as { periods?: PeriodValue[] } | null | undefined)?.periods ?? [];
+
+/** S4.2 explain / holdings: one sell rule's state for a stock held that day. */
+export interface RuleCheck {
+  rule: string;
+  triggered: boolean | null;
+  value: number | null;
+  threshold: number | null;
+  blocked_by: "keep" | "min_hold" | null;
+  text: string;
+}
+
+export interface HoldingRow {
+  code: string;
+  name: string | null;
+  shares: number;
+  weight: number;
+  cost: number | null;
+  close: number | null;
+  change: number | null;
+  hold_days: number;
+  peak_close: number | null;
+  action: "sell" | "keep" | "blocked";
+  cause: string | null;
+  rules: RuleCheck[];
+}
+
+/** screen's holdings (S4.2, with simulate): simulated, never the user's own. */
+export interface ScreenHoldings {
+  simulated_from: string;
+  note: string;
+  rows: HoldingRow[];
+}
+
+export const screenHoldings = (screen: unknown): ScreenHoldings | null => (screen as { holdings?: ScreenHoldings | null } | null | undefined)?.holdings ?? null;
+
+/** explain's rules (S4.2): null when the stock is not held that day. */
+export const explainRules = (e: unknown): RuleCheck[] | null => (e as { rules?: RuleCheck[] | null } | null | undefined)?.rules ?? null;
