@@ -85,6 +85,7 @@ RULES = {  # rule -> a request that breaks it and nothing else
     "out_of_range a window too short": factor(["MA", "close", 0]),
     "out_of_range a window too long": factor(["MA", "close", 2**62 + 1]),
     "out_of_range a weight above the window": factor(["SMA", "close", 5, 6]),
+    "not_available turnover": factor("turn"),
     "wrong_type date": lambda: validated(BarsRequest, {"codes": [CODE], "start": "2024/01/02"}),
     "wrong_type code": lambda: validated(BarsRequest, {"codes": ["000001"]}),
 }

@@ -18,7 +18,8 @@ FLIPPED = {"GT": "lt", "GE": "le", "LT": "gt", "LE": "ge", "EQ": "eq"}  # the co
 
 
 def pool_items(strategy: Strategy) -> dict[str, Expr]:
-    """The set pool items as conditions, in the order index, boards, exclude_st, min_list_days, stocks."""
+    """The set pool items as conditions, in the order index, boards, exclude_st, min_list_days; a fixed list of
+    stocks is part of the scope instead (scope)."""
     pool, items = strategy.pool, {}
     if pool.index is not None:
         items["index"] = Field(f"member@{pool.index}")
@@ -28,14 +29,18 @@ def pool_items(strategy: Strategy) -> dict[str, Expr]:
         items["exclude_st"] = ~Field("st")
     if pool.min_list_days is not None:
         items["min_list_days"] = Field("list_days") >= pool.min_list_days
-    if pool.stocks is not None:
-        items["stocks"] = Codes(pool.stocks.codes)
     return items
 
 
+def scope(strategy: Strategy) -> Expr:
+    """The universe, and the fixed list of stocks when the pool has one: the funnel's first level after the bars."""
+    stocks = strategy.pool.stocks
+    return strategy.universe if stocks is None else strategy.universe & Codes(stocks.codes)
+
+
 def pool_expr(strategy: Strategy) -> Expr:
-    """The universe and every pool item."""
-    return reduce(operator.and_, pool_items(strategy).values(), strategy.universe)
+    """The scope and every pool item."""
+    return reduce(operator.and_, pool_items(strategy).values(), scope(strategy))
 
 
 def wrap(expr: Expr, pool: Expr) -> Expr:
@@ -60,7 +65,7 @@ def expressions(strategy: Strategy) -> dict[str, Expr]:
     """The roots by name: "universe", each pool item, "pool", each enabled step's condition, each enabled factor and
     "formula", the last three wrapped in the pool."""
     pool = pool_expr(strategy)
-    roots = {"universe": strategy.universe, **pool_items(strategy), "pool": pool}
+    roots = {"universe": scope(strategy), **pool_items(strategy), "pool": pool}
     roots |= {step.name: wrap(step.expr, pool) for step in strategy.steps() if step.expr is not None}
     roots |= {f.name: wrap(f.expr, pool) for f in strategy.factors if f.enabled}
     if strategy.weighting == "formula":

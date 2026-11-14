@@ -60,6 +60,7 @@ from wequant.expr.vocab import (
     INDEXES,
     NUM,
     OPERATORS,
+    PLANNED,
     STORED_AS,
 )
 
@@ -124,6 +125,7 @@ __all__ = [
     "from_form",
     "BOOL",
     "DESCRIPTIVE",
+    "PLANNED",
     "EXPR_VERSION",
     "FAMILIES",
     "FIELDS",

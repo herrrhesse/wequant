@@ -324,9 +324,11 @@ uv run wequant pools export ID > 自选.csv ; uv run wequant pools import 自选
 - **Scopes (round 3):** a strategy reads all SH/SZ stocks, the members of an offered index (`pool.index`: CSI 300
   `000300.SH` or CSI 500 `000905.SH`) on each decision day, or a fixed list of stocks (`pool.stocks`); `labels`
   lists them in order (`scopes`), so the frontend shows what the backend offers. An index and a list together are
-  refused (`requires`). Boards, ST and listing days apply on top as before. CSI 800 (`000906.SH`), CSI 1000
+  refused (`requires`). A list is the scope itself: the funnel's `universe` level (范围) is the universe and the
+  list, right after the bars, and no later level repeats it. Boards, ST and listing days apply on top as before. CSI 800 (`000906.SH`), CSI 1000
   (`000852.SH`) and CSI All Share (`000985.SH`) are older options: strategies and archived runs that use them validate
-  and run as before where the store has their members, with the warning `legacy_index`, and are never offered again.
+  and run as before where the store has their members, with the warning `legacy_index` (param `name`: the index's
+  Chinese name), and are never offered again.
 - **Stock pools** are files under `<home>/pools/<id>.json` (id, name, codes in the user's order without repeats,
   created and modified times): the user's data, never in the repository. `pools parse` reads a pasted list or a file's
   text, split at line breaks, commas, spaces, tabs and semicolons; each item is a code (`600519`, `600519.SH`,
@@ -339,6 +341,25 @@ uv run wequant pools export ID > 自选.csv ; uv run wequant pools import 自选
   Changing or deleting the pool later leaves strategies as they were; `strategy validate` and `strategy show` report
   `pool_drift` (codes added to and removed from the pool since) for the user to decide. Listed codes the data lacks
   are a warning (`stocks_not_in_data`), not an error. The summary reads 在自定义股票池“自选”（120 只）中…
+
+## Strategy templates and indicators
+
+```bash
+uv run wequant strategy templates      # starting points for a new strategy, each a whole valid strategy
+uv run wequant expr indicators         # every indicator a condition or factor can use, with the days the data has
+```
+
+- **`strategy templates` (S3.8):** six starting points built from prices and volumes only (20 日动量, 低波动, 短期反转,
+  成交活跃的动量股, 长期均线之上的动量股, 沪深300里的低波动), each with a plain Chinese name, two or three sentences on
+  what it does and when it may or may not work (no return figures), the whole strategy on an offered scope and its
+  summary sentence. They live in `wequant/service/templates.py`.
+- **`expr indicators` (S3.8, F-07):** every panel field and family parameter of `wequant.expr`'s vocabulary, the planned
+  fields (`turn`, refused by expression checks with `not_available` until the BaoStock merge), and the common
+  indicators built from fields (`change_N`, `volatility_N`, `avg_amount_N`, `vs_ma_N`, `from_high_N`), each with its
+  expression form, Chinese name, unit (yuan, shares, fraction, ratio, trading_days, bool), category (`labels`
+  `indicator_categories`), one sentence, whether it needs the BaoStock merge (S2.4b: ST, turnover), whether it is an
+  older index's membership, and the first and last day the store version has a value for it (a common indicator's
+  first day counts its lookback).
 
 ## Index bars, rebalance days and order causes
 

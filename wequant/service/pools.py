@@ -25,13 +25,14 @@ from wequant.service.base import (
     read_version,
 )
 from wequant.service.details import spec_details, usage
+from wequant.service.labels import LEGACY_SCOPES
 from wequant.service.outputs import Warning
 from wequant.service.specs import Name
 from wequant.strategy import SpecError, Strategy
 
 SHOWN_MISSING = 20  # codes a stocks_not_in_data warning names before "…"
 SCOPE_TEXTS = {  # the English text of each scope warning, filled from its params
-    "legacy_index": lambda p: f"{p['index']} is an older scope option; new strategies no longer offer it",
+    "legacy_index": lambda p: f"the older scope option {p['name']} is no longer offered to new strategies",
     "stocks_not_in_data": lambda p: f"{p['count']} listed codes are not stocks of the data: {p['codes']}",
 }
 
@@ -258,7 +259,7 @@ def scope_warnings(strategy: Strategy, context: Context) -> list[Warning]:
     """legacy_index for an index no longer offered; stocks_not_in_data for listed codes the data lacks."""
     found, pool = {}, strategy.pool
     if pool.index in LEGACY:
-        found["legacy_index"] = {"index": pool.index}
+        found["legacy_index"] = {"name": LEGACY_SCOPES[pool.index][0]}
     if pool.stocks is not None and (stocks := _stocks(context)):
         if missing := [code for code in pool.stocks.codes if code not in stocks]:
             shown = "、".join(missing[:SHOWN_MISSING]) + ("…" if len(missing) > SHOWN_MISSING else "")

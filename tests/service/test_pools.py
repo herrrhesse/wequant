@@ -54,6 +54,14 @@ def test_a_strategy_on_a_fixed_list_picks_only_from_it(market_home):
     assert picked and picked <= set(LISTED)
 
 
+def test_a_fixed_list_is_the_scope_level_of_the_funnel(market_home):
+    """The list is the 范围 level, right after the bars; no later level is the list (round 3, coordinator 11-14)."""
+    request = service.ScreenRequest(strategy=strategy(stocks={"codes": LISTED}).strategy, date=DAYS[-1])
+    funnel = service.screen(request, Context(market_home)).funnel
+    assert [(f.step, f.passed) for f in funnel[:3]] == [("listed", 7), ("bar", 6), ("universe", 2)]
+    assert "stocks" not in [f.step for f in funnel]
+
+
 def test_codes_the_data_lacks_are_a_warning_not_an_error(market_home):
     checked = service.strategy_validate(strategy(stocks={"codes": [*LISTED, "600009.SH"]}), Context(market_home))
     assert [(w.code, w.params) for w in checked.warnings] == [

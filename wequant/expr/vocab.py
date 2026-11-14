@@ -87,6 +87,9 @@ FAMILIES: dict[str, Family] = {
     "member": Family(BOOL, INDEXES, _in_index),
 }
 DESCRIPTIVE: tuple[str, ...] = ("status", "listed", "suspended", "missing")
+PLANNED: dict[str, str] = {  # fields not read yet, and why: expr check refuses them with not_available
+    "turn": "the turnover rate is not a panel field yet; it comes with the BaoStock merge (S2.4b)",
+}
 FUTURE: frozenset[str] = frozenset(
     "BACKSET BARSNEXT CONST CURRBARSCOUNT DRAWLINE FILTERX ISLASTBAR PEAK PEAKBARS REFX REFXV TOTALBARSCOUNT TROUGH "
     "TROUGHBARS XMA ZIG".split()

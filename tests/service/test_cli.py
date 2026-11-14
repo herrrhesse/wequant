@@ -64,6 +64,8 @@ CASES = [
     ),
     (["schema"], "schema", service.SchemaRequest(), "home"),
     (["labels"], "labels", service.LabelsRequest(), "home"),
+    (["expr", "indicators"], "expr_indicators", service.IndicatorsRequest(), "market_home"),
+    (["strategy", "templates"], "strategy_templates", service.TemplatesRequest(), "home"),
     (
         ["strategy", "validate", "--strategy", "s@1"],
         "strategy_validate",

@@ -18,6 +18,7 @@ from wequant.service.explain import Explain, ExplainRequest, FactorScore, PoolCh
 from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest, expr_check, expr_eval
 from wequant.service.index_bars import IndexBar, IndexBars, IndexBarsRequest, data_index_bars
 from wequant.service.index_check import CountSpan, IndexCheck, IndexCheckRequest, IndexCoverage, data_index_check
+from wequant.service.indicators import Indicator, Indicators, IndicatorsRequest, expr_indicators
 from wequant.service.issues import IssueCount, IssueRow, Issues, IssuesRequest, data_issues
 from wequant.service.jobs import (
     JobInfo,
@@ -148,6 +149,7 @@ from wequant.service.strategies import (
     strategy_validate,
     strategy_versions,
 )
+from wequant.service.templates import Template, Templates, TemplatesRequest, strategy_templates
 from wequant.service.transfer import (
     Exported,
     ExportRunRequest,
@@ -180,6 +182,14 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "Indicator",
+    "Indicators",
+    "IndicatorsRequest",
+    "expr_indicators",
+    "Template",
+    "Templates",
+    "TemplatesRequest",
+    "strategy_templates",
     "IndexPool",
     "IndexPoolRequest",
     "ParseRequest",

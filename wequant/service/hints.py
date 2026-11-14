@@ -60,6 +60,7 @@ HINTS: dict[tuple[str, str | None, str], str] = {
     ("not_a_trading_day", "date", "is not a day of run"): "这一天不在这次回测里：请选回测期间的一个交易日",
     ("not_a_trading_day", "date", ""): "这一天不是交易日：请选一个交易日",
     ("not_a_trading_day", ANY, "^no trading day in"): NO_DAYS,
+    ("not_available", ANY, "^turn is not available"): "换手率要等 BaoStock 数据正式合并（S2.4b）以后才有",
     ("no_data", "index", ""): "这个数据库里没有这个指数的成分数据：请先更新数据，或者换一个指数",
     ("no_data", "benchmark", ""): "基准指数在回测期间没有收盘价：请换一个基准，或者不设基准",
     ("wrong_type", "benchmark", ""): "基准要填一个指数代码（例如 000300.SH），或者不设基准",
