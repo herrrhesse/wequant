@@ -25,9 +25,11 @@ export function App() {
   const down = useSyncExternalStore(backendState.subscribe, backendState.get);
   const client = useQueryClient();
   setBook(useLabels());
-  // A data folder without data: every page leads to the first-run setup, which stays open until it is finished.
+  // A data folder without data: every page leads to the first-run setup, which stays open until it is finished. No
+  // page shows before the answer, so none asks an empty folder for its data (a 404 there).
   const setup = useCall("setup_status", {});
   const needsSetup = setup.data?.needs_setup === true;
+  const loading = <main className="page"><p className="note">{tx.app.loading}</p></main>;
   useEffect(() => {
     if (needsSetup && route.page !== "setup") location.replace(href.setup());
   }, [needsSetup, route.page]);
@@ -42,9 +44,11 @@ export function App() {
         {down ? (
           <BackendDown onRetry={retry} />
         ) : (
-          <Suspense fallback={<main className="page"><p className="note">{tx.app.loading}</p></main>}>
+          <Suspense fallback={loading}>
             {route.page === "setup" || needsSetup ? (
               <SetupPage />
+            ) : setup.isPending ? (
+              loading
             ) : route.page === "today" ? (
               <TodayPage />
             ) : route.page === "strategy" ? (

@@ -28,6 +28,8 @@ export interface Operations {
   data_build_estimate: { request: M.BuildEstimateRequest; result: M.BuildEstimate };
   data_build: { request: M.BuildRequest; result: M.BuildResult };
   data_backfill: { request: M.BackfillRequest; result: M.BackfillResult };
+  data_extend_estimate: { request: M.ExtendEstimateRequest; result: M.ExtendEstimate };
+  data_extend: { request: M.ExtendRequest; result: M.ExtendResult };
   data_own_check: { request: M.OwnRequest; result: M.OwnCheck };
   data_own_import: { request: M.OwnRequest; result: M.OwnImported };
   data_verify_submit: { request: M.VerifySubmitRequest; result: M.VerifySubmitResult };
@@ -115,6 +117,8 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_build_estimate: { method: "POST", path: "/api/data_build_estimate" },
   data_build: { method: "POST", path: "/api/data_build" },
   data_backfill: { method: "POST", path: "/api/data_backfill" },
+  data_extend_estimate: { method: "POST", path: "/api/data_extend_estimate" },
+  data_extend: { method: "POST", path: "/api/data_extend" },
   data_own_check: { method: "POST", path: "/api/data_own_check" },
   data_own_import: { method: "POST", path: "/api/data_own_import" },
   data_verify_submit: { method: "POST", path: "/api/data_verify_submit" },

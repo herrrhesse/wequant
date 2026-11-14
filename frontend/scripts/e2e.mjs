@@ -66,6 +66,12 @@ const isolated = settingsOf(settingsDir);
 // A second serve on a folder without data, with settings of its own, for the first-run setup (release shape only).
 const emptyHome = resolve(sandbox, "empty-home");
 const emptySettings = resolve(sandbox, "settings-empty");
+// Demo homes holding part of the stocks (S2.11 data scope), each with a serve and settings of its own (release shape
+// only): made by the demo generator's --scope; a generator without it leaves them out and their tests skip.
+const SCOPED = [
+  { name: "layered", flag: "--scope layered", env: "WQ_LAYERED_URL" },
+  { name: "csi300", flag: "--scope csi300", env: "WQ_CSI300_URL" },
+];
 const fillWith = (cmd, home, port) => cmd.replaceAll("{home}", home).replaceAll("{port}", port).replaceAll("{uv}", cfg.uv);
 const fill = (cmd) => fillWith(cmd, cfg.home, cfg.apiPort);
 const children = [];
@@ -119,6 +125,7 @@ process.on("SIGINT", () => {
 });
 
 let code = 1;
+const scopedUrls = {};
 try {
   run("npm run build --silent -- --logLevel warn", root);
   if (cfg.demo) {
@@ -139,8 +146,25 @@ try {
       start("serve-empty", fillWith(cfg.serve, emptyHome, emptyPort), repo, settingsOf(emptySettings));
       empty = `http://127.0.0.1:${emptyPort}/`;
     }
+    if (cfg.mode !== "dev" && cfg.demo && !env.WQ_DEMO_CMD) {
+      for (const s of SCOPED) {
+        const home = resolve(sandbox, `${s.name}-home`);
+        log(`$ ${fillWith(cfg.demo, home, "")} ${s.flag}`);
+        const made = spawnSync(`${fillWith(cfg.demo, home, "")} ${s.flag}`, { cwd: repo, shell: true, stdio: "ignore", env });
+        if (made.status !== 0) {
+          log(`no ${s.name} demo home (the generator has no ${s.flag}): its tests skip`);
+          continue;
+        }
+        const settings = resolve(sandbox, `settings-${s.name}`);
+        mkdirSync(settings, { recursive: true });
+        const port = await freePort();
+        start(`serve-${s.name}`, fillWith(cfg.serve, home, port), repo, settingsOf(settings));
+        scopedUrls[s.env] = `http://127.0.0.1:${port}/`;
+      }
+    }
     await waitFor(`http://127.0.0.1:${cfg.apiPort}/`);
     if (empty) await waitFor(empty);
+    for (const url of Object.values(scopedUrls)) await waitFor(url);
   }
   let web = `http://127.0.0.1:${cfg.apiPort}/`;
   if (!cfg.serve || cfg.mode === "dev") {
@@ -159,7 +183,7 @@ try {
     cwd: root,
     shell: true,
     stdio: "inherit",
-    env: { ...env, WQ_WEB_URL: web, WQ_API_PORT: cfg.apiPort, WQ_API: cfg.serve ? "1" : "", WQ_NOAPI_URL: noApi, WQ_E2E_MODE: cfg.serve ? cfg.mode : "smoke", WQ_DEMO_HOME: cfg.home, WQ_SERVE_CMD: fill(cfg.serve), WQ_E2E_SCRATCH: scratch, WQ_EMPTY_URL: empty, WQ_EMPTY_HOME: empty ? emptyHome : "" },
+    env: { ...env, WQ_WEB_URL: web, WQ_API_PORT: cfg.apiPort, WQ_API: cfg.serve ? "1" : "", WQ_NOAPI_URL: noApi, WQ_E2E_MODE: cfg.serve ? cfg.mode : "smoke", WQ_DEMO_HOME: cfg.home, WQ_SERVE_CMD: fill(cfg.serve), WQ_E2E_SCRATCH: scratch, WQ_EMPTY_URL: empty, WQ_EMPTY_HOME: empty ? emptyHome : "", ...scopedUrls },
   });
   code = r.status ?? 1;
 } catch (e) {

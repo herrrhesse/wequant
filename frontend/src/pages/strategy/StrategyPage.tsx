@@ -8,11 +8,13 @@ import { ApiError } from "../../api/http";
 import type { StrategySpec, SummaryPart } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
+import { SCOPE_WARNINGS, WarningText } from "../../components/WarningText";
 import { useDebounced } from "../../hooks";
 import { useLabels } from "../../labels";
 import { follows, setFollow } from "../../local";
 import { href, type Route } from "../../router";
 import { strategyLoc } from "../../strategy/locate";
+import { PAGE_DRAFT as DRAFT, writePageDraft } from "../../strategy/pageDraft";
 import { blank } from "../../strategy/model";
 import { summarySegments } from "../../strategy/summary";
 import { useUi } from "../../ui";
@@ -24,7 +26,6 @@ import { Preview } from "./Preview";
 import { st } from "./text";
 
 const LAST = "wequant.strategy.last";
-const DRAFT = "wequant.strategy.draft";
 
 interface Origin {
   id: string;
@@ -95,13 +96,6 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem(DRAFT, JSON.stringify({ id: origin?.id ?? null, spec, name }));
-    } catch {
-      // storage unavailable: the draft lasts for this visit
-    }
-  }, [spec, name, origin]);
 
   const edit = (fn: (d: StrategySpec) => void) => {
     setUndo((u) => [...u.slice(-49), { spec, name }]);
@@ -127,10 +121,18 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const screen = useCall("screen", check.isSuccess ? { strategy: asked } : null, { placeholderData: keepPreviousData });
   const schedule = useCall("strategy_schedule", check.isSuccess ? { strategy: asked, count: 3 } : null, { placeholderData: keepPreviousData });
   const blocked = errors.length > 0 || (check.isError && !apiErr);
+  // The draft, kept for a reload and for 选股 and 回测, with the errors of the check of exactly this draft (else not
+  // known yet): those pages do not send a draft the backend would refuse.
+  const checked = spec === settled && !check.isFetching && !check.isPlaceholderData && (check.isSuccess || apiErr?.status === 422);
+  useEffect(() => {
+    writePageDraft({ id: origin?.id ?? null, spec, name, errors: checked ? errors.length : undefined });
+  }, [spec, name, origin, checked, errors.length]);
   // Updating from the moment of the edit (not only once the debounce ends) until the newest preview has arrived.
   const updating = !blocked && (spec !== settled || check.isFetching || screen.isFetching || check.isPlaceholderData || screen.isPlaceholderData);
   const st0 = screen.data?.warnings.find((w) => w.code === "st_unknown");
   const stNone = !!st0 && Number(st0.params.known_share) === 0;
+  // The check's warnings, and the preview's data-scope warning for its day when the check has not given that one.
+  const warnings = [...(check.data?.warnings ?? []), ...(screen.data?.warnings ?? []).filter((w) => SCOPE_WARNINGS.has(w.code) && !check.data?.warnings.some((c) => c.code === w.code))];
 
   const dirty = check.data ? !origin || !check.data.saved_as.some((s) => s.id === origin.id) || name !== origin.name : spec !== savedSpec;
   const state = errors.length ? "errors" : !origin ? "never" : dirty ? "dirty" : "saved";
@@ -247,10 +249,12 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
             )}
           </p>
         )}
-        {check.data && check.data.warnings.length > 0 && (
-          <ul className="warn-list">
-            {check.data.warnings.map((w, i) => (
-              <li key={i}>{L.warning(w)}</li>
+        {warnings.length > 0 && (
+          <ul className="warn-list" aria-label="提示">
+            {warnings.map((w, i) => (
+              <li key={i}>
+                <WarningText w={w} />
+              </li>
             ))}
           </ul>
         )}

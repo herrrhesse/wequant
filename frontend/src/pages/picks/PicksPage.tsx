@@ -10,6 +10,7 @@ import { fromPool, PoolPicker } from "../strategy/PoolPicker";
 import type { Reject, ScreenResult, ScreenRow, StrategySpec } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
+import { WarningText } from "../../components/WarningText";
 import { pct } from "../../format";
 import { useLabels } from "../../labels";
 import { href, type Route } from "../../router";
@@ -19,6 +20,7 @@ import { stepName } from "../strategy/Preview";
 import { MiniK } from "./MiniK";
 import { ChainView } from "../../components/ChainView";
 import { boxes, readCondition, UNIT_TEXT } from "../../strategy/model";
+import { draftGap, readPageDraft } from "../../strategy/pageDraft";
 import { toDisplay, type Unit } from "../../strategy/fields";
 
 /** The display unit of each value condition, by name (rank conditions keep the backend's number). */
@@ -32,25 +34,15 @@ function unitsOf(spec: StrategySpec | null): Map<string, Unit> {
 }
 
 type PicksRoute = Extract<Route, { page: "picks" }>;
-const DRAFT = "wequant.strategy.draft";
 const OPS: Record<string, string> = { gt: ">", ge: "≥", lt: "<", le: "≤", eq: "=", between: "介于" };
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
-
-function draft(): { spec: StrategySpec; name: string } | null {
-  try {
-    const v = JSON.parse(localStorage.getItem(DRAFT) ?? "null") as { spec: StrategySpec; name: string } | null;
-    return v && typeof v.spec === "object" ? v : null;
-  } catch {
-    return null;
-  }
-}
 
 export function PicksPage({ route }: { route: PicksRoute }) {
   const ui = useUi();
   const L = useLabels();
   const list = useCall("strategy_list", {});
   const calendar = useCall("data_calendar", {});
-  const stored = draft();
+  const stored = readPageDraft();
   // What is computed is what the selector shows: the draft when asked for, or when nothing is saved yet.
   const useDraft = !!stored && (route.draft || (!route.id && list.isSuccess && list.data.rows.length === 0));
   const d = useDraft ? stored : null;
@@ -66,10 +58,12 @@ export function PicksPage({ route }: { route: PicksRoute }) {
   const [step, setStep] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null);
   const spec = variant ?? base;
-  const subject = variant || d ? (spec ? { strategy: spec } : null) : id ? { saved: { id, n: route.n } } : null;
+  // A draft not complete yet is not sent (the backend would refuse it): the page says what is missing instead.
+  const gap = d ? draftGap(variant ? { ...d, spec: variant, errors: undefined } : d) : null;
+  const subject = gap ? null : variant || d ? (spec ? { strategy: spec } : null) : id ? { saved: { id, n: route.n } } : null;
   const request = subject ? { ...subject, date: route.date } : null;
   const screen = useCall("screen", request, { placeholderData: keepPreviousData });
-  const summary = useCall("strategy_summary", spec ? { strategy: spec } : null);
+  const summary = useCall("strategy_summary", spec && !gap ? { strategy: spec } : null);
   const save = useCallMutation("strategy_save", ["strategy_list"]);
   const r = screen.data;
   const nonTrading = !!route.date && !!r && r.date !== route.date;
@@ -119,12 +113,20 @@ export function PicksPage({ route }: { route: PicksRoute }) {
           </label>
           <label className="field">
             决策日
-            <input className="input" type="date" value={date || r?.date || ""} min={calendar.data?.first ?? undefined} max={calendar.data?.last ?? undefined} onChange={(e) => setDate(e.target.value)} />
+            <input
+              className="input"
+              type="date"
+              aria-label="决策日"
+              value={date || route.date || calendar.data?.last || ""}
+              min={calendar.data?.first ?? undefined}
+              max={calendar.data?.last ?? undefined}
+              onChange={(e) => setDate(e.target.value)}
+            />
           </label>
-          <button type="button" className="btn acc" onClick={() => go({ id, draft: useDraft, date: date || null })}>
+          <button type="button" className="btn acc" disabled={!!gap} onClick={() => go({ id, draft: useDraft, date: date || null })}>
             选股
           </button>
-          <button type="button" className="btn soft" aria-pressed={tweak} onClick={() => setTweak(!tweak)}>
+          <button type="button" className="btn soft" aria-pressed={tweak} disabled={!!gap} onClick={() => setTweak(!tweak)}>
             临时调整
           </button>
           {variant && (
@@ -148,7 +150,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
           {nonTrading && r && <span className="warnbox">{route.date} 不是交易日，按之前最近的交易日 {r.date} 计算</span>}
         </div>
         {summary.data && <p className="summary">{summary.data.text}</p>}
-        {tweak && spec && (
+        {tweak && spec && !gap && (
           <div className="inner tweak">
             <span className="small b">换个范围</span>
             <IndexSeg
@@ -183,12 +185,25 @@ export function PicksPage({ route }: { route: PicksRoute }) {
           </div>
         )}
       </section>
+      {gap && (
+        <section className="card" aria-label="结果">
+          <div className="empty">
+            <span className="col tight">
+              <span className="b">{gap.title}</span>
+              <span className="small sub">{gap.text}</span>
+            </span>
+            <a className="btn push" href={gap.fix}>
+              去策略页
+            </a>
+          </div>
+        </section>
+      )}
       {screen.isError && <Problem error={screen.error} />}
       {r && r.warnings.length > 0 && (
         <div className="notes-line">
           {r.warnings.map((w, i) => (
             <span key={i} className="warnbox" title={L.warningName(w.code)}>
-              {L.warning(w)}
+              <WarningText w={w} />
             </span>
           ))}
         </div>

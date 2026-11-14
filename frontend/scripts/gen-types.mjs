@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile } from "json-schema-to-typescript";
+import { contractModule } from "./contract-facts.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(process.argv[2] ?? `${root}/contract/service-models.schema.json`);
@@ -55,3 +56,9 @@ const lines = [
 ];
 writeFileSync(opsOut, lines.join("\n"));
 console.log(`${relative(root, opsOut)}: ${ops.length} operations`);
+
+// src/api/contract.gen.ts: the few facts the page reads from the snapshot (defaults, available operations, enums), so
+// the main bundle does not carry the whole snapshot.
+const factsOut = `${root}/src/api/contract.gen.ts`;
+writeFileSync(factsOut, contractModule(schema, relative(root, source)));
+console.log(`${relative(root, factsOut)}: defaults, operations and enums`);

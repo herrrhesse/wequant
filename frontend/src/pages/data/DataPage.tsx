@@ -9,8 +9,10 @@ import { StatusBar } from "../../components/StatusBar";
 import { useLabels } from "../../labels";
 import { href, type Route } from "../../router";
 import { useUi } from "../../ui";
+import { show } from "../../format";
 import { DelistingsSection } from "./DelistingsSection";
 import { Location } from "./Location";
+import { ScopeCard } from "./ScopeCard";
 import { Storage, Versions } from "./Versions";
 
 type DataRoute = Extract<Route, { page: "data" }>;
@@ -118,12 +120,12 @@ export function DataPage({ route }: { route: DataRoute }) {
         </summary>
         <DelistingsSection />
       </details>
+      <ScopeCard first={calendar.data?.first ?? null} open={route.extend} />
       <Location
-        first={calendar.data?.first ?? null}
         calendar={
           calendar.data && (
             <span className="small muted">
-              交易日历 {calendar.data.first} 至 {calendar.data.last}，共 {calendar.data.dates.length} 个交易日
+              交易日历 {calendar.data.first} 至 {calendar.data.last}，共 {show(calendar.data.dates.length)} 个交易日
             </span>
           )
         }

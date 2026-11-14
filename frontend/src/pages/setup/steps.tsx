@@ -20,6 +20,8 @@ import {
   type Years,
 } from "./SetupPage";
 import { BARS_EXAMPLE, SECURITIES_EXAMPLE } from "./examples";
+import { type Pick, ScopeChoice, scopeOf, useEstimate } from "./Scope";
+import { show } from "../../format";
 
 const SOURCES: { source: Source; desc: string }[] = [
   {
@@ -36,17 +38,16 @@ export function SourceStep(props: {
   setYears: (y: Years) => void;
   setBackfill: (b: boolean) => void;
   setFolder: (f: string) => void;
+  setPick: (p: Pick) => void;
   busy: boolean;
 }) {
   const { ctx } = props;
-  const { status, source, years, backfill, folder } = ctx;
+  const { status, source, years, backfill, folder, pick } = ctx;
   const client = useQueryClient();
   const [picking, setPicking] = useState(false);
   const here = useFolder(folder);
-  const estimate = useCall(
-    "data_build_estimate",
-    source === "baostock" ? { years } : null,
-  );
+  const scope = scopeOf(pick);
+  const estimate = useEstimate(years, scope, source === "baostock");
   const useHome = useCallMutation("data_use_home");
   const current = folder === status.home;
   // Building and importing go into an empty or new folder (the backend switches to it, making it when missing); a
@@ -60,6 +61,8 @@ export function SourceStep(props: {
         : "选的文件夹里没有 WeQuant 数据：用上面的“浏览…”选一个有数据的文件夹。";
     if (here.isHome || (current && status.has_data))
       return "这个文件夹里已经有数据；新建或导入需要一个空的文件夹，可以用“浏览…”新建一个。";
+    if (s === "baostock" && pick.choice === "stocks" && !pick.poolName.trim())
+      return "给名单起个名字，建好后存成股票池。";
     return "";
   };
   const blocked = why(source);
@@ -74,7 +77,7 @@ export function SourceStep(props: {
     }
     if (source === "existing") ctx.go("ready", { source, home: folder });
     else if (source === "baostock")
-      await ctx.start("data_build", { years }, "build", {
+      await ctx.start("data_build", ctx.buildRequest(), "build", {
         source,
         years,
         backfill,
@@ -133,6 +136,8 @@ export function SourceStep(props: {
       </div>
       {source === "baostock" && (
         <div className="inner col">
+          <span className="b">下载哪些股票</span>
+          <ScopeChoice years={years} pick={pick} setPick={props.setPick} />
           <div className="row">
             <span className="small">建最近</span>
             <div className="seg" role="group" aria-label="建最近几年">
@@ -147,9 +152,9 @@ export function SourceStep(props: {
                 </button>
               ))}
             </div>
-            {estimate.data && (
+            {estimate.data && scope && (
               <span className="small sub" role="status" aria-label="预计耗时">
-                约 {estimate.data.days} 个交易日，预计
+                合计约 {show(estimate.data.stocks)} 只股票、{show(estimate.data.days)} 个交易日，预计
                 {about(estimate.data.seconds)}
                 {estimate.data.already > 0
                   ? `；上次已经下载了 ${estimate.data.already} 只股票，这次不用重下`
@@ -179,6 +184,7 @@ export function SourceStep(props: {
           disabled={
             (!here.ready && !missing) ||
             !!blocked ||
+            (source === "baostock" && !scope) ||
             props.busy ||
             useHome.isPending
           }
@@ -216,7 +222,7 @@ export function BuildStep({
   const L = useLabels();
   const { job, years } = ctx;
   const resume = () =>
-    void ctx.start("data_build", { years }, "build").catch(() => undefined);
+    void ctx.start("data_build", ctx.buildRequest(), "build").catch(() => undefined);
   const running = !!job && !finished(job);
   return (
     <div className="col setup-body">
@@ -254,7 +260,7 @@ export function BuildStep({
             >
               {L.of("build_statuses", result.status)}
               {result.first && result.last
-                ? `：${result.first} 至 ${result.last}，${result.days} 个交易日`
+                ? `：${result.first} 至 ${result.last}，${show(result.days)} 个交易日`
                 : `：${L.help("build_statuses", result.status)}`}
             </span>
           )}
@@ -614,7 +620,7 @@ export function ImportStep({
       {job && running && <JobBar job={job} label="正在导入" />}
       {job?.state === "succeeded" && result && (
         <span className="small ok b" role="status">
-          导入完成：{result.codes} 只股票、{result.days} 个交易日，数据版本{" "}
+          导入完成：{show(result.codes)} 只股票、{show(result.days)} 个交易日，数据版本{" "}
           {result.version_name}
           {result.issues > 0
             ? `；有 ${result.issues} 条没导入或标出来的行，列在数据页`

@@ -6,21 +6,11 @@ import { useCall, useCallMutation } from "../api/client";
 import { call } from "../api/http";
 import type { PoolOut, PoolStock, UnparsedItem } from "../api/types.gen";
 import { useDebounced } from "../hooks";
-import { useLabels } from "../labels";
 import { FileButton } from "./FileButton";
 import { Problem } from "./Problem";
+import { readText, Unparsed } from "./Unparsed";
 
 const INDEXES = ["000300.SH", "000905.SH"] as const;
-
-/** A text file chosen by the user, read in the page. */
-function readText(file: File): Promise<string> {
-  return new Promise((ok, fail) => {
-    const r = new FileReader();
-    r.onload = () => ok(String(r.result ?? ""));
-    r.onerror = () => fail(r.error);
-    r.readAsText(file);
-  });
-}
 
 /** A CSV the browser saves as a file. */
 function save(fileName: string, csv: string) {
@@ -35,7 +25,6 @@ function save(fileName: string, csv: string) {
 }
 
 export function PoolEditor({ id, onClose, onSaved }: { id: string | null; onClose: () => void; onSaved: (p: PoolOut) => void }) {
-  const L = useLabels();
   const loaded = useCall("pools_show", id ? { id } : null);
   const scopes = useCall("labels", {}).data?.scopes ?? [];
   const [name, setName] = useState<string | null>(null);
@@ -79,9 +68,6 @@ export function PoolEditor({ id, onClose, onSaved }: { id: string | null; onClos
       setErr(e);
     }
   };
-  // Header lines (代码, 名称) are skipped, not failures: they are listed apart, in grey.
-  const skipped = unparsed.filter((u) => u.reason === "header");
-  const failed = unparsed.filter((u) => u.reason !== "header");
   const allPicked = list.length > 0 && list.every((s) => picked.has(s.code));
   const loading = !!id && loaded.isPending;
 
@@ -165,30 +151,7 @@ export function PoolEditor({ id, onClose, onSaved }: { id: string | null; onClos
                 {note}
               </span>
             )}
-            {skipped.length > 0 && <span className="small muted">跳过了表头：{skipped.map((u) => u.item).join("、")}</span>}
-            {failed.length > 0 && (
-              <div className="inner unparsed" aria-label="没能识别的项">
-                <div className="row small">
-                  <span className="b warn-text">有 {failed.length} 项没能识别，没有加入名单</span>
-                  <button type="button" className="btn sm ghost push" onClick={() => setUnparsed([])}>
-                    知道了
-                  </button>
-                </div>
-                {failed.map((u, i) => (
-                  <div key={`${u.item}/${i}`} className="row small">
-                    <b>{u.item}</b>
-                    <span className="sub">
-                      {L.of("parse_reasons", u.reason)}：{L.help("parse_reasons", u.reason)}
-                    </span>
-                    {u.candidates.map((c) => (
-                      <button key={c.code} type="button" className="btn sm soft" onClick={() => add([c], "添加")}>
-                        加入 {c.name ?? ""} {c.code}
-                      </button>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
+            <Unparsed items={unparsed} onAdd={(c) => add([c], "添加")} onDismiss={() => setUnparsed([])} />
             <div className="row small">
               <span className="b">共 {list.length} 只</span>
               {picked.size > 0 && <span className="muted">已选 {picked.size} 只</span>}

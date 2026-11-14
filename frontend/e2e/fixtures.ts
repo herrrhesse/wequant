@@ -3,9 +3,10 @@
 import { expect, test as base } from "@playwright/test";
 
 export const test = base.extend<{ allowConsole: RegExp[]; consoleErrors: string[] }>({
-  // A 422 is the backend's answer to an invalid strategy or request, located on the controls by the page; Chrome
-  // still logs it as a failed resource. A test may allow more (the backend-down test allows the 404 of /api).
-  allowConsole: [[/status of 422/], { option: true }],
+  // Nothing is allowed by default: a page sends nothing the backend refuses. A test that sends an invalid strategy on
+  // purpose allows the 422 Chrome logs for it (the page locates it on the controls); the backend-down test allows the
+  // 404 of /api.
+  allowConsole: [[], { option: true }],
   consoleErrors: [
     async ({ page, allowConsole }, use) => {
       const errors: string[] = [];

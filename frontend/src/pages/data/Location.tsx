@@ -1,30 +1,30 @@
-// 存储位置: the data folder's path and the free space on its disk; "更改位置…" browses for a folder, then moves or
-// copies the data there (a background job with progress and cancel; the backend checks the folder and the space and
-// switches only after the copy checks out) or switches to a WeQuant data folder already there. After a switch every
-// page reads the new folder at once: all cached answers are dropped.
+// 存储位置: the data folder's path and the free space on its disk; "更改位置…" browses for a folder, then copies (the
+// default; the old folder stays as it is) or moves the data there (a background job with progress and cancel; the
+// backend checks the folder and the space and switches only after the copy checks out) or switches to a WeQuant data
+// folder already there. After a switch every page reads the new folder at once: all cached answers are dropped. The
+// old folder of a copy is the user's to delete: no delete button here.
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useCall, useCallMutation } from "../../api/client";
 import { size } from "../../api/files";
 import { cancelJob, finished, useJob } from "../../api/jobs";
 import type { JobInfo, Relocated } from "../../api/types.gen";
-import { FolderPicker } from "../../components/FolderPicker";
+import { FolderPicker, useFolder } from "../../components/FolderPicker";
 import { join } from "../../components/paths";
 import { Problem } from "../../components/Problem";
-import { fillYears, JobBar } from "../../components/JobBar";
 import { useLabels } from "../../labels";
 import { href } from "../../router";
 
 type Mode = "move" | "copy" | "use";
 const MODES: { mode: Mode; label: string; desc: string; go: string }[] = [
+  { mode: "copy", label: "复制过去，旧位置保留", desc: "核对无误后才切换；旧位置的数据原样留着，需要再占一份空间。", go: "开始复制" },
   { mode: "move", label: "把现有数据移过去", desc: "核对无误后才切换，旧位置随后清空。", go: "开始移动" },
-  { mode: "copy", label: "复制过去，旧位置保留", desc: "需要再占一份空间；旧的可以之后手动删除。", go: "开始复制" },
   { mode: "use", label: "直接使用那里已有的数据", desc: "不动现在的数据，切换后读那个文件夹里的。", go: "切换过去" },
 ];
 /** The folder made for the data when the chosen folder already has other folders in it. */
 const SUB = "wequant-data";
 
-export function Location({ calendar, first }: { calendar?: React.ReactNode; first?: string | null }) {
+export function Location({ calendar }: { calendar?: React.ReactNode }) {
   const L = useLabels();
   const client = useQueryClient();
   const status = useCall("data_status", {});
@@ -37,6 +37,8 @@ export function Location({ calendar, first }: { calendar?: React.ReactNode; firs
   const job = useJob(jobId ?? running?.id ?? null);
   const result = useCall("jobs_result", job?.state === "succeeded" && job.kind === "data_relocate" ? { id: job.id } : null);
   const moved = result.data && "previous" in result.data ? (result.data as Relocated) : null;
+  // After a copy, the old folder as the backend sees it now (its size, with the cache that was not copied).
+  const old = useFolder(moved?.mode === "copy" ? moved.previous : null);
   const begin = useCallMutation("jobs_start", ["jobs_list"]);
   const useHome = useCallMutation("data_use_home");
   const [picking, setPicking] = useState(false);
@@ -111,7 +113,7 @@ export function Location({ calendar, first }: { calendar?: React.ReactNode; firs
           }}
         />
       )}
-      {job && <JobLine job={job} moved={moved} home={at} />}
+      {job && <JobLine job={job} moved={moved} home={at} left={old.entry?.size_bytes ?? null} />}
       {done && (
         <span role="status" className="small ok b">
           {done}
@@ -125,7 +127,6 @@ export function Location({ calendar, first }: { calendar?: React.ReactNode; firs
           </ul>
         </div>
       )}
-      <History first={first ?? null} />
       <div className="loc-foot">
         {calendar}
         <a className="small b push" href={href.setup()}>
@@ -177,7 +178,7 @@ function Confirm(props: {
   // Moving or copying needs an empty or new folder: a folder with other folders in it gets one made for the data.
   const dest = inside.data && inside.data.dirs.length > 0 ? join(chosen, SUB) : chosen;
   const allowed = (m: Mode) => ready && !isCurrent && (m === "use" ? isHome : !isHome);
-  const mode = props.mode && allowed(props.mode) ? props.mode : isHome ? "use" : "move";
+  const mode = props.mode && allowed(props.mode) ? props.mode : isHome ? "use" : "copy";
   const to = mode === "use" ? chosen : dest;
   const note = !ready
     ? "正在查看这个文件夹…"
@@ -223,7 +224,7 @@ function Confirm(props: {
   );
 }
 
-function JobLine({ job, moved, home }: { job: JobInfo; moved: Relocated | null; home: string }) {
+function JobLine({ job, moved, home, left }: { job: JobInfo; moved: Relocated | null; home: string; left: number | null }) {
   const L = useLabels();
   const verb = (job.request.mode ?? moved?.mode) === "copy" ? "复制" : "移动";
   if (!finished(job))
@@ -253,6 +254,12 @@ function JobLine({ job, moved, home }: { job: JobInfo; moved: Relocated | null; 
           数据已{verb}到 <span className="path">{moved.home}</span>（{moved.files} 个文件，{size(moved.bytes)}
           {moved.renamed ? "，同一块磁盘上直接改了位置" : ""}）。所有页面已经换成这里的数据。
         </span>
+        {moved.mode === "copy" && (
+          <span className="small sub">
+            旧位置 <span className="path" translate="no">{moved.previous}</span> 的数据还在，没有动过
+            {left !== null ? `，约占 ${size(left)}` : ""}。确认新位置一切正常后，可以自己删掉旧文件夹。
+          </span>
+        )}
         {moved.left_behind.length > 0 && (
           <span className="small warn-text">
             旧位置还有 {moved.left_behind.length} 个文件没能删除，可以之后手动删除：
@@ -262,53 +269,4 @@ function JobLine({ job, moved, home }: { job: JobInfo; moved: Relocated | null; 
       </div>
     );
   return null;
-}
-
-/** The earlier history (back to 2000) filling in behind: its progress and pause, or a button to start or carry on. */
-function History({ first }: { first: string | null }) {
-  const jobs = useCall("jobs_list", {}, { staleTime: 0 });
-  const running = jobs.data?.jobs.find((j) => j.kind === "data_backfill" && !finished(j)) ?? null;
-  const [jobId, setJobId] = useState<number | null>(null);
-  const job = useJob(jobId ?? running?.id ?? null);
-  const begin = useCallMutation("jobs_start", ["jobs_list"]);
-  const active = !!job && !finished(job);
-  const missing = !!first && first.slice(0, 4) > "2000";
-  // Each segment is a new data version: when the job ends, every page reads the newest.
-  const client = useQueryClient();
-  const done = job?.state === "succeeded" || job?.state === "cancelled";
-  useEffect(() => {
-    if (done) void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "jobs_result" });
-  }, [done, client]);
-  if (!active && !missing && job?.state !== "succeeded") return null;
-  return (
-    <div className="col tight">
-      {job && active ? (
-        <JobBar job={job} label={`后台补齐更早的历史（到 2000 年）${fillYears(job) ? ` · 正在补 ${fillYears(job)}` : ""}`}>
-          <button type="button" className="btn sm soft" onClick={() => void cancelJob(job.id)}>
-            暂停
-          </button>
-        </JobBar>
-      ) : (
-        <div className="row">
-          <span className="small sub">
-            {job?.state === "succeeded" ? "更早的历史已经补齐。" : `数据从 ${first} 开始。${job?.state === "cancelled" ? "补齐已暂停，已经补上的部分保留。" : ""}`}
-          </span>
-          {missing && (
-            <button
-              type="button"
-              className="btn sm soft"
-              disabled={begin.isPending}
-              onClick={async () => {
-                const j = await begin.mutateAsync({ kind: "data_backfill", request: {} });
-                setJobId(j.id);
-              }}
-            >
-              {job?.state === "cancelled" ? "继续补齐" : "补齐更早的历史（到 2000 年）"}
-            </button>
-          )}
-        </div>
-      )}
-      {begin.isError && <Problem error={begin.error} />}
-    </div>
-  );
 }
