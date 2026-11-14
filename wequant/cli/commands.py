@@ -881,5 +881,6 @@ def _logging_to_stderr(verbose: int) -> Iterator[None]:
         log.setLevel(level)
 
 
+from wequant.cli import homes as _homes  # noqa: E402, F401  its commands register themselves on app
 from wequant.cli import pools as _pools  # noqa: E402, F401  its commands register themselves on app
 from wequant.cli import storage as _storage  # noqa: E402, F401  its commands register themselves on app

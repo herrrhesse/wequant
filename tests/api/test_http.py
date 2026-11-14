@@ -11,6 +11,7 @@ from typing import get_type_hints
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.api.test_http_homes import COVERED as HOMES
 from tests.frames import table_frame
 from tests.service.conftest import MOM
 from tests.service.test_cli import CASES, RUNS
@@ -68,6 +69,7 @@ def test_every_operation_of_the_snapshot_has_its_route_and_no_route_is_extra(hom
 
 def test_the_contract_cases_cover_every_operation():
     covered = {name for _, name, *_ in CASES + RUNS + WRITES + STORAGE + POOLS} | set(JOBS) | {"data_update"}
+    covered |= set(HOMES)  # tests.api.test_http_homes
     assert covered == {operation.__name__ for operation in OPERATIONS}
 
 

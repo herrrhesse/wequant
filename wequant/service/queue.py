@@ -94,6 +94,21 @@ class Jobs:
             if job.state not in FINAL:
                 self._end(job, "failed", "interrupted", error=_error(Exit.INTERRUPTED, "the server stopped first"))
 
+    def rehome(self, home: Path, context: Context) -> None:
+        """Keep the jobs of data root home from now on (round 3: the server switched to it): its records, with the
+        running and queued jobs carried over; context is the server's new one, which later thread jobs share."""
+        with self._lock:
+            live = {id: job for id, job in self._jobs.items() if job.state not in FINAL}
+            self.home, self.root, self.context = home, home / "jobs", context
+            kept = {job.id: job for job in self._load() if job.id not in live}
+            for job in kept.values():
+                if job.state not in FINAL:  # its server stopped before it ended
+                    self._end(job, "failed", "interrupted", error=_error(Exit.INTERRUPTED, "the server stopped first"))
+            self._jobs = {**kept, **live}
+            for job in live.values():
+                self._save(job)
+            self._changes += 1
+
     def submit(self, kind: str, request: dict) -> Job:
         """Queue a job of kind on request (the operation's request as JSON) and start it when a slot is free."""
         with self._lock:

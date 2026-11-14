@@ -145,6 +145,7 @@ class Context:
     mark: Callable[[str], None] | None = None  # told as each stage of the call ends (--profile)
     clock: Callable[[], str] | None = None  # stamps what the call writes; None: now (the demo home fixes it)
     jobs: Jobs | None = None  # wequant serve's job queue; None: no background jobs
+    switch: Callable[[Path], None] | None = None  # wequant serve's: every later request reads this data root
 
     @classmethod
     def resident(cls, home: Path | None = None, cache: Path | None = None, cache_bytes: int = 8 << 30) -> Context:

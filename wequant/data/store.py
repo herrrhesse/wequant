@@ -28,6 +28,7 @@ import polars as pl
 from wequant.data.files import atomic_write, check_inside, parquet_bytes, utc_now
 from wequant.data.schema import TABLES, Table
 from wequant.paths import default_home
+from wequant.user_config import configured_home
 
 KEEP_VERSIONS = 5  # the user's default (round 2): the newest five versions, plus those the data root protects
 REASONS = (  # why a version was made; the service layer gives each a Chinese sentence
@@ -86,9 +87,10 @@ class CommitResult:
 
 
 def wequant_home() -> Path:
-    """$WEQUANT_HOME, else the system's default data root (wequant.paths)."""
+    """$WEQUANT_HOME, else the data root the user chose last (wequant.user_config), else the system's default; a
+    command's --home comes before all of them."""
     found = os.environ.get("WEQUANT_HOME")
-    return Path(found).expanduser() if found else default_home()
+    return Path(found).expanduser() if found else configured_home() or default_home()
 
 
 def prepare(table: Table, df: pl.DataFrame) -> pl.DataFrame:

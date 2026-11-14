@@ -306,6 +306,16 @@ ERROR_CODES = {
     "source_unreachable": ("连不上 BaoStock", "BaoStock 无法访问或登录失败，数据库没有改动"),
     "store_busy": ("数据库正在被占用", "另一个写入或 BaoStock 任务正在进行，请稍后再试；数据库没有改动"),
     "no_store": ("没有数据库", "数据目录里还没有数据库"),
+    "no_directory": ("没有这个文件夹", "这个文件夹不存在"),
+    "no_access": ("没有权限", "没有权限打开或写入这个文件夹"),
+    "bad_name": ("名称不能用", "文件夹名称为空，或者含有不能用的字符"),
+    "exists": ("已经存在", "同名的文件夹已经存在"),
+    "not_a_data_root": ("不是数据目录", "这个文件夹里没有 WeQuant 数据"),
+    "data_root_incomplete": ("数据不完整", "数据版本记录不完整，缺少文件或者读不出来"),
+    "not_empty": ("文件夹不是空的", "新位置要是一个空文件夹，或者还不存在的文件夹"),
+    "inside": ("位置互相包含", "新位置不能在当前数据目录里面，当前数据目录也不能在新位置里面"),
+    "no_space": ("空间不够", "新位置所在的磁盘可用空间不够放下这些数据"),
+    "copy_mismatch": ("复制结果不一致", "复制后的数据和原来的对不上，已经清理掉复制的部分，原数据没有变"),
     "not_a_choice": ("不在可选值里", "取值不在允许的选项里"),
     "not_a_decision_day": ("不是决策日", "这一天不是这次运行的决策日或成交日"),
     "not_a_form": ("不是表达式", "不是合法的表达式写法"),
@@ -380,6 +390,7 @@ DAY_SOURCES = {
 JOB_KINDS = {
     "backtest": ("回测", "按策略回测一段区间，结果存进运行记录"),
     "data_update": ("每日更新", "从 BaoStock 补齐本地数据之后已收盘的交易日"),
+    "data_relocate": ("更换数据目录", "把数据移动或复制到新的文件夹，检查无误后改用它"),
 }
 
 JOB_STATES = {
@@ -407,6 +418,10 @@ JOB_STAGES = {  # code -> (name, template over the stage's params)
     "update_indexes": ("下载指数", "正在下载指数行情"),
     "update_merge": ("检查合并", "正在检查和合并新数据"),
     "update_commit": ("写入版本", "正在写入新版本"),
+    "relocate_check": ("检查目标位置", "正在检查目标文件夹和可用空间"),
+    "relocate_copy": ("复制数据", "正在复制数据（已复制 {done_mb}/{total_mb} MB）"),
+    "relocate_switch": ("切换目录", "复制完成并核对无误，正在改用新的数据目录"),
+    "relocate_remove": ("删除旧目录", "正在删除旧位置的数据"),
 }
 
 SCOPES = {  # code -> (name, sentence, kind): the scopes a new strategy offers, in this order

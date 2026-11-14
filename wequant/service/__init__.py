@@ -16,6 +16,33 @@ from wequant.service.delistings import (
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.explain import Explain, ExplainRequest, FactorScore, PoolCheck, ScoreCheck, StepCheck, explain
 from wequant.service.expr import EvalRequest, EvalResult, ExprCheck, ExprRequest, expr_check, expr_eval
+from wequant.service.folders import (
+    FolderOut,
+    FolderRequest,
+    Listing,
+    Made,
+    MkdirRequest,
+    PlaceOut,
+    Places,
+    PlacesRequest,
+    fs_list,
+    fs_mkdir,
+    fs_places,
+)
+from wequant.service.homes import (
+    HomeSwitched,
+    Relocated,
+    RelocateRequest,
+    SetupSaveRequest,
+    SetupState,
+    SetupStatus,
+    SetupStatusRequest,
+    UseHomeRequest,
+    data_relocate,
+    data_use_home,
+    setup_save,
+    setup_status,
+)
 from wequant.service.index_bars import IndexBar, IndexBars, IndexBarsRequest, data_index_bars
 from wequant.service.index_check import CountSpan, IndexCheck, IndexCheckRequest, IndexCoverage, data_index_check
 from wequant.service.indicators import Indicator, Indicators, IndicatorsRequest, expr_indicators
@@ -182,6 +209,29 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "HomeSwitched",
+    "RelocateRequest",
+    "Relocated",
+    "SetupSaveRequest",
+    "SetupState",
+    "SetupStatus",
+    "SetupStatusRequest",
+    "UseHomeRequest",
+    "data_relocate",
+    "data_use_home",
+    "setup_save",
+    "setup_status",
+    "FolderOut",
+    "FolderRequest",
+    "Listing",
+    "Made",
+    "MkdirRequest",
+    "PlaceOut",
+    "Places",
+    "PlacesRequest",
+    "fs_list",
+    "fs_mkdir",
+    "fs_places",
     "Indicator",
     "Indicators",
     "IndicatorsRequest",
