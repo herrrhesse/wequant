@@ -1,6 +1,6 @@
 // 数据: data problems with their proposed handling (approve or reject, view on the K-line), what the import changed,
-// version history and storage, delisting handling (folded) and the trading calendar. The data directory and the
-// first-run wizard are round 3.
+// version history and storage, delisting handling (folded), and where the data is kept (存储位置, with the trading
+// calendar's span). The first-run setup is round 3 phase E.
 import { useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
 import type { Resolution } from "../../api/types.gen";
@@ -10,6 +10,7 @@ import { useLabels } from "../../labels";
 import { href, type Route } from "../../router";
 import { useUi } from "../../ui";
 import { DelistingsSection } from "./DelistingsSection";
+import { Location } from "./Location";
 import { Storage, Versions } from "./Versions";
 
 type DataRoute = Extract<Route, { page: "data" }>;
@@ -117,16 +118,15 @@ export function DataPage({ route }: { route: DataRoute }) {
         </summary>
         <DelistingsSection />
       </details>
-      {calendar.data && (
-        <section className="card" aria-label="交易日历">
-          <div className="card-head">
-            <h2>交易日历</h2>
-          </div>
-          <span className="small sub">
-            {calendar.data.first} 至 {calendar.data.last}，共 {calendar.data.dates.length} 个交易日
-          </span>
-        </section>
-      )}
+      <Location
+        calendar={
+          calendar.data && (
+            <span className="small muted">
+              交易日历 {calendar.data.first} 至 {calendar.data.last}，共 {calendar.data.dates.length} 个交易日
+            </span>
+          )
+        }
+      />
     </main>
   );
 }

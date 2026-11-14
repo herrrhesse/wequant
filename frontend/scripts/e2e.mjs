@@ -13,6 +13,8 @@
 //   WQ_API_PORT      API port                        (default: a free port, apart from a dev serve on 8731)
 //   WQ_WEB_PORT      vite preview port, dev shape    (default: a free port)
 //   WQ_E2E_MODE      release | dev                   (default: release)
+// The serve gets its own settings folder (XDG_CONFIG_HOME, APPDATA on Windows) beside the demo home, so the data folder
+// and first-run choices the tests make never reach the user's own settings; the tests' scratch folders sit there too.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -54,6 +56,11 @@ const cfg = {
   webPort: env.WQ_WEB_PORT ?? (await freePort()),
   mode: env.WQ_E2E_MODE ?? "release",
 };
+// Beside the demo home, outside git; emptied on every run.
+const sandbox = resolve(dirname(cfg.home), "e2e-sandbox");
+const settingsDir = resolve(sandbox, "settings");
+const scratch = resolve(sandbox, "folders");
+const isolated = process.platform === "win32" ? { APPDATA: settingsDir } : { XDG_CONFIG_HOME: settingsDir };
 const fill = (cmd) => cmd.replaceAll("{home}", cfg.home).replaceAll("{port}", cfg.apiPort).replaceAll("{uv}", cfg.uv);
 const children = [];
 const started = Date.now();
@@ -92,7 +99,9 @@ async function waitFor(url, ms = 60_000) {
 function stopAll() {
   for (const c of children) {
     try {
-      process.kill(-c.pid, "SIGTERM");
+      // Windows has no process groups: taskkill stops the shell and everything it started.
+      if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(c.pid), "/T", "/F"], { stdio: "ignore" });
+      else process.kill(-c.pid, "SIGTERM");
     } catch {
       // already gone
     }
@@ -111,8 +120,11 @@ try {
     rmSync(cfg.home, { recursive: true, force: true });
     run(fill(cfg.demo), repo);
   }
+  rmSync(sandbox, { recursive: true, force: true });
+  mkdirSync(settingsDir, { recursive: true });
+  mkdirSync(scratch, { recursive: true });
   if (cfg.serve) {
-    start("serve", fill(cfg.serve), repo);
+    start("serve", fill(cfg.serve), repo, isolated);
     await waitFor(`http://127.0.0.1:${cfg.apiPort}/`);
   }
   let web = `http://127.0.0.1:${cfg.apiPort}/`;
@@ -132,7 +144,7 @@ try {
     cwd: root,
     shell: true,
     stdio: "inherit",
-    env: { ...env, WQ_WEB_URL: web, WQ_API_PORT: cfg.apiPort, WQ_API: cfg.serve ? "1" : "", WQ_NOAPI_URL: noApi, WQ_E2E_MODE: cfg.serve ? cfg.mode : "smoke", WQ_DEMO_HOME: cfg.home, WQ_SERVE_CMD: fill(cfg.serve) },
+    env: { ...env, WQ_WEB_URL: web, WQ_API_PORT: cfg.apiPort, WQ_API: cfg.serve ? "1" : "", WQ_NOAPI_URL: noApi, WQ_E2E_MODE: cfg.serve ? cfg.mode : "smoke", WQ_DEMO_HOME: cfg.home, WQ_SERVE_CMD: fill(cfg.serve), WQ_E2E_SCRATCH: scratch },
   });
   code = r.status ?? 1;
 } catch (e) {

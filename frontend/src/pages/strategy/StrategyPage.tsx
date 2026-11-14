@@ -44,10 +44,13 @@ export function StrategyPage({ route }: { route: Extract<Route, { page: "strateg
   if (route.list) return <MyStrategies />;
   if (route.pick) return <NewStrategy />;
   if (route.fresh) return <Loader key="new" id={null} />;
-  const id = route.id || readLast() || list.data?.rows[0]?.id || null;
-  if (!route.id && !readLast() && list.isPending) return <main className="page"><StatusBar /></main>;
+  // The strategy opened last, unless the list (e.g. after switching the data folder) no longer has it.
+  const stored = readLast();
+  const last = stored && (!list.data || list.data.rows.some((r) => r.id === stored)) ? stored : null;
+  const id = route.id || last || list.data?.rows[0]?.id || null;
+  if (!route.id && !last && list.isPending) return <main className="page"><StatusBar /></main>;
   // Nothing saved and nothing begun: start by choosing a blank strategy or a template.
-  if (!route.id && !readLast() && list.data?.rows.length === 0 && !leftOver()) return <NewStrategy />;
+  if (!route.id && !last && list.data?.rows.length === 0 && !leftOver()) return <NewStrategy />;
   return <Loader key={id ?? "new"} id={id} />;
 }
 

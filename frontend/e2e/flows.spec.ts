@@ -1,4 +1,5 @@
 // F8 end-to-end flows on the demo home. They assert rules, never the synthetic numbers.
+import { basename, dirname, join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test, withApi } from "./fixtures";
 
@@ -195,12 +196,14 @@ test("backtest: default settings run; metrics show a value or a reason; a picked
   await page.getByRole("tab", { name: "运行信息" }).click();
   await page.getByRole("button", { name: "重跑并逐字节比对" }).click();
   await expect(page.getByTestId("rerun")).toContainText("逐字节一致", { timeout: 90_000 });
+  // The backend's rerun details are technical English: not on the ordinary page.
+  expect(await page.getByRole("region", { name: "重跑核对" }).innerText()).not.toMatch(/[A-Za-z]{3,}/);
 });
 
 test("data: the page opens with its sections", async ({ page }) => {
   await page.goto("#/data");
   await expect(page.getByRole("region", { name: "数据问题" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "交易日历" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "存储位置" })).toContainText("交易日历");
 });
 
 test("ordinary pages show no developer details: no curl, hashes, decision numbers, code names or English text", async ({ page }) => {
@@ -215,6 +218,8 @@ test("ordinary pages show no developer details: no curl, hashes, decision number
     // Hash routes load their data after the page itself: give the requests time to finish.
     await page.waitForTimeout(1500);
     await page.waitForLoadState("networkidle");
+    // Folder paths are the user's own names, not page text.
+    await page.evaluate(() => document.querySelectorAll(".path").forEach((e) => e.remove()));
     const text = await page.locator("body").innerText();
     expect(text, at).not.toMatch(/curl/);
     expect(text, at).not.toMatch(/\b[0-9a-f]{16}\b/);
@@ -505,4 +510,141 @@ test("indicators: the condition picker shows each one's name, category and expla
   // The new condition explains its indicator, and its menu is grouped by category.
   await expect(page.locator(".cond .cond-meta").first()).toContainText(`${target.label}：${target.help}`);
   await expect(page.locator(`.cond select optgroup[label="${catLabel}"]`).first()).toBeAttached();
+});
+
+// The data folder (存储位置). npm run e2e gives the serve its own settings folder and an empty scratch folder; the
+// tests end on the demo home again.
+const SCRATCH = process.env.WQ_E2E_SCRATCH ?? "";
+const DEMO = process.env.WQ_DEMO_HOME ?? "";
+
+test.describe("data folder", () => {
+  test.skip(!SCRATCH || !DEMO, "needs npm run e2e's scratch folder");
+  // Refusals answer 404, 409 or 422, which Chrome logs as failed resources.
+  test.use({ allowConsole: [/status of 4(04|09|22)/] });
+
+  const location = (page: Page) => page.getByRole("region", { name: "存储位置" });
+  const dialog = (page: Page) => page.getByRole("dialog", { name: "选择数据存放的文件夹" });
+  const open = async (page: Page, path: string) => {
+    const d = dialog(page);
+    await d.getByLabel("文件夹路径").fill(path);
+    await d.getByLabel("文件夹路径").press("Enter");
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(path);
+    await expect(d.getByRole("button", { name: "选择这个文件夹" })).toBeEnabled();
+  };
+  const choose = async (page: Page, path: string) => {
+    await location(page).getByRole("button", { name: "更改位置…" }).click();
+    await open(page, path);
+    await dialog(page).getByRole("button", { name: "选择这个文件夹" }).click();
+    await expect(location(page).locator(".loc-confirm")).not.toContainText("正在查看这个文件夹");
+  };
+
+  test("folder browser: opens beside the data folder, follows a typed path, up and breadcrumbs, makes a folder, explains refusals", async ({ page }) => {
+    await page.goto("#/data");
+    await expect(location(page).locator(".loc-path")).toHaveText(DEMO);
+    await location(page).getByRole("button", { name: "更改位置…" }).click();
+    const d = dialog(page);
+    await expect(d.getByRole("listitem").filter({ hasText: basename(DEMO) }).first()).toContainText("现在的数据目录");
+    await open(page, SCRATCH);
+    await expect(d.getByText("这里没有子文件夹。")).toBeVisible();
+    await d.getByLabel("新文件夹名称").fill("新的数据");
+    await d.getByRole("button", { name: "新建文件夹" }).click();
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(join(SCRATCH, "新的数据"));
+    await d.getByLabel("新文件夹名称").fill("a/b");
+    await d.getByRole("button", { name: "新建文件夹" }).click();
+    await expect(d.getByRole("alert")).toContainText("名称不能用");
+    await d.getByRole("button", { name: "上一级" }).click();
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(SCRATCH);
+    await expect(d.getByRole("listitem").filter({ hasText: "新的数据" })).toBeVisible();
+    await d.getByRole("navigation", { name: "路径" }).getByRole("button", { name: basename(dirname(SCRATCH)), exact: true }).click();
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(dirname(SCRATCH));
+    await d.getByLabel("文件夹路径").fill(join(SCRATCH, "没有这个"));
+    await d.getByLabel("文件夹路径").press("Enter");
+    await expect(d.getByRole("alert")).toContainText("没有这个文件夹");
+    await expect(d.getByRole("button", { name: "选择这个文件夹" })).toBeDisabled();
+    await d.getByRole("button", { name: "上一级" }).click();
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(SCRATCH);
+    const places = (await (await page.request.post("api/fs_places", { data: {} })).json()).rows as { label: string; path: string }[];
+    await d.getByLabel("位置").getByRole("button", { name: places[0]!.label, exact: true }).click();
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(places[0]!.path);
+    await d.getByRole("button", { name: "取消" }).click();
+    await expect(d).toBeHidden();
+  });
+
+  test("copy, then move, then back to an existing data folder: each switch shows the new folder at once", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto("#/data");
+    const loc = location(page);
+    const modes = loc.getByRole("radiogroup", { name: "怎么处理现有数据" });
+    // Copy into the empty folder made above; switching to it is not offered, it holds no data.
+    await choose(page, join(SCRATCH, "新的数据"));
+    await expect(modes.getByRole("radio", { name: /直接使用那里已有的数据/ })).toBeDisabled();
+    await modes.getByRole("radio", { name: /复制过去/ }).check();
+    await loc.getByRole("button", { name: "开始复制" }).click();
+    await expect(loc.getByRole("status")).toContainText("数据已复制到", { timeout: 60_000 });
+    await expect(loc.locator(".loc-path")).toHaveText(join(SCRATCH, "新的数据"));
+    await expect(loc).toContainText("交易日历");
+    // A folder with other folders in it gets one made for the data; moving is the default.
+    await choose(page, SCRATCH);
+    await expect(loc.locator(".loc-confirm")).toContainText(join(SCRATCH, "wequant-data"));
+    await loc.getByRole("button", { name: "开始移动" }).click();
+    await expect(loc.getByRole("status")).toContainText("数据已移动到", { timeout: 60_000 });
+    await expect(loc.locator(".loc-path")).toHaveText(join(SCRATCH, "wequant-data"));
+    // Other pages read the new folder without a reload.
+    await page.getByRole("link", { name: "策略", exact: true }).click();
+    await expect(page.locator(".strat-aside .pv-status, .tpl-card").first()).toBeVisible();
+    await page.getByRole("link", { name: "数据", exact: true }).click();
+    // A WeQuant data folder can only be used as it is.
+    await choose(page, DEMO);
+    await expect(modes.getByRole("radio", { name: /直接使用那里已有的数据/ })).toBeChecked();
+    await expect(modes.getByRole("radio", { name: /把现有数据移过去/ })).toBeDisabled();
+    await loc.getByRole("button", { name: "切换过去" }).click();
+    await expect(loc.getByRole("status")).toContainText("已切换到");
+    await expect(loc.locator(".loc-path")).toHaveText(DEMO);
+  });
+
+  test("a move shows its stage and progress and can be cancelled; busy and no-space refusals are explained in Chinese", async ({ page }) => {
+    // The backend's job is replayed in the browser: a copy takes longer than a test should wait.
+    let state = "running";
+    let error: unknown = null;
+    const job = () => ({
+      id: 990001, kind: "data_relocate", state, request: { to: SCRATCH, mode: "move" }, data_version: null, data_version_name: null, position: null,
+      fraction: state === "running" ? 0.4 : 1, stage: state === "failed" ? "relocate_check" : "relocate_copy", params: { done_mb: 2, total_mb: 5 }, text: "", error,
+      created_at: "2026-11-14T10:00:00", started_at: "2026-11-14T10:00:01", ended_at: null, seq: 1,
+    });
+    await page.route("**/api/jobs_start", (r) => r.fulfill({ json: job() }));
+    await page.route("**/api/jobs/990001/events", (r) => r.fulfill({ headers: { "content-type": "text/event-stream" }, body: `event: job\ndata: ${JSON.stringify(job())}\n\n` }));
+    await page.route("**/api/jobs_show", (r) => r.fulfill({ json: job() }));
+    await page.route("**/api/jobs_cancel", (r) => {
+      state = "cancelled";
+      return r.fulfill({ json: job() });
+    });
+    await page.goto("#/data");
+    const loc = location(page);
+    await choose(page, SCRATCH);
+    await loc.getByRole("button", { name: "开始移动" }).click();
+    const progress = loc.getByRole("status", { name: "正在移动数据" });
+    await expect(progress).toContainText("已复制 2/5 MB");
+    await expect(progress).toContainText("40%");
+    await expect(loc.getByRole("button", { name: "更改位置…" })).toBeDisabled();
+    await progress.getByRole("button", { name: "取消" }).click();
+    await expect(loc.getByRole("status")).toContainText("已取消，数据仍在");
+    await expect(loc.locator(".loc-path")).toHaveText(DEMO);
+    // Busy: the backend refuses to start.
+    await page.route("**/api/jobs_start", (r) =>
+      r.fulfill({ status: 409, json: { exit: 5, name: "LOCKED", message: "busy", detail: [{ code: "store_busy", message: "busy", loc: [], path: [], hint: null }], complete: true } }),
+    );
+    await choose(page, SCRATCH);
+    await loc.getByRole("button", { name: "开始移动" }).click();
+    await expect(loc.getByRole("alert")).toContainText("另一个写入");
+    // No space: the job stops at its check.
+    state = "failed";
+    error = { exit: 2, name: "USAGE", message: "no space", detail: [{ code: "no_space", message: "no space", loc: [], path: [], hint: null }], complete: true };
+    await page.route("**/api/jobs_start", (r) => r.fulfill({ json: job() }));
+    await loc.getByRole("button", { name: "取消" }).click();
+    await choose(page, SCRATCH);
+    await loc.getByRole("button", { name: "开始移动" }).click();
+    await expect(loc.getByRole("alert")).toContainText("空间不够");
+    await expect(loc.getByRole("alert")).toContainText("数据仍在原来的位置");
+    expect(await loc.innerText()).not.toMatch(/no space|busy/);
+  });
 });
