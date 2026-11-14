@@ -47,6 +47,7 @@ data = app.command(
     App(name="data", help="The store: status, bars, data issues, the price-limit check, delistings, index members.")
 )
 expr = app.command(App(name="expr", help="Signal expressions in canonical JSON form."))
+formula = app.command(App(name="formula", help="TDX-style formula text: check, trial, format, vocabulary (S4.1)."))
 strategies = app.command(App(name="strategy", help="Strategies and their saved versions."))
 verify = data.command(
     App(name="verify", help="Verification records: what each source says about a cell, and who checked.")
@@ -240,6 +241,38 @@ def expr_indicators(
 ) -> int:
     """Every indicator a condition or a factor can use, in Chinese, with the days the data has for it."""
     return run(service.expr_indicators, request, common)
+
+
+@formula.command(name="check")
+def formula_check(*, request: Annotated[service.FormulaRequest, FLAT], common: Common = COMMON) -> int:
+    """Compile a formula's text without data: its tree, lines, errors and warnings."""
+    return run(service.formula_check, request, common)
+
+
+@formula.command(name="trial")
+def formula_trial(*, request: Annotated[service.TrialRequest, FLAT], common: Common = COMMON) -> int:
+    """A formula's every line on one stock's bars, to compare with TDX."""
+    return run(service.formula_trial, request, common)
+
+
+@formula.command(name="format")
+def formula_format(forms: list[str], /, *, common: Common = COMMON) -> int:
+    """Expression trees written as formula text: each form as JSON text, or a field name as it is."""
+    return run(service.formula_format, service.FormatRequest(forms=[_json_or_text(form) for form in forms]), common)
+
+
+def _json_or_text(text: str) -> object:
+    """text read as JSON; text itself when it is not JSON (a field name)."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+@formula.command(name="vocab")
+def formula_vocab(*, common: Common = COMMON) -> int:
+    """Every function and field a formula can use, the names it refuses, and examples."""
+    return run(service.formula_vocab, service.VocabRequest(), common)
 
 
 @strategies.command(name="templates")

@@ -105,6 +105,12 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
         None,
     ),
     "meta_rebuilt": ("策略索引已重建", "meta.json 和 {versions} 个版本文件不一致，已按版本文件读取", {}, None),
+    "formula_recompiled": (
+        "公式编译结果变了",
+        "这个版本保存以后，公式按现在的规则编译出来不一样了：策略的哈希从 {saved} 变成了 {now}，回测结果可能不同",
+        {},
+        None,
+    ),
     "week_open": (
         "本周的周线还没算进去",
         "{day} 是数据的最后一天，还不知道下一个交易日是不是在下周，周线条件用的是截至 {end} 的上一周的值",
@@ -327,6 +333,15 @@ ERROR_CODES = {
     "duplicate_name": ("名称重复", "同一层里的名称重复了"),
     "duplicate_value": ("取值重复", "列表里有重复的值"),
     "file_in_use": ("文件被占用", "有文件正被别的程序打开，这次没有做任何改动；关掉那个程序后再试"),
+    "formula_needs_bool": ("需要条件", "这里要一个真或假的条件，公式的输出却是数值"),
+    "formula_no_data": ("没有这项数据", "公式用的函数要一项数据里没有的数据"),
+    "formula_no_output": ("公式没有输出", "公式里没有输出行"),
+    "formula_not_constant": ("参数要是常数", "函数的周期参数要是常数"),
+    "formula_redefined": ("名字定义了两次", "同一个变量名定义了两次"),
+    "formula_syntax": ("公式写法有误", "公式的写法不对，例如少了括号或分号"),
+    "formula_too_long": ("公式太长", "公式的字数超过了上限"),
+    "formula_unknown_name": ("不认识的名字", "公式里用了不认识的函数或变量"),
+    "formula_unsupported": ("暂不支持的函数", "这个通达信函数暂时还不能用"),
     "future_function": ("用到未来数据", "这个写法会读到决策日之后的数据"),
     "hash_mismatch": ("文件被改动", "保存后的策略版本文件被手工改过"),
     "job_unfinished": ("任务还没完成", "任务完成后才有结果"),
@@ -426,6 +441,25 @@ ORDER_CAUSES = {  # code -> (name, template over the order's cause_params)
     "exit_slots": ("名额已满", "持有名额已满，被排名更前的股票替换卖出（排第 {rank} 名，名额 {limit} 个）"),
     "delisting": ("退市处理", "按退市规则处理"),
     "unrecorded": ("未记录", "这笔订单没有可对应的决策记录，原因未记录"),
+}
+
+FORMULA_WARNINGS = {
+    "adjusted_level": ("复权价和固定价位比较", "公式里的价格是后复权价，和固定价位比较会偏离实际价格"),
+    "formula_shadows": ("变量用了内置名字", "这一行的名字和内置名字相同，从这一行起这个名字指这个变量"),
+}
+
+FORMULA_CATEGORIES = {
+    "price": ("价格", "开高低收和复权因子"),
+    "volume": ("成交量", "成交量和成交额"),
+    "status": ("状态", "ST、涨跌停、上市天数、退市整理期"),
+    "membership": ("成分和名单", "指数成分、板块、交易所、自定义名单"),
+    "reference": ("引用", "之前某根 K 线上的值"),
+    "average": ("均线", "各种移动平均"),
+    "statistics": ("统计", "最高最低、合计、标准差等"),
+    "logic": ("逻辑", "条件、计数、交叉"),
+    "math": ("数学", "最大最小、绝对值、对数"),
+    "cross_section": ("横截面", "当天在股票池里的排名"),
+    "period": ("周期", "在周线、月线上算"),
 }
 
 PERIOD_TEXT = {  # code -> (name, the page's words for a value of that period; {end} is PeriodValue.end)
@@ -667,6 +701,10 @@ class Labels(Model):
     periods: list[TemplateLabel]
     """day, week, month: a name, and the words a step, a funnel row or a reject shows for a weekly or monthly value
     (param end: PeriodValue.end) (S4.8)."""
+    formula_warnings: list[Label]
+    """formula check's warnings (FormulaIssue.code); each issue also carries its own Chinese hint (S4.1)."""
+    formula_categories: list[Label]
+    """formula vocab's categories (FormulaFunction.category, FormulaField.category) (S4.1)."""
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -703,6 +741,8 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         own_rules=_labels(OWN_RULES),
         build_statuses=_labels(BUILD_STATUSES),
         periods=[_template(code, name, text) for code, (name, text) in PERIOD_TEXT.items()],
+        formula_warnings=_labels(FORMULA_WARNINGS),
+        formula_categories=_labels(FORMULA_CATEGORIES),
     )
 
 

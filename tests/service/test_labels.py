@@ -18,12 +18,14 @@ from wequant.data.delistings import KINDS
 from wequant.data.indexes import INDEXES
 from wequant.data.schema import CLASSES, ISSUE_KINDS, LEVELS
 from wequant.data.store import REASONS as VERSION_REASONS
+from wequant.formula.compile import WARNINGS as FORMULA_WARNINGS
 from wequant.pools import REASONS as PARSE_REASONS
 from wequant.runs.causes import CAUSES, PARAMS
 from wequant.service import Context
 from wequant.service.build import BuildResult
 from wequant.service.details import PYDANTIC
 from wequant.service.errors import Exit
+from wequant.service.formula_vocab import Category as FormulaCategory
 from wequant.service.indicators import Category
 from wequant.service.jobs import KINDS as JOB_KINDS
 from wequant.service.jobs import JobKind, JobState
@@ -44,6 +46,7 @@ from wequant.strategy.strategy import POOL_ITEMS
 
 ERRORS = {"SpecError", "ExprError", "LookAheadError", "NotSaved", "NotInPanel", "not_found", "PydanticCustomError"}
 ERRORS |= {"Refused"}  # wequant.storage.relocate: the folder refusals the data root operations report by their code
+ERRORS |= {"FormulaError"}  # wequant.formula: a formula's errors, its warnings (formula_warnings) left out
 LABELS = service.labels(service.LabelsRequest())
 
 
@@ -81,7 +84,7 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "delisting_kinds": lambda: set(KINDS),
     "anomaly_classes": lambda: set(CLASSES),
     "anomaly_levels": lambda: set(LEVELS),
-    "error_codes": error_codes,
+    "error_codes": lambda: error_codes() - set(FORMULA_WARNINGS),
     "exits": lambda: {e.name for e in Exit},
     "version_reasons": lambda: set(VERSION_REASONS),
     "job_kinds": lambda: set(get_args(JobKind)) | set(JOB_KINDS),
@@ -97,6 +100,8 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "own_rules": lambda: set(get_args(Rule)),
     "build_statuses": lambda: set(get_args(BuildResult.model_fields["status"].annotation)),
     "periods": lambda: {"day", *get_args(Period)},
+    "formula_warnings": lambda: set(FORMULA_WARNINGS),
+    "formula_categories": lambda: set(get_args(FormulaCategory)),
 }
 STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's and JobInfo's own
     "queued": ["position"],

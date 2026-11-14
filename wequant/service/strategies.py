@@ -265,7 +265,7 @@ def strategy_show(request: ShowRequest, context: Context = Context()) -> SavedSt
         **vars(version),
         strategy=StrategySpec.model_validate(strategy.form),
         summary=sentence(summary(strategy)),
-        warnings=warnings_out(read_warnings(entry, version)) + scope_warnings(strategy, context),
+        warnings=warnings_out(read_warnings(entry, version, strategy)) + scope_warnings(strategy, context),
         pool_drift=pool_drift(strategy, context),
     )
 
@@ -282,7 +282,7 @@ def resolve(request: StrategyInput, library: Library) -> tuple[Strategy, list[Wa
         return to_strategy(request.strategy), []
     with located(("saved",)):
         entry, version, strategy = library.load(request.saved.id, request.saved.n)
-    return strategy, warnings_out(read_warnings(entry, version))
+    return strategy, warnings_out(read_warnings(entry, version, strategy))
 
 
 def saved_as(library: Library, found: str) -> list[SavedRef]:

@@ -100,9 +100,128 @@ HINTS: dict[tuple[str, str | None, str], str] = {
 }
 
 
+MISSING = {  # wequant.formula.names.NO_DATA's English -> Chinese
+    "financial statements": "财务数据",
+    "real-time quotes": "实时行情",
+    "share capital": "股本数据",
+    "market index bars": "大盘指数的行情",
+    "advancing and declining counts": "涨跌家数",
+    "tick trades": "逐笔成交",
+    "chip distribution": "筹码分布",
+    "industries and sectors": "行业和板块成分",
+    "dates and times": "日期和时间",
+    "codes and names": "证券代码和名称",
+}
+UNIT = {"week": "周线", "month": "月线"}
+SEE = "能用的函数和字段见公式帮助"
+
+# (code, English message pattern with named groups) -> Chinese template over those groups, for the rules whose words
+# name a part of a formula (S4.1); the first that matches wins.
+FORMATS: dict[tuple[str, str], str] = {
+    ("formula_syntax", r"never closed"): "注释少了右大括号 }：每个 { 都要有一个 } 结尾",
+    (
+        "formula_syntax",
+        r"unexpected character '#'",
+    ): "这里不支持通达信的跨周期写法 X#WEEK：请把公式周期选成周线，或者写 WEEK(X)",
+    ("formula_syntax", r"unexpected character '(?P<char>.+)'"): "看不懂字符 {char}：请检查是不是多打了符号",
+    ("formula_syntax", r"^expected ; before"): "两行之间少了分号 ;",
+    (
+        "formula_syntax",
+        r"^'(?P<token>.+)' is not a drawing style",
+    ): "输出行逗号后面只能写画线属性（如 COLORRED、NODRAW），{token} 不是",
+    ("formula_syntax", r"ends where an expression"): "公式在这里就结束了，后面还少一个值或者表达式",
+    (
+        "formula_syntax",
+        r"line (?P<line>\d+), col (?P<col>\d+)",
+    ): "少了右括号 )：第 {line} 行第 {col} 列的左括号没有配上",
+    ("formula_syntax", r"^unexpected '(?P<token>.+)'"): "这里多了 {token}，或者它前面少了一个值",
+    (
+        "formula_unknown_name",
+        r"^unknown name (?P<name>\S+); did you mean (?P<close>\S+)\?",
+    ): "不认识 {name}，你是不是想用 {close}？",
+    ("formula_unknown_name", r"^unknown name (?P<name>\S+)"): f"不认识 {{name}}：请检查拼写，{SEE}",
+    (
+        "formula_unknown_name",
+        r"^(?P<name>\S+) is an indicator",
+    ): "{name} 是指标，不是函数：可以用 EMA、SMA、HHV、LLV 等函数写出来，例子见公式帮助",
+    (
+        "formula_unknown_name",
+        r"^(?P<name>\S+) is written as an operator",
+    ): "{name} 在公式里直接写成运算符：比较写 > < >= <= = <>，组合写 AND、OR",
+    ("formula_unknown_name", r"^(?P<name>\S+) is a function"): "{name} 是函数，要带括号和参数，例如 {name}(CLOSE, 5)",
+    (
+        "formula_unknown_name",
+        r"^(?P<name>\S+) is used before line (?P<line>\d+)",
+    ): "{name} 到第 {line} 行才定义：要先定义再用",
+    ("formula_no_output", r""): "公式没有输出：最后一行写成“XG: 条件;”，或者直接写一个不带名字的表达式",
+    (
+        "formula_not_constant",
+        r"^(?P<name>\S+)'s period",
+    ): "{name} 的周期参数要是常数，例如先写 N:=9; 再写 {name}(CLOSE, N)",
+    ("formula_no_data", r"^(?P<name>\S+) needs (?P<what>.+), which"): "{name} 要用{what}，这份数据里没有",
+    ("formula_unsupported", r"^(?P<name>\S+) is a drawing function"): "{name} 是画线函数，选股用不上：请删掉这一行",
+    ("formula_unsupported", r"^(?P<name>\S+) is not supported"): f"暂时不支持 {{name}}：{SEE}",
+    (
+        "formula_needs_bool",
+        r"^(?P<name>\S+) is a number",
+    ): "这里要的是条件，但输出 {name} 是数值：请写成比较，例如 {name} > 0",
+    ("formula_redefined", r"^(?P<name>\S+) is defined twice"): "{name} 定义了两次：请给其中一个换个名字",
+    ("formula_too_long", r"has (?P<n>\d+) characters, more than (?P<max>\d+)"): "公式太长了：{n} 个字符，最多 {max} 个",
+    (
+        "future_function",
+        r"^(?P<name>\S+) is a future function",
+    ): "{name} 是未来函数，会用到决策日之后的数据：选股和回测里不能用",
+    (
+        "needs_series",
+        r"^both sides of (?P<op>\S+) are constants",
+    ): "{op} 两边都是常数：至少一边要是随日期变化的量，例如 CLOSE",
+    ("needs_series", r"^a constant (?P<value>\S+) where a series"): "这里要一个随日期变化的量，不能只写常数 {value}",
+    (
+        "needs_series",
+        r"does not take a quoted name|cannot be computed with",
+    ): "引号里的名字只能写在 MEMBER、BOARD、EXCHANGE、CODES 里",
+    (
+        "bad_arity",
+        r"^(?P<name>\S+) takes (?P<n>\d+) arguments?, not (?P<m>\d+)",
+    ): "{name} 要 {n} 个参数，这里写了 {m} 个",
+    ("bad_arity", r"^(?P<name>\S+) takes one quoted name"): "{name} 要一个带引号的名字，例如 {name}('000300.SH')",
+    ("bad_arity", r"^CODES takes quoted codes"): "CODES 要带引号的代码，例如 CODES('600000.SH', '000001.SZ')",
+    ("bad_constant", r"divided by 0"): "常数除以 0：请检查分母",
+    (
+        "period_field",
+        r"^(?P<name>\S+) cannot be read in a (?P<period>week|month)ly formula",
+    ): "{unit}公式里不能用 {name}：{unit}只有开高低收、成交量和成交额，请把这个条件单独写成日线条件",
+    (
+        "period_nested",
+        r"^(?P<name>\S+) cannot be used in a (?P<period>week|month)ly formula",
+    ): "公式周期已经是{unit}，里面不能再写 WEEK 或 MONTH",
+    (
+        "period_cross_section",
+        r"^the cross-sectional (?P<name>\S+) cannot be used in a (?P<period>week|month)ly formula",
+    ): "{unit}公式里不能用横截面排名 {name}：请把排名单独写成日线因子，例如 CS_RANK(WEEK(…))",
+    (
+        "adjusted_level",
+        r"constant (?P<value>\S+)$",
+    ): "价格是后复权价，和固定价位 {value} 比会偏离实际价格；比较绝对价位请用 RAW_CLOSE（不复权收盘价）",
+    ("formula_shadows", r"^(?P<name>\S+) is a built-in name"): "{name} 本来是内置名字，这一行以后 {name} 指这个变量",
+}
+
+
 def hint(detail: Mapping) -> str | None:
     """The hint of the rule an error detail's code, loc and English message tell; None without one."""
     code, loc, message = detail.get("code", ""), detail.get("loc", []), detail.get("message", "")
     field = next((part for part in reversed(loc) if isinstance(part, str)), "")
     rules = ((f, pattern, text) for (c, f, pattern), text in HINTS.items() if c == code)
-    return next((text for f, pattern, text in rules if f in (field, ANY) and re.search(pattern, message)), None)
+    found = next((text for f, pattern, text in rules if f in (field, ANY) and re.search(pattern, message)), None)
+    return found or _formatted(code, message)
+
+
+def _formatted(code: str, message: str) -> str | None:
+    """The FORMATS hint of a code and message, filled from the message's words."""
+    for (rule, pattern), template in FORMATS.items():
+        if rule == code and (match := re.search(pattern, message)):
+            words = match.groupdict()
+            period = words.get("period")
+            words |= {"unit": UNIT.get(period, ""), "what": MISSING.get(words.get("what", ""), words.get("what"))}
+            return template.format(**words)
+    return None

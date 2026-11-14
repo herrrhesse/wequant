@@ -16,6 +16,7 @@ from wequant.expr import Cache, panel_key
 from wequant.panel import Panel
 from wequant.runs.run import Run, run_id, run_inputs
 from wequant.strategy import Choice, Section, choose, decision_rows, select, stack
+from wequant.strategy.form import identity
 
 if TYPE_CHECKING:
     from wequant.data.store import Store
@@ -83,7 +84,7 @@ def planned_id(backtest: Backtest, panel: Panel) -> str:
     """The id run(backtest, panel) returns, known before it runs."""
     inputs = run_inputs(
         ENGINE,
-        backtest.form,
+        identity(backtest.form),
         versions(ENGINE, REBALANCE_VERSION),
         store_version=panel.version,
         data_key=panel.key,
