@@ -19,6 +19,7 @@ from wequant.runs.run import FORMAT, Run
 LEDGER = ("daily", "positions", "orders", "delisted")
 FRAMES = (*LEDGER, "picks", "funnel", "detail", "anomalies")
 FILES = ("run.json", "metrics.json", "warnings.json", *(f"{name}.parquet" for name in FRAMES))  # compared on rerun
+OPTIONAL = ("exits.parquet",)  # compared too, kept only by the runs that have them (the holding engine's, S4.2)
 PROVENANCE = "provenance.json"  # code version, library versions, creation time: never compared
 LIBRARIES = ("numpy", "polars", "numba")
 
@@ -46,6 +47,7 @@ def run_files(run: Run) -> dict[str, bytes]:
         "metrics.json": metrics_json(run.metrics, run.spec),
         "warnings.json": document([[code, text, params] for code, (text, params) in run.warnings.items()]),
         **{f"{name}.parquet": parquet_bytes(frame) for name, frame in zip(FRAMES, frames)},
+        **({"exits.parquet": parquet_bytes(run.exits)} if run.exits is not None else {}),
     }
 
 
@@ -84,6 +86,7 @@ def read_run(directory: Path) -> Run:
         detail=detail,
         anomalies=anomalies,
         warnings={code: (text, params) for code, text, params in read_json(directory / "warnings.json")},
+        exits=pl.read_parquet(directory / "exits.parquet") if (directory / "exits.parquet").is_file() else None,
     )
     if not run.id == doc["id"] == directory.name:
         raise ValueError(f"{directory} is not the run it holds: run.json names {doc['id']}, its inputs {run.id}")

@@ -10,7 +10,7 @@ import pytest
 
 from wequant.data.store import StoreLocked, exclusive
 from wequant.expr import Field
-from wequant.strategy import Condition, Factor, Pool, SpecError, Strategy
+from wequant.strategy import Condition, Factor, Pool, Sell, SpecError, Strategy
 from wequant.strategy.library import Library, NotSaved, read_warnings, strategy_hash
 
 A = Strategy(factors=(Factor("a", Field("close")),), top_n=5)
@@ -44,6 +44,7 @@ def test_the_hash_is_the_sha256_of_the_whole_canonical_text():
         hold_rank=8,
         max_weight=0.3,
         pool=Pool(index="000300.SH", boards=("main",), exclude_st=True, min_list_days=60),
+        sell=Sell(min_hold_days=5),
     )
     assert strategy_hash(every) == hashlib.sha256(every.key.encode()).hexdigest()[:16]
     assert {f.name for f in fields(Strategy)} == set(json.loads(every.key))  # no field left at its default

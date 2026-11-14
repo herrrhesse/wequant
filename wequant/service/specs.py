@@ -18,7 +18,7 @@ from wequant.backtest.data import ANOMALY_MODES
 from wequant.expr.vocab import INDEXES
 from wequant.formula import MAX_TEXT
 from wequant.service.base import Code, Distinct, Model
-from wequant.strategy.strategy import MODES, PERIODS, POOL_BOARDS, PREFERS, WEIGHTINGS
+from wequant.strategy.strategy import MODES, PERIODS, POOL_BOARDS, PREFERS, SELL_MODES, WEIGHTINGS
 
 
 def _iso_date(value: object) -> object:
@@ -128,6 +128,33 @@ class PoolSpec(Spec):
     """Only the stocks on this fixed list (round 3); never together with index."""
 
 
+class SellSpec(Spec):
+    """When holdings are sold (S4.2). Every rule is checked at each close on the back-adjusted close; a holding a rule
+    marks is sold the next day, tried again until it is. All defaults: sold at rebalances when no longer chosen."""
+
+    mode: Literal[SELL_MODES] = "rebalance"
+    """rebalance: a rebalance sells what is no longer chosen; rules: being chosen only decides buys, holdings are sold
+    by the rules alone and free slots are filled at rebalances by rank (needs top_n and a rule that sells)."""
+    stop_loss: float | None = Field(None, gt=0, lt=1)
+    """Sell when the close falls this share below the holding's cost (its average fill price, back-adjusted)."""
+    take_profit: float | None = Field(None, gt=0)
+    """Sell when the close rises this share above the holding's cost."""
+    trailing_stop: float | None = Field(None, gt=0, lt=1)
+    """Sell when the close falls this share below its highest close since bought."""
+    max_hold_days: int | None = Field(None, ge=1)
+    """Sell once held this many trading days, the first fill's day counted as 1."""
+    sell_when: ConditionSpec | None = None
+    """Sell when this condition holds (a formula may have its period); its name is the sale's cause."""
+    keep_when: ConditionSpec | None = None
+    """Do not sell while this holds: neither by the sell formula nor at a rebalance."""
+    keep_over_stops: bool = False
+    """keep_when also holds back the stop loss, take profit, trailing stop and holding period."""
+    min_hold_days: int | None = Field(None, ge=1)
+    """A rebalance does not sell a holding held fewer trading days; the rules still do."""
+    cooldown_days: int = Field(0, ge=0)
+    """A stock sold is not bought again for this many trading days after its sale."""
+
+
 def _filter(value: object, handler: Callable) -> object:
     """A group when it has conditions, else a condition: the errors of that one model, not of both."""
     if isinstance(value, dict):
@@ -169,6 +196,8 @@ class StrategySpec(Spec):
     max_weight: float | None = Field(None, gt=0, lt=1)
     """Cap on one target's weight; the excess goes to the other targets, cash only when none can take it."""
     pool: PoolSpec = PoolSpec()
+    sell: SellSpec = SellSpec()
+    """When holdings are sold (S4.2); all defaults sell at rebalances, as before."""
 
 
 class ExecutionSpec(Spec):

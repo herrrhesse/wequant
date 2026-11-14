@@ -13,6 +13,7 @@ from wequant.account.delisting import TREATMENTS
 from wequant.account.ledger import ORDER_REASONS
 from wequant.analytics.inputs import ORDER_STATUSES
 from wequant.analytics.metrics import REASONS, UNITS
+from wequant.backtest.holding import RULES as HOLDING_RULES
 from wequant.backtest.messages import TEXTS
 from wequant.data.delistings import KINDS
 from wequant.data.indexes import INDEXES
@@ -26,6 +27,7 @@ from wequant.service.build import BuildResult
 from wequant.service.details import PYDANTIC
 from wequant.service.errors import Exit
 from wequant.service.formula_vocab import Category as FormulaCategory
+from wequant.service.holdings import SIMULATE_TEXTS
 from wequant.service.indicators import Category
 from wequant.service.jobs import KINDS as JOB_KINDS
 from wequant.service.jobs import JobKind, JobState
@@ -40,7 +42,7 @@ from wequant.service.schedule import Source
 from wequant.service.scopes import DATA_SCOPE_TEXTS
 from wequant.service.screen import StepKind
 from wequant.service.update import Status as UpdateStatus
-from wequant.strategy import SELL_KINDS
+from wequant.strategy import SELL_KINDS, SELL_MODES
 from wequant.strategy.library import READ_TEXTS
 from wequant.strategy.strategy import POOL_ITEMS
 
@@ -71,7 +73,14 @@ def metric_names(market_home, cache) -> set[str]:
 
 
 FAMILIES = {  # labels field -> the codes the code base defines for it
-    "warnings": lambda: set(TEXTS) | set(READ_TEXTS) | set(SCOPE_TEXTS) | set(DATA_SCOPE_TEXTS) | set(PERIOD_TEXTS),
+    "warnings": lambda: (
+        set(TEXTS)
+        | set(READ_TEXTS)
+        | set(SCOPE_TEXTS)
+        | set(DATA_SCOPE_TEXTS)
+        | set(PERIOD_TEXTS)
+        | set(SIMULATE_TEXTS)
+    ),
     "issue_kinds": lambda: set(ISSUE_KINDS),
     "issue_actions": lambda: {a for kind in ISSUE_KINDS.values() for a in kind.actions},
     "metric_reasons": lambda: set(REASONS),
@@ -102,6 +111,8 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "periods": lambda: {"day", *get_args(Period)},
     "formula_warnings": lambda: set(FORMULA_WARNINGS),
     "formula_categories": lambda: set(get_args(FormulaCategory)),
+    "sell_modes": lambda: set(SELL_MODES),
+    "sell_rules": lambda: {*HOLDING_RULES, "keep_formula", "min_hold", "cooldown"},
 }
 STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's and JobInfo's own
     "queued": ["position"],
@@ -144,7 +155,7 @@ class Reads(dict):
 def test_a_warning_template_uses_exactly_the_params_its_english_text_reads(label):
     """The English text names every number and date of a warning: its params; the Chinese uses the same keys."""
     params = Reads(label.params)
-    ({**TEXTS, **READ_TEXTS, **SCOPE_TEXTS, **DATA_SCOPE_TEXTS, **PERIOD_TEXTS}[label.code])(params)
+    ({**TEXTS, **READ_TEXTS, **SCOPE_TEXTS, **DATA_SCOPE_TEXTS, **PERIOD_TEXTS, **SIMULATE_TEXTS}[label.code])(params)
     assert params.read == set(label.params)
 
 

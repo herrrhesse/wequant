@@ -471,6 +471,38 @@ uv run wequant formula vocab                                               # fun
   the store's last day for comparing levels with TDX's charts. A weekly trial leaves out a week not yet ended
   (`open_period`). A formula with a cross-sectional function ranks among every stock.
 
+## Sell rules (S4.2)
+
+A strategy's `sell` decides when holdings are sold; left at its defaults, a strategy runs exactly as before (the
+rebalance engine). With any rule set it runs on the holding engine (`engine` holding), whose runs archive one more
+file, `exits.parquet`.
+
+- **Modes:** `rebalance` (default): a rebalance sells what is no longer chosen, and the rules sell on any day too.
+  `rules`: being chosen only decides buys; holdings are sold by the rules alone, keep their slots, and free slots are
+  filled at rebalances by rank (needs `top_n` and a rule that sells). Weights follow the strategy's weighting and band
+  in both modes: with band null a kept holding is not resized.
+- **Rules,** each checked at every close and selling the whole holding at the next day's fill: `stop_loss`,
+  `take_profit` (against the holding's cost), `trailing_stop` (against its highest close since bought),
+  `max_hold_days`, and the sell formula `sell_when` (a condition, a formula with its period allowed). Prices are
+  back-adjusted, so an ex-date never sets off a stop. A sale that cannot fill (limit down, suspended) is tried again
+  each day until it fills.
+- **Holding back:** `keep_when` holds back the sell formula and rebalance sales, and the stops too with
+  `keep_over_stops` (by default the stops win). `min_hold_days` holds back rebalance sales only. A holding a rule marks
+  is neither kept nor bought again that day; `cooldown_days` keeps a stock sold from being bought again for that many
+  trading days after its sale.
+- **Cost and days:** a holding's cost is the average fill price of its run of days held (back-adjusted; commission
+  and slippage are costs, not part of the price); a buy while held averages in, a sale leaves it, selling out ends it.
+  Days held count from that run's first fill, that day being 1.
+- **Causes:** a rule's sale has cause `stop_loss`, `take_profit`, `trailing_stop`, `max_hold` or `sell_formula`, with
+  the day the rule first marked it (`first`) and the cost, close and peak in that day's unadjusted yuan.
+- **The screen's holdings:** there is no tracked portfolio yet. `screen` with `simulate` plays the strategy's backtest
+  to the day (by default from about a year before) and screens with what it holds: targets count the holdings, and
+  `holdings` lists each one with its cost, days, peak and each rule's state, and whether it is sold next; the page says
+  these are simulated. A strategy selling by its rules alone screened without them warns `screen_without_holdings`.
+  explain on a holding-engine run gives the rules' states on the stock that day (`rules`).
+- **Not done:** buying a backup the day after a rule's sale (the cash waits for the next rebalance), which would need
+  a ranking on every day.
+
 ## Index bars, rebalance days and order causes
 
 - **`data index-bars`** gives indices' daily bars from the `index_bars` table, prices in index points, with each day's

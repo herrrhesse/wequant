@@ -213,9 +213,19 @@ def anomaly_use(row: Mapping) -> AnomalyUse:
     return AnomalyUse(**{key: value for key, value in row.items() if key != "class"}, anomaly_class=row["class"])
 
 
+PERIOD_WORDS = {"day": "日线", "week": "周线", "month": "月线"}  # a sell formula's period, as its cause's sentence says
+
+
+def _plain(key: str, value: object) -> int | float | str | None:
+    """A cause param as JSON: a date as ISO text, a sell formula's period in its Chinese word."""
+    if key == "period" and value is not None:
+        return PERIOD_WORDS[value]
+    return value.isoformat() if isinstance(value, dt.date) else value
+
+
 def order_row(row: Mapping, names: Mapping[str, str | None]) -> OrderRow:
     """The OrderRow of a with_causes row, its name from names; a full exit, archived as requested inf, asks for null."""
     requested = None if math.isinf(row["requested"]) else row["requested"]
     fields = {key: value for key, value in row.items() if key in OrderRow.model_fields}
-    params = {key: row[key] for key in PARAMS[row["cause"]]}
+    params = {key: _plain(key, row[key]) for key in PARAMS[row["cause"]]}
     return OrderRow(**fields | {"requested": requested, "name": names.get(row["code"]), "cause_params": params})

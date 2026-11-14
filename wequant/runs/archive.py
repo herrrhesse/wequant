@@ -16,7 +16,7 @@ from wequant.canonical import canonical
 from wequant.data.files import atomic_write, remove_tree, rename
 from wequant.data.store import wequant_home
 from wequant.runs.compare import SAME, Comparison, code_notes, differences
-from wequant.runs.record import FILES, PROVENANCE, provenance, read_json, read_run, run_files
+from wequant.runs.record import FILES, OPTIONAL, PROVENANCE, provenance, read_json, read_run, run_files
 from wequant.runs.run import Run
 
 RUNS = "runs"
@@ -71,16 +71,17 @@ class Archive:
     def files(self, run_id: str) -> dict[str, bytes]:
         """Every file of the archived run, provenance.json included, by name; KeyError when there is none."""
         directory = self._directory(run_id)
-        return {name: (directory / name).read_bytes() for name in (*FILES, PROVENANCE)}
+        names = (*FILES, *(name for name in OPTIONAL if (directory / name).is_file()), PROVENANCE)
+        return {name: (directory / name).read_bytes() for name in names}
 
     def add(self, run_id: str, files: dict[str, bytes]) -> bool:
         """Archive a run's files made elsewhere under its id; False when the run is already archived with the same
         content, RunConflict when with other content, ValueError for files that do not read as that run."""
-        if set(files) != {*FILES, PROVENANCE}:
-            raise ValueError(f"a run's files are {sorted({*FILES, PROVENANCE})}, not {sorted(files)}")
+        if not {*FILES, PROVENANCE} <= set(files) <= {*FILES, *OPTIONAL, PROVENANCE}:
+            raise ValueError(f"a run's files are {sorted({*FILES, PROVENANCE})} and {OPTIONAL}, not {sorted(files)}")
         directory = self.path(run_id)
         if directory.exists():
-            compared = {name: files[name] for name in FILES}  # provenance.json is never compared
+            compared = {name: text for name, text in files.items() if name != PROVENANCE}  # never compared
             found = {name: text for name, text in differences(_archived(directory), compared).items() if text != SAME}
             if found:
                 raise RunConflict(run_id, found, directory)
@@ -182,7 +183,7 @@ def _sync(directory: Path) -> None:
 
 def _archived(directory: Path) -> dict[str, bytes]:
     """The compared files directory holds, by name."""
-    return {path.name: path.read_bytes() for path in map(directory.joinpath, FILES) if path.is_file()}
+    return {path.name: path.read_bytes() for path in map(directory.joinpath, (*FILES, *OPTIONAL)) if path.is_file()}
 
 
 def _row(directory: Path) -> tuple:

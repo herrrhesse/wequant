@@ -27,17 +27,57 @@ class Choice(NamedTuple):
     cash: np.ndarray  # float64 (): the weight max_weight left in cash because no target could take it
 
 
-def choose(strategy: Strategy, section: Section, i: int, held: np.ndarray) -> Choice:
+def choose(
+    strategy: Strategy,
+    section: Section,
+    i: int,
+    held: np.ndarray,
+    forced: np.ndarray | None = None,
+    blocked: np.ndarray | None = None,
+) -> Choice:
     """Decision row i given the codes held at its close: without hold_rank the top_n ranks whatever is held; with it a
-    held stock stays while ranked within hold_rank, the best top_n of them, and new stocks fill the rest by rank."""
+    held stock stays while ranked within hold_rank, the best top_n of them, and new stocks fill the rest by rank.
+
+    The sell rules (S4.2) add forced, held codes that stay targets whatever their rank and take slots first, and
+    blocked, codes that become neither targets nor backups; without them the choice is as before."""
     held = np.asarray(held, dtype=bool)
     ranked = section.order[i, : section.scored[i].sum()]  # scored columns, best rank first
+    if forced is not None or blocked is not None:
+        return _with_rules(strategy, section, i, held, ranked, forced, blocked)
     target, slots = _targets(strategy, ranked, held)
     if strategy.hold_rank is None:
         stand_ins = ranked[target[ranked].sum() :]
     else:
         stand_ins = ranked[~held[ranked] & ~target[ranked]]
     backup = _mask(held.shape, stand_ins[: strategy.backups])
+    raw = _weights(strategy, section, i, target)
+    weight, capped, cash = _capped(raw, strategy.max_weight)
+    return Choice(held, target, raw[target], weight[target], capped, backup, slots, np.float64(cash))
+
+
+def _with_rules(
+    strategy: Strategy,
+    section: Section,
+    i: int,
+    held: np.ndarray,
+    ranked: np.ndarray,
+    forced: np.ndarray | None,
+    blocked: np.ndarray | None,
+) -> Choice:
+    """The choice under the sell rules: forced codes first, then the best eligible codes up to top_n (held ones within
+    hold_rank kept as without the rules), stand-ins from the eligible codes held by no one; a forced code without a
+    score keeps a NaN weight, which leaves its holding alone."""
+    forced = np.zeros(held.shape, dtype=bool) if forced is None else np.asarray(forced, dtype=bool)
+    eligible = ranked if blocked is None else ranked[~np.asarray(blocked, dtype=bool)[ranked]]
+    n = len(eligible) + int(forced.sum()) if strategy.top_n is None else strategy.top_n
+    kept = forced.copy()
+    if strategy.hold_rank is not None:
+        within = eligible[: strategy.hold_rank]
+        kept[within[held[within]]] = True
+    free = eligible[~kept[eligible] & (~held[eligible] if strategy.hold_rank is not None else True)]
+    target = kept | _mask(held.shape, free[: max(n - int(kept.sum()), 0)])
+    slots = held & ~target & ~forced & np.isin(np.arange(len(held)), eligible[: strategy.hold_rank or 0])
+    backup = _mask(held.shape, eligible[~held[eligible] & ~target[eligible]][: strategy.backups])
     raw = _weights(strategy, section, i, target)
     weight, capped, cash = _capped(raw, strategy.max_weight)
     return Choice(held, target, raw[target], weight[target], capped, backup, slots, np.float64(cash))
@@ -77,7 +117,7 @@ def _weights(strategy: Strategy, section: Section, i: int, target: np.ndarray) -
     if strategy.weighting == "equal":
         return np.where(target, slot, 0.0)
     value = np.where(target, section.score[i] if strategy.weighting == "score" else section.formula[i], 0.0)
-    total = value.sum()
+    total = np.nansum(value)  # a forced holding without a score (S4.2) keeps NaN and adds nothing
     return n * slot * value / total if total > 0 else np.zeros_like(value)
 
 

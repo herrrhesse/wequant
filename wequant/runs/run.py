@@ -65,6 +65,7 @@ class Run:
     detail: pl.DataFrame  # each decision day's per-stock selection: the engine's columns and row order
     anomalies: pl.DataFrame  # every use of an anomalous cell: the engine's schema and total row order
     warnings: dict[str, tuple[str, dict]]  # snake_case code -> (text, params), in the engine's order
+    exits: pl.DataFrame | None = None  # the holding engine's sell-rule exits by day (S4.2); None for other engines
 
     def __post_init__(self) -> None:
         """ValueError unless description and versions are plain JSON objects and warnings map codes to (text, params)."""
