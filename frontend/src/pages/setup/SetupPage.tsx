@@ -12,7 +12,9 @@ import type { BuildResult, JobInfo, OwnImported, SetupSaveRequest, SetupStatus }
 import { Problem } from "../../components/Problem";
 import { useLabels } from "../../labels";
 import { href } from "../../router";
+import { DEFAULT_PICK, type Pick, pickOf, scopeOf } from "./Scope";
 import { BuildStep, HistoryStep, ImportCheckStep, ImportFolderStep, ImportStep, ReadyStep, SourceStep } from "./steps";
+import type { DataScope } from "../../api/scope";
 
 export type Source = "baostock" | "import" | "existing";
 export type Step = "source" | "build" | "history" | "import_folder" | "import_check" | "import" | "ready";
@@ -56,9 +58,13 @@ export interface Ctx {
   backfill: boolean;
   folder: string;
   importPath: string;
+  /** Which stocks a BaoStock build downloads. */
+  pick: Pick;
+  /** The build's request: the years and the stocks chosen. */
+  buildRequest: () => Record<string, unknown>;
   job: JobInfo | null;
   go: (next: Step, patch?: SetupSaveRequest) => void;
-  start: (kind: "data_build" | "data_backfill" | "data_own_import", request: Record<string, string | number>, step: Step, patch?: SetupSaveRequest) => Promise<void>;
+  start: (kind: "data_build" | "data_backfill" | "data_own_import", request: Record<string, unknown>, step: Step, patch?: SetupSaveRequest) => Promise<void>;
   /** Pause or stop the job of this step, if it runs. */
   stop: () => void;
 }
@@ -74,12 +80,22 @@ function Wizard({ status }: { status: SetupStatus }) {
   const [importPath, setImportPath] = useState(saved.import_path ?? "");
   const [step, setStep] = useState<Step>(savedStep);
   const [jobId, setJobId] = useState<number | null>(saved.job_id ?? null);
+  const [pick, setPick] = useState<Pick>(DEFAULT_PICK);
   const flow = flowOf(source, backfill);
   const [reached, setReached] = useState(Math.max(0, flow.indexOf(savedStep)));
   const save = useCallMutation("setup_save");
   const begin = useCallMutation("jobs_start", ["jobs_list"]);
   const job = useJob(jobId);
   const at = Math.max(0, flow.indexOf(step));
+  // After a reload the stocks chosen come back from the build's own request (the backend remembers the job).
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current || !job) return;
+    restored.current = true;
+    const back = job.kind === "data_build" ? pickOf(job.request.scope as DataScope | undefined, job.request.pool_name as string | null | undefined) : null;
+    if (back) setPick(back);
+  }, [job]);
+  const buildRequest = () => ({ years, scope: scopeOf(pick), pool_name: pick.choice === "stocks" ? pick.poolName.trim() : null });
 
   const go = (next: Step, patch: SetupSaveRequest = {}) => {
     setStep(next);
@@ -117,7 +133,7 @@ function Wizard({ status }: { status: SetupStatus }) {
     }
   }, [job, result.data, step, backfill, client]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ctx: Ctx = { status, source, years, backfill, folder, importPath, job, go, start, stop };
+  const ctx: Ctx = { status, source, years, backfill, folder, importPath, pick, buildRequest, job, go, start, stop };
   const back = () => leave(flow[Math.max(0, at - 1)]!);
 
   return (
@@ -153,6 +169,7 @@ function Wizard({ status }: { status: SetupStatus }) {
           setYears={setYears}
           setBackfill={setBackfill}
           setFolder={setFolder}
+          setPick={setPick}
           busy={begin.isPending}
         />
       )}

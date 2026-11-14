@@ -11,6 +11,7 @@ import { href, type Route } from "../../router";
 import { useUi } from "../../ui";
 import { DelistingsSection } from "./DelistingsSection";
 import { Location } from "./Location";
+import { ScopeCard } from "./ScopeCard";
 import { Storage, Versions } from "./Versions";
 
 type DataRoute = Extract<Route, { page: "data" }>;
@@ -118,8 +119,8 @@ export function DataPage({ route }: { route: DataRoute }) {
         </summary>
         <DelistingsSection />
       </details>
+      <ScopeCard first={calendar.data?.first ?? null} open={route.extend} />
       <Location
-        first={calendar.data?.first ?? null}
         calendar={
           calendar.data && (
             <span className="small muted">

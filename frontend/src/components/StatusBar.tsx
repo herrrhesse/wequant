@@ -13,6 +13,8 @@ import { useLabels, type LabelBook } from "../labels";
 import { href } from "../router";
 import { tx, weekday } from "../text";
 
+const FILLS = ["data_backfill", "data_extend"];
+
 function outcome(L: LabelBook, r: UpdateResult): string {
   return L.updateStatus(r.status, { days: r.days.length, last_day: r.days[r.days.length - 1] ?? null, waiting: r.waiting, proposed: r.proposed, unresolved: r.unresolved });
 }
@@ -25,8 +27,10 @@ export function StatusBar({ right }: { right?: ReactNode }) {
   const jobs = useCall("jobs_list", {}, { staleTime: 0 });
   const running = jobs.data?.jobs.find((j) => j.kind === "data_update" && !finished(j)) ?? null;
   const [jobId, setJobId] = useState<number | null>(null);
-  // The earlier history filling in behind (after a first build, or started on the data page).
-  const filling = jobs.data?.jobs.find((j) => j.kind === "data_backfill" && !finished(j)) ?? null;
+  // Data filling in behind, one at a time on BaoStock: the earlier history (after a first build, or started on the data
+  // page) or more stocks (扩大数据范围); the running one before one waiting its turn.
+  const fills = jobs.data?.jobs.filter((j) => FILLS.includes(j.kind as string) && !finished(j)) ?? [];
+  const filling = fills.find((j) => j.state === "running") ?? fills[0] ?? null;
   const fill = useJob(filling?.id ?? null);
   const job = useJob(jobId ?? running?.id ?? null);
   const result = useCall("jobs_result", job?.state === "succeeded" && job.kind === "data_update" ? { id: job.id } : null);
@@ -91,9 +95,10 @@ export function StatusBar({ right }: { right?: ReactNode }) {
           </>
         )}
         {fill && !finished(fill) && (
-          <span className="row nowrap" role="status" aria-label="后台补齐历史">
+          <span className="row nowrap" role="status" aria-label={(fill.kind as string) === "data_extend" ? "扩大数据范围" : "后台补齐历史"}>
             <span className="small sub">
-              后台补齐历史{fillYears(fill) ? ` ${fillYears(fill)}` : ""} · {L.stage(fill.stage, fill.params) || fill.text}
+              {(fill.kind as string) === "data_extend" ? `扩大数据范围${fill.params.name ? ` ${fill.params.name}` : ""}` : "后台补齐历史"}
+              {fillYears(fill) ? ` ${fillYears(fill)}` : ""} · {fill.state === "queued" ? L.stage("queued", { position: fill.position ?? "" }) : L.stage(fill.stage, fill.params) || fill.text}
             </span>
             <span className="progress status-progress">
               <span style={{ width: `${Math.round(fill.fraction * 100)}%` }} />
@@ -111,7 +116,7 @@ export function StatusBar({ right }: { right?: ReactNode }) {
             type="button"
             className="btn acc"
             disabled={begin.isPending || (!!fill && !finished(fill))}
-            title={fill && !finished(fill) ? "后台正在补齐历史，BaoStock 一次只允许一个连接；暂停补齐后再更新" : undefined}
+            title={fill && !finished(fill) ? "后台正在下载数据，BaoStock 一次只允许一个连接；暂停后再更新" : undefined}
             onClick={async () => {
               const j = await begin.mutateAsync({ kind: "data_update", request: {} });
               setJobId(j.id);

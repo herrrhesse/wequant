@@ -672,24 +672,43 @@ interface FakeJob {
   fraction: number;
   stage: string;
   params: Record<string, string | number>;
+  request?: Record<string, unknown>;
 }
-/** Replayed build and backfill jobs: started, followed, cancelled and finished in the browser only. */
+
+/** Before the backend has S2.11 (data scope), its build estimate refuses a scope: answer it in the browser then, with
+ * the same shape. TEMPORARY until main carries S2.11; the tests assert rules, never these numbers. */
+let scoped: boolean | null = null;
+async function estimatesWithScope(page: Page) {
+  if (scoped === null) scoped = (await page.request.post("api/data_build_estimate", { data: { years: 1, scope: { all: true, indexes: [], stocks: [] } } })).ok();
+  if (scoped) return;
+  const COUNTS: Record<string, number> = { all: 5321, "000300.SH": 642, "000905.SH": 1187, both: 1563 };
+  await page.route("**/api/data_build_estimate", (r) => {
+    const req = r.request().postDataJSON() as { years?: number; scope?: { all?: boolean; indexes?: string[]; stocks?: string[] } };
+    const sc = req.scope ?? {};
+    const years = req.years ?? 3;
+    const n = sc.all ? COUNTS.all! : sc.stocks?.length ? sc.stocks.length : sc.indexes?.length === 2 ? COUNTS.both! : (COUNTS[sc.indexes?.[0] ?? ""] ?? 0);
+    return r.fulfill({ json: { years, scope: sc, days: years * 243, stocks: n, requests: n * 2 + 40, seconds: Math.round(n * (0.6 + years * 0.35)), already: 0 } });
+  });
+}
+
+/** Replayed build, backfill and extend jobs: started, followed, cancelled and finished in the browser only. */
 async function replayBuilds(page: Page) {
   const jobs = new Map<number, FakeJob>();
   const starts: { kind: string; request: Record<string, unknown> }[] = [];
   let next = 880001;
   const info = (j: FakeJob) => ({
-    ...j, request: {}, data_version: null, data_version_name: null, position: null, text: "", error: null,
+    ...j, request: j.request ?? {}, data_version: null, data_version_name: null, position: null, text: "", error: null,
     created_at: "2026-11-14T10:00:00", started_at: "2026-11-14T10:00:01", ended_at: null, seq: 1,
   });
   const idOf = (r: { request: () => { postDataJSON: () => { id?: number } } }) => r.request().postDataJSON()?.id ?? 0;
   // Never let a build reach the backend.
-  await page.route(/\/api\/data_(build|backfill)$/, (r) => r.abort());
+  await page.route(/\/api\/data_(build|backfill|extend)$/, (r) => r.abort());
   await page.route("**/api/jobs_start", (r) => {
     const body = r.request().postDataJSON() as { kind: string; request: Record<string, unknown> };
-    if (body.kind !== "data_build" && body.kind !== "data_backfill") return r.fallback();
+    if (!["data_build", "data_backfill", "data_extend"].includes(body.kind)) return r.fallback();
     starts.push(body);
-    const j: FakeJob = { id: next++, kind: body.kind, state: "running", fraction: 0.3, stage: "build_stocks", params: { code: "600000.SH", done: 120, total: 5566 } };
+    const extra = body.kind === "data_extend" ? { name: "沪深全部", first_year: 2024, last_year: 2026 } : {};
+    const j: FakeJob = { id: next++, kind: body.kind, state: "running", fraction: 0.3, stage: "build_stocks", params: { code: "600000.SH", done: 120, total: 5566, ...extra }, request: body.request };
     jobs.set(j.id, j);
     return r.fulfill({ json: info(j) });
   });
@@ -708,7 +727,8 @@ async function replayBuilds(page: Page) {
     const j = jobs.get(idOf(r));
     if (!j) return r.fallback();
     const built = { status: "built", version: 1, version_name: "20261113.1", first: "2025-11-13", last: "2026-11-13", days: 243, requests: 11000, seconds: 3600 };
-    return r.fulfill({ json: j.kind === "data_build" ? built : { segments: [], status: "complete" } });
+    const extended = { status: "built", segments: [built], layers: [], added: 3758, pool_id: null };
+    return r.fulfill({ json: j.kind === "data_build" ? built : j.kind === "data_extend" ? extended : { segments: [], status: "complete" } });
   });
   await page.route("**/api/jobs_list", async (r) => {
     const res = await r.fetch();
@@ -732,6 +752,7 @@ test.describe("first-run setup", () => {
 
     test("every page leads to the setup without one 404 on the way", async ({ page }) => {
       await page.request.post("api/setup_save", { data: { clear: true } });
+      await estimatesWithScope(page);
       const missing: string[] = [];
       page.on("response", (r) => r.status() === 404 && missing.push(r.url()));
       for (const at of ["#/", "#/data", "#/strategy", "#/picks", "#/backtest", "#/stock/600000.SH"]) {
@@ -746,6 +767,7 @@ test.describe("first-run setup", () => {
 
   test("a build waiting to reach BaoStock again (replayed) says so in Chinese, keeps its bar and still pauses", async ({ page }) => {
     await page.request.post("api/setup_save", { data: { clear: true } });
+    await estimatesWithScope(page);
     const { jobs } = await replayBuilds(page);
     await page.goto("#/setup");
     await page.getByRole("group", { name: "建最近几年" }).getByRole("button", { name: "1 年" }).click();
@@ -765,6 +787,7 @@ test.describe("first-run setup", () => {
 
   test("an empty folder opens the setup; a BaoStock build (replayed) pauses, goes back, carries on, comes back after a reload and finishes into the history", async ({ page }) => {
     await page.request.post("api/setup_save", { data: { clear: true } });
+    await estimatesWithScope(page);
     const { jobs, starts } = await replayBuilds(page);
     await page.goto("#/strategy");
     await expect(page).toHaveURL(/#\/setup$/);
@@ -772,11 +795,12 @@ test.describe("first-run setup", () => {
     await expect(page.getByLabel("数据文件夹")).toHaveText(EMPTY_HOME);
     await expect(page.getByRole("button", { name: /用 BaoStock 新建/ })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("group", { name: "建最近几年" }).getByRole("button", { name: "1 年" }).click();
-    await expect(page.getByRole("status", { name: "预计耗时" })).toContainText(/约 \d+ 个交易日，预计约/);
+    await expect(page.getByRole("status", { name: "预计耗时" })).toContainText(/合计约 [\d,]+ 只股票、\d+ 个交易日，预计约/);
     await page.getByRole("button", { name: "下一步" }).click();
     const build = page.getByRole("status", { name: "用 BaoStock 建最近 1 年的数据" });
     await expect(build).toContainText("正在下载 600000.SH 的行情（已完成 120/5566 只）");
-    expect(starts).toEqual([{ kind: "data_build", request: { years: 1 } }]);
+    // The default stocks: 沪深300 and 中证500.
+    expect(starts).toEqual([{ kind: "data_build", request: { years: 1, scope: { all: false, indexes: ["000300.SH", "000905.SH"], stocks: [] }, pool_name: null } }]);
     // The backend remembers the step: a reload comes back to the running build.
     await page.reload();
     await expect(build).toContainText("30%");
@@ -800,6 +824,71 @@ test.describe("first-run setup", () => {
     await expect(page.getByRole("heading", { name: "准备好了" })).toBeVisible();
     const templates = (await (await page.request.post("api/strategy_templates", { data: {} })).json()).rows as unknown[];
     await expect(page.getByRole("button", { name: /^模板：/ })).toHaveCount(templates.length);
+    await page.request.post("api/setup_save", { data: { clear: true } });
+  });
+
+  test("which stocks to download: each choice shows the backend's count and time, which follow the years; an own list lists what it cannot read; the build carries the choice, also after a reload", async ({ page }) => {
+    await page.request.post("api/setup_save", { data: { clear: true } });
+    await estimatesWithScope(page);
+    const { starts } = await replayBuilds(page);
+    // In an empty folder the list is read against BaoStock's list of securities: replayed, never asked.
+    await page.route("**/api/pools_parse", (r) =>
+      r.fulfill({
+        json: {
+          stocks: [{ code: "600519.SH", name: "贵州茅台" }, { code: "000001.SZ", name: "平安银行" }],
+          unparsed: [
+            { item: "招商", reason: "ambiguous", candidates: [{ code: "600036.SH", name: "招商银行" }, { code: "001979.SZ", name: "招商蛇口" }] },
+            { item: "830799", reason: "beijing", candidates: [] },
+          ],
+        },
+      }),
+    );
+    await page.goto("#/setup");
+    const choices = page.getByRole("group", { name: "下载哪些股票" });
+    const total = page.getByRole("status", { name: "预计耗时" });
+    // 沪深300 + 中证500 by default; every choice says how many stocks and how long.
+    await expect(choices.getByRole("button", { name: /^沪深300/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(choices.getByRole("button", { name: /^中证500/ })).toHaveAttribute("aria-pressed", "true");
+    await expect(choices.getByRole("button", { name: /^沪深全部/ })).toHaveAttribute("aria-pressed", "false");
+    const cost = page.getByLabel("沪深300的股票数和耗时");
+    await expect(cost).toContainText(/约 [\d,]+ 只 · 预计约/);
+    await expect(page.getByLabel("沪深全部的股票数和耗时")).toContainText(/约 [\d,]+ 只 · 预计约/);
+    await expect(page.getByText("先下载一部分股票会快很多，之后随时可以在数据页扩大范围。")).toBeVisible();
+    // The years change the times.
+    const three = (await cost.innerText()).trim();
+    const threeTotal = (await total.innerText()).trim();
+    await page.getByRole("group", { name: "建最近几年" }).getByRole("button", { name: "5 年" }).click();
+    await expect(cost).not.toHaveText(three);
+    await expect(total).not.toHaveText(threeTotal);
+    // One index alone: fewer stocks in the total; none at all cannot go on.
+    const both = (await total.innerText()).trim();
+    await choices.getByRole("button", { name: /^中证500/ }).click();
+    await expect(total).not.toHaveText(both);
+    await choices.getByRole("button", { name: /^沪深300/ }).click();
+    await expect(page.getByText("至少选一项")).toBeVisible();
+    await expect(page.getByRole("button", { name: "下一步" })).toBeDisabled();
+    // An own list: what cannot be read is listed with the reason; a candidate goes in with a click.
+    await choices.getByRole("button", { name: /^自定义名单/ }).click();
+    await expect(page.getByRole("button", { name: "下一步" })).toBeDisabled();
+    await page.getByLabel("粘贴股票清单").fill("600519 平安银行 招商 830799");
+    await page.getByRole("button", { name: "加入名单" }).click();
+    const unread = page.getByLabel("没能识别的项");
+    await expect(unread).toContainText("有 2 项没能识别");
+    await expect(unread).toContainText("招商");
+    await expect(unread).toContainText("有歧义");
+    await expect(unread).toContainText("北交所");
+    await unread.getByRole("button", { name: "加入 招商银行 600036.SH" }).click();
+    await expect(page.getByText("名单共 3 只")).toBeVisible();
+    await expect(page.getByLabel("自定义名单的股票数和耗时")).toContainText("约 3 只");
+    await page.getByRole("button", { name: "下一步" }).click();
+    const build = page.getByRole("status", { name: "用 BaoStock 建最近 5 年的数据" });
+    await expect(build).toBeVisible();
+    expect(starts.at(-1)).toEqual({ kind: "data_build", request: { years: 5, scope: { all: false, indexes: [], stocks: ["600519.SH", "000001.SZ", "600036.SH"] }, pool_name: "首次建库名单" } });
+    // After a reload, going back shows the same choice: it comes from the build's own request.
+    await page.reload();
+    await build.getByRole("button", { name: "‹ 上一步" }).click();
+    await expect(choices.getByRole("button", { name: /^自定义名单/ }).first()).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText("名单共 3 只")).toBeVisible();
     await page.request.post("api/setup_save", { data: { clear: true } });
   });
 
@@ -869,7 +958,7 @@ test.describe("first-run setup", () => {
 test("the history backfill shows in the status bar and on the data page, waits for BaoStock in Chinese, pauses and carries on; the setup can be run again", async ({ page }) => {
   const { jobs } = await replayBuilds(page);
   await page.goto("#/data");
-  const loc = page.getByRole("region", { name: "存储位置" });
+  const loc = page.getByRole("region", { name: "数据范围" });
   const first = (await (await page.request.post("api/data_calendar", { data: {} })).json()).first as string;
   test.skip(first.slice(0, 4) <= "2000", "the demo data already starts in 2000");
   await loc.getByRole("button", { name: "补齐更早的历史（到 2000 年）" }).click();
@@ -890,10 +979,110 @@ test("the history backfill shows in the status bar and on the data page, waits f
   await expect(loc).toContainText("补齐已暂停");
   await loc.getByRole("button", { name: "继续补齐" }).click();
   await expect(bar).toBeVisible();
-  await loc.getByRole("link", { name: "重新运行首次启动向导 ›" }).click();
+  await page.getByRole("region", { name: "存储位置" }).getByRole("link", { name: "重新运行首次启动向导 ›" }).click();
   await expect(page).toHaveURL(/#\/setup$/);
   await expect(page.getByText("现在的数据文件夹里已经有数据，重新运行向导不会删除它")).toBeVisible();
   await page.getByRole("button", { name: /用 BaoStock 新建/ }).click();
   await expect(page.getByText("这个文件夹里已经有数据；新建或导入需要一个空的文件夹")).toBeVisible();
   await expect(page.getByRole("button", { name: "下一步" })).toBeDisabled();
+});
+
+// S2.11 data scope on the data and strategy pages. Until the backend has it, data_status' scope, the extend estimate,
+// the new labels and the scope warning are answered in the browser (TEMPORARY: the layered demo home replaces them).
+const INDEXES_ONLY = {
+  layers: [{ all: false, indexes: ["000300.SH", "000905.SH"], stocks: [], since: "2023-01-02", label: "沪深300 + 中证500" }],
+  covers: [{ code: "000300.SH", since: "2023-01-02" }, { code: "000905.SH", since: "2023-01-02" }],
+  stock_count: 1563,
+  first_date: "2023-01-02",
+  backfill_floor: null as null | { index: string; name: string; date: string },
+};
+async function scopeReplay(page: Page, scope: typeof INDEXES_ONLY) {
+  await page.route("**/api/data_status", async (r) => {
+    const res = await r.fetch();
+    return r.fulfill({ response: res, json: { ...(await res.json()), scope } });
+  });
+  await page.route("**/api/data_extend_estimate", (r) => {
+    const sc = (r.request().postDataJSON() as { scope: { all?: boolean; stocks?: string[] } }).scope;
+    const covered = !sc.all && !sc.stocks?.length;
+    const n = sc.all ? 3758 : (sc.stocks?.length ?? 0);
+    return r.fulfill({ json: { scope: sc, covered, stocks: covered ? 0 : n, requests: covered ? 0 : n * 3, seconds: covered ? 0 : n * 4, since: scope.first_date } });
+  });
+  await page.route("**/api/labels", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    if (!body.job_stages.some((x: { code: string }) => x.code === "backfill_floor"))
+      body.job_stages.push({ code: "backfill_floor", label: "补到头了", template: "{name}的成分名单最早到 {date}，更早的历史补不了；要补更早的历史，请把数据范围扩大到沪深全部", params: ["name", "date"] });
+    if (!body.warnings.some((x: { code: string }) => x.code === "scope_beyond_data"))
+      body.warnings.push({ code: "scope_beyond_data", label: "数据范围不够", template: "这份数据只下载了{data}的股票，选“{scope}”实际只在这些股票里选。可以在数据页扩大数据范围。", params: ["scope", "data"], optional: {}, repeat: null });
+    return r.fulfill({ response: res, json: body });
+  });
+}
+
+test("data scope: the data page says which stocks and from when; widening picks what to add with the backend's count and time, runs behind, pauses, carries on and finishes", async ({ page }) => {
+  await scopeReplay(page, INDEXES_ONLY);
+  const { jobs, starts } = await replayBuilds(page);
+  await page.goto("#/data");
+  const card = page.getByRole("region", { name: "数据范围" });
+  await expect(card).toContainText("沪深300 + 中证500 · 2023-01 起");
+  await expect(card).toContainText("有日线的股票 1,563 只");
+  await card.getByRole("button", { name: "扩大数据范围…" }).click();
+  const choices = card.getByRole("group", { name: "要补进来的股票" });
+  // What the data holds already cannot be added again.
+  await expect(choices.getByRole("button", { name: /^沪深300/ })).toBeDisabled();
+  await expect(choices.getByRole("button", { name: /^沪深300/ })).toContainText("已在数据里");
+  await expect(choices.getByRole("button", { name: /^沪深全部/ })).toContainText(/新增约 [\d,]+ 只 · 预计约/);
+  await expect(card.getByRole("status", { name: "扩大范围的预计耗时" })).toContainText("补到 2023-01-02");
+  await card.getByRole("button", { name: "开始扩大" }).click();
+  expect(starts.at(-1)).toEqual({ kind: "data_extend", request: { scope: { all: true, indexes: [], stocks: [] }, pool_name: null } });
+  // Behind, in the status bar and here.
+  const bar = page.getByRole("status", { name: "扩大数据范围", exact: true });
+  await expect(bar).toContainText("沪深全部 2024–2026 年");
+  await expect(bar).toContainText("30%");
+  await expect(card.getByRole("status", { name: "扩大数据范围：沪深全部 · 正在补 2024–2026 年" })).toBeVisible();
+  await bar.getByRole("button", { name: "暂停" }).click();
+  await expect(card).toContainText("扩大数据范围已暂停，已经补上的部分保留。");
+  await card.getByRole("button", { name: "继续扩大" }).click();
+  expect(starts.at(-1)).toEqual(starts.at(-2));
+  await expect(bar).toBeVisible();
+  Object.assign([...jobs.values()].at(-1)!, { state: "succeeded", fraction: 1 });
+  await expect(card).toContainText("数据范围已经扩大");
+  await expect(bar).toBeHidden();
+});
+
+test("data scope: where an index's member list ends, the history backfill says why instead of offering more", async ({ page }) => {
+  await scopeReplay(page, { ...INDEXES_ONLY, first_date: "2005-04-08", backfill_floor: { index: "000300.SH", name: "沪深300", date: "2005-04-08" } });
+  await page.goto("#/data");
+  const card = page.getByRole("region", { name: "数据范围" });
+  await expect(card.getByRole("note", { name: "补齐历史停在这里" })).toContainText("沪深300的成分名单最早到 2005-04-08，更早的历史补不了");
+  await expect(card.getByRole("button", { name: /补齐更早的历史/ })).toHaveCount(0);
+});
+
+test("data scope: a scope beyond the data stays choosable, marked; a template's draft shows the backend's warning with a way to widen the data", async ({ page }) => {
+  await scopeReplay(page, INDEXES_ONLY);
+  await page.route("**/api/strategy_validate", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    const all = (r.request().postDataJSON() as { strategy: { pool?: { index?: string | null; stocks?: unknown } } }).strategy.pool;
+    if (res.ok && !all?.index && !all?.stocks && !body.warnings.some((w: { code: string }) => w.code === "scope_beyond_data"))
+      body.warnings.push({ code: "scope_beyond_data", text: "", params: { scope: "沪深全部", data: "沪深300 + 中证500" } });
+    return r.fulfill({ response: res, json: body });
+  });
+  await page.goto("#/data");
+  await page.evaluate(() => localStorage.clear());
+  await page.goto("#/strategy?new=pick");
+  // The templates use 沪深全部: the draft keeps it and says what it means here.
+  await page.getByRole("button", { name: /^模板：/ }).first().click();
+  const scope = page.getByRole("group", { name: "股票范围" });
+  await expect(scope.getByRole("button", { name: /^沪深全部/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(scope.getByRole("button", { name: /^沪深全部/ })).toContainText("数据只含部分股票");
+  await expect(scope.getByRole("button", { name: /^沪深300/ })).not.toContainText("数据只含部分股票");
+  const notes = page.getByRole("list", { name: "提示" });
+  await expect(notes).toContainText("这份数据只下载了沪深300 + 中证500的股票");
+  // Another scope the data holds: the warning goes.
+  await scope.getByRole("button", { name: /^沪深300/ }).click();
+  await expect(notes).toBeHidden();
+  await scope.getByRole("button", { name: /^沪深全部/ }).click();
+  await notes.getByRole("link", { name: "去扩大数据范围 ›" }).click();
+  await expect(page).toHaveURL(/#\/data\?extend=1$/);
+  await expect(page.getByRole("region", { name: "数据范围" }).getByRole("group", { name: "要补进来的股票" })).toBeVisible();
 });

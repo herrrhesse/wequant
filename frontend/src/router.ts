@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 
 /** Hash routes keep every page's state in the URL, so the built files work from any path and back/forward restore it:
- * #/ (today), #/setup, #/data[?code&date], #/stock/CODE[?date&run&from], #/strategy[?id&view=list],
+ * #/ (today), #/setup, #/data[?code&date&extend=1], #/stock/CODE[?date&run&from], #/strategy[?id&view=list],
  * #/picks[?id&n&draft&date], #/backtest[?use&run&cmp=A,B&day]. */
 export type Route =
   | { page: "today" }
   | { page: "setup" }
-  | { page: "data"; code: string | null; date: string | null }
+  | { page: "data"; code: string | null; date: string | null; extend: boolean }
   | { page: "stock"; code: string; date: string | null; run: string | null; from: string | null }
   | { page: "strategy"; id: string | null; list: boolean; fresh: boolean; pick: boolean }
   | { page: "picks"; id: string | null; n: number | null; draft: boolean; date: string | null }
@@ -25,7 +25,7 @@ export function parse(hash: string): Route {
     return { page: "backtest", run: q.get("run"), cmp: (q.get("cmp") ?? "").split(",").filter(Boolean).slice(0, 3), day: q.get("day"), use: q.get("use") };
   const stock = path.match(/^\/stock\/([^/]+)$/);
   if (stock?.[1]) return { page: "stock", code: decodeURIComponent(stock[1]).toUpperCase(), date: q.get("date"), run: q.get("run"), from: q.get("from") };
-  if (path === "/data") return { page: "data", code: q.get("code"), date: q.get("date") };
+  if (path === "/data") return { page: "data", code: q.get("code"), date: q.get("date"), extend: q.get("extend") === "1" };
   if (path === "/setup") return { page: "setup" };
   return { page: "today" };
 }
@@ -47,6 +47,8 @@ export const href = {
   /** The editor on the new-strategy draft (blank, or the template just chosen). */
   draftStrategy: () => "#/strategy?new=1",
   data: (code?: string | null, date?: string | null) => `#/data${qs({ code, date })}`,
+  /** The data page with "扩大数据范围" open. */
+  dataExtend: () => "#/data?extend=1",
   stock: (code: string, opts: { date?: string | null; run?: string | null; from?: string | null } = {}) =>
     `#/stock/${encodeURIComponent(code)}${qs({ date: opts.date, run: opts.run, from: opts.from })}`,
   picks: (opts: { id?: string | null; n?: number | null; draft?: boolean; date?: string | null } = {}) =>

@@ -8,6 +8,7 @@ import { ApiError } from "../../api/http";
 import type { StrategySpec, SummaryPart } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
+import { SCOPE_WARNINGS, WarningText } from "../../components/WarningText";
 import { useDebounced } from "../../hooks";
 import { useLabels } from "../../labels";
 import { follows, setFollow } from "../../local";
@@ -131,6 +132,8 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const updating = !blocked && (spec !== settled || check.isFetching || screen.isFetching || check.isPlaceholderData || screen.isPlaceholderData);
   const st0 = screen.data?.warnings.find((w) => w.code === "st_unknown");
   const stNone = !!st0 && Number(st0.params.known_share) === 0;
+  // The check's warnings, and the preview's data-scope warning for its day when the check has not given that one.
+  const warnings = [...(check.data?.warnings ?? []), ...(screen.data?.warnings ?? []).filter((w) => SCOPE_WARNINGS.has(w.code) && !check.data?.warnings.some((c) => c.code === w.code))];
 
   const dirty = check.data ? !origin || !check.data.saved_as.some((s) => s.id === origin.id) || name !== origin.name : spec !== savedSpec;
   const state = errors.length ? "errors" : !origin ? "never" : dirty ? "dirty" : "saved";
@@ -247,10 +250,12 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
             )}
           </p>
         )}
-        {check.data && check.data.warnings.length > 0 && (
-          <ul className="warn-list">
-            {check.data.warnings.map((w, i) => (
-              <li key={i}>{L.warning(w)}</li>
+        {warnings.length > 0 && (
+          <ul className="warn-list" aria-label="提示">
+            {warnings.map((w, i) => (
+              <li key={i}>
+                <WarningText w={w} />
+              </li>
             ))}
           </ul>
         )}

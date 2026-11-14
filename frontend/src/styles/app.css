@@ -437,3 +437,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .setup-check.warn .setup-mark { color: var(--warn); }
 .setup-h2 { margin: 0; font-size: 20px; }
 .setup-format > .col { gap: 8px; margin-top: 8px; }
+.scope-cards { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.scope-cards .tpl-card { gap: 4px; background: var(--card); }
+.scope-cost { margin-top: auto; padding-top: 4px; font-weight: 600; color: var(--ink); }
+.scope-list { overflow-wrap: anywhere; }
+.seg-note { margin-left: 6px; font-size: 11px; font-weight: 500; color: var(--warn); }
+.seg button[aria-pressed="true"] .seg-note { color: inherit; opacity: 0.8; }
+.scope-layers { display: flex; flex-direction: column; gap: 4px; }
+.tpl-card:disabled { opacity: 0.55; cursor: default; border-color: transparent; }

@@ -10,6 +10,7 @@ import { fromPool, PoolPicker } from "../strategy/PoolPicker";
 import type { Reject, ScreenResult, ScreenRow, StrategySpec } from "../../api/types.gen";
 import { Problem } from "../../components/Problem";
 import { StatusBar } from "../../components/StatusBar";
+import { WarningText } from "../../components/WarningText";
 import { pct } from "../../format";
 import { useLabels } from "../../labels";
 import { href, type Route } from "../../router";
@@ -188,7 +189,7 @@ export function PicksPage({ route }: { route: PicksRoute }) {
         <div className="notes-line">
           {r.warnings.map((w, i) => (
             <span key={i} className="warnbox" title={L.warningName(w.code)}>
-              {L.warning(w)}
+              <WarningText w={w} />
             </span>
           ))}
         </div>

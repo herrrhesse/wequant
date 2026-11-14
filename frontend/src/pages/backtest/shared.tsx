@@ -1,6 +1,7 @@
 // Pieces the screen and backtest pages share: warnings (code + backend text) and anomaly uses.
 import type { AnomalyUse, Warning } from "../../api/types.gen";
 import { t } from "../../i18n";
+import { WarningText } from "../../components/WarningText";
 import { lb } from "../../labels";
 
 const r = t.runs;
@@ -13,7 +14,9 @@ export function WarningList({ warnings, empty }: { warnings: Warning[]; empty: s
         {warnings.map((w, i) => (
           <li key={`${w.code}/${i}`}>
             <strong>{lb().warningName(w.code)}</strong>
-            <div className="sub">{lb().warning(w)}</div>
+            <div className="sub">
+              <WarningText w={w} />
+            </div>
           </li>
         ))}
       </ul>
