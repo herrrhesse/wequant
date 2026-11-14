@@ -18,6 +18,7 @@ from wequant.service.explain import explain
 from wequant.service.expr import expr_check, expr_eval
 from wequant.service.index_bars import data_index_bars
 from wequant.service.index_check import data_index_check
+from wequant.service.indicators import expr_indicators
 from wequant.service.issues import data_issues
 from wequant.service.jobs import jobs_cancel, jobs_list, jobs_result, jobs_show, jobs_start
 from wequant.service.labels import labels
@@ -48,6 +49,7 @@ from wequant.service.storage import (
     storage_cleanup,
     storage_usage,
 )
+from wequant.service.templates import strategy_templates
 from wequant.service.transfer import (
     data_export,
     data_import,
@@ -136,11 +138,12 @@ OPERATIONS = (
     data_update,
     *(data_use_version, data_pin_version, data_export, data_import),
     *(data_verify_submit, data_verify_list, data_resolve_list, data_resolve_approve, data_resolve_reject),
-    *(expr_check, expr_eval),
+    *(expr_check, expr_eval, expr_indicators),
     *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),
     *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
     *(strategy_export, strategy_import),
     strategy_schedule,
+    strategy_templates,
     *(pools_list, pools_show, pools_save, pools_delete, pools_parse, pools_from_index),
     *(pools_export, pools_import),
     screen,

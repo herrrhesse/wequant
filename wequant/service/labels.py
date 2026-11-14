@@ -30,7 +30,7 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
         None,
     ),
     "no_picks": ("没有选出股票", "所有决策日都没有选出股票", {}, None),
-    "legacy_index": ("旧的范围选项", "{index} 是旧的范围选项，新建策略不再提供；这个策略照样能校验和运行", {}, None),
+    "legacy_index": ("旧的范围选项", "{name}是旧的范围选项，新建策略不再提供；这个策略照样能校验和运行", {}, None),
     "stocks_not_in_data": (
         "名单里有数据中没有的股票",
         "自定义名单里有 {count} 只股票不在这个数据库里：{codes}；选股时它们不会入选",
@@ -214,8 +214,8 @@ UNITS = {
 FUNNEL_KINDS = {
     "listed": ("在市", "决策日已上市、未退市"),
     "bar": ("有 K 线", "决策日有 K 线（没有停牌、不缺数据）"),
-    "universe": ("范围", "满足策略的范围条件"),
-    "pool": ("股票池", "股票池的一项：指数成分、自定义名单、板块、剔除 ST、上市天数"),
+    "universe": ("范围", "在策略的范围里：沪深全部或自定义名单，以及自定义的范围条件"),
+    "pool": ("股票池", "股票池的一项：指数成分、板块、剔除 ST、上市天数"),
     "condition": ("条件", "一个筛选条件"),
     "group": ("条件组", "一组条件，全部或任一满足"),
     "scored": ("打分", "所有因子都有值、参与排名"),
@@ -309,6 +309,7 @@ ERROR_CODES = {
     "not_a_decision_day": ("不是决策日", "这一天不是这次运行的决策日或成交日"),
     "not_a_form": ("不是表达式", "不是合法的表达式写法"),
     "not_a_trading_day": ("不是交易日", "这一天不是交易日"),
+    "not_available": ("暂不可用", "这个指标暂时还没有数据"),
     "not_json": ("不是 JSON", "内容不是合法的 JSON"),
     "out_of_range": ("超出范围", "数值超出允许的范围"),
     "outside_data_root": (
@@ -420,6 +421,20 @@ LEGACY_SCOPES = {  # code -> (name, sentence): older index options existing stra
     "000985.SH": ("中证全指", "中证全指在决策日的成分股；旧选项，新建策略不再提供"),
 }
 
+INDICATOR_CATEGORIES = {
+    "price": ("价格", "当天的开盘、最高、最低、收盘价，不复权"),
+    "adjusted_price": ("复权价格", "按后复权调整过的价格和复权因子"),
+    "volume": ("成交", "成交量、成交额和换手率"),
+    "momentum": ("动量", "一段时间的涨跌幅"),
+    "volatility": ("波动", "涨跌的剧烈程度"),
+    "trend": ("趋势", "和均线、近期高点的距离"),
+    "limit": ("涨跌停", "涨跌停价和是否涨跌停"),
+    "status": ("状态", "ST 等交易状态"),
+    "classification": ("板块与交易所", "所在的板块和交易所"),
+    "membership": ("指数成分", "是不是某个指数的成分股"),
+    "listing": ("上市", "上市了多久"),
+}
+
 PARSE_REASONS = {
     "not_found": ("找不到", "数据里没有这个代码或名称的股票"),
     "ambiguous": ("有歧义", "这个名称或代码对应不止一只股票，请改用带交易所的代码，例如 600000.SH"),
@@ -525,6 +540,8 @@ class Labels(Model):
     """The scopes a strategy may have, the offered ones first in the order to show; legacy ones last."""
     parse_reasons: list[Label]
     """Why an item of a pasted list or file names no stock (UnparsedItem.reason)."""
+    indicator_categories: list[Label]
+    """The categories of expr indicators (Indicator.category)."""
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -556,6 +573,7 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         scopes=[ScopeLabel(code=c, label=n, help=h, kind=k, legacy=False) for c, (n, h, k) in SCOPES.items()]
         + [ScopeLabel(code=c, label=n, help=h, kind="index", legacy=True) for c, (n, h) in LEGACY_SCOPES.items()],
         parse_reasons=_labels(PARSE_REASONS),
+        indicator_categories=_labels(INDICATOR_CATEGORIES),
     )
 
 

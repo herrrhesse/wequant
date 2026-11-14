@@ -36,10 +36,10 @@ PREFERS = ("high", "low")
 PERIODS = ("day", "week", "month")
 WEIGHTINGS = ("equal", "score", "formula")
 POOL_BOARDS = ("main", "chinext", "star")
-POOL_ITEMS = ("index", "boards", "exclude_st", "min_list_days", "stocks")
+POOL_ITEMS = ("index", "boards", "exclude_st", "min_list_days")
 RESERVED = (
     *("code", "date", "universe", "scored", "score", "rank", "role", "weight", "targets", "backups", "formula"),
-    *("listed", "bar", "pool", *POOL_ITEMS, "held", "action"),
+    *("listed", "bar", "pool", *POOL_ITEMS, "stocks", "held", "action"),
     *("sell_kind", "sell_step", "sell_rank", "sell_limit", "capped", "raw_weight"),
 )
 

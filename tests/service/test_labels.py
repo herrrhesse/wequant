@@ -15,12 +15,15 @@ from wequant.analytics.inputs import ORDER_STATUSES
 from wequant.analytics.metrics import REASONS, UNITS
 from wequant.backtest.messages import TEXTS
 from wequant.data.delistings import KINDS
+from wequant.data.indexes import INDEXES
 from wequant.data.schema import CLASSES, ISSUE_KINDS, LEVELS
 from wequant.data.store import REASONS as VERSION_REASONS
+from wequant.pools import REASONS as PARSE_REASONS
 from wequant.runs.causes import CAUSES, PARAMS
 from wequant.service import Context
 from wequant.service.details import PYDANTIC
 from wequant.service.errors import Exit
+from wequant.service.indicators import Category
 from wequant.service.jobs import KINDS as JOB_KINDS
 from wequant.service.jobs import JobKind, JobState
 from wequant.service.labels import fill, job_text, update_params
@@ -81,6 +84,9 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "update_statuses": lambda: set(get_args(UpdateStatus)),
     "order_causes": lambda: set(CAUSES),
     "day_sources": lambda: set(get_args(Source)),
+    "scopes": lambda: {"all", "stocks", *INDEXES},
+    "parse_reasons": lambda: set(PARSE_REASONS),
+    "indicator_categories": lambda: set(get_args(Category)),
 }
 STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's and JobInfo's own
     "queued": ["position"],
