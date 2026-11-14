@@ -2,6 +2,7 @@
 data root that still answers, and the folder reads byte for byte as the command prints them."""
 
 import json
+import re
 import time
 
 import pytest
@@ -86,7 +87,8 @@ def test_a_folder_read_returns_the_bytes_the_cli_prints(cli, tmp_path, cache, ar
     _, out, _ = cli(*map(fill, argv), "--json", "--home", home, "--cache", cache)
     with TestClient(create_app(Context.resident(home, cache))) as client:
         response = call(client, name, {key: fill(value) for key, value in fields.items()})
-    assert (response.status_code, response.text) == (200, out.removesuffix("\n"))
+    free = lambda text: re.sub(r'"free_bytes":[0-9]+', '"free_bytes":0', text)  # noqa: E731  changes between the calls
+    assert (response.status_code, free(response.text)) == (200, free(out.removesuffix("\n")))
 
 
 def test_a_new_folder_and_the_setup_s_progress_over_http(tmp_path, cache):

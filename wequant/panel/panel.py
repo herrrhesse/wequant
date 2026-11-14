@@ -156,6 +156,21 @@ class Panel:
         return self._grid("list_days")
 
     @cached_property
+    def delisting(self) -> np.ndarray:
+        """(T, N) int16 day of the code's delisting period (1 to delisting_days) on its bars in it; 0 elsewhere."""
+        return self._grid("delisting")
+
+    @cached_property
+    def delisting_days(self) -> np.ndarray:
+        """(N,) int16 trading days of the code's delisting period; 0 without one (S2.10a)."""
+        return self._vector("delisting_days")
+
+    @cached_property
+    def named(self) -> np.ndarray:
+        """(N,) bool: the data names the code."""
+        return self._vector("named")
+
+    @cached_property
     def list_days_bound(self) -> np.ndarray:
         """(N,) bool: list_days is a lower bound, the listing day unknown or before the calendar."""
         return self._vector("list_days_bound")

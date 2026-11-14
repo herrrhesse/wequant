@@ -11,7 +11,7 @@ from pydantic import model_validator
 from pydantic_core import PydanticCustomError
 
 from wequant.data.build import members_floor
-from wequant.data.indexes import OFFERED
+from wequant.data.indexes import MEMBERS_SINCE, OFFERED
 from wequant.data.raw import BaoStockRaw
 from wequant.data.scope import Layer, Scope, at, covers, layers, needed, reach, segments
 from wequant.data.sources.baostock import to_baostock
@@ -104,6 +104,9 @@ class ScopeStatus(Model):
     backfill_floor: BackfillFloor | None
     """Set once the history reaches the first member list of an index the oldest layer names: data_backfill adds no
     earlier history (labels.job_stages backfill_floor says why); a wider scope would."""
+    member_floors: list[BackfillFloor]
+    """The first member-list day of each index the oldest layer names (empty for every stock or a list alone): a
+    backfill stops at the latest of them."""
 
 
 def scope_label(scope: Scope) -> str:
@@ -174,7 +177,13 @@ def scope_status(store: Store, found: dict) -> ScopeStatus:
         stock_count=store.read_table("securities", columns=["code"], manifest=found).height,
         first_date=first,
         backfill_floor=BackfillFloor(index=floor[0], name=SCOPES[floor[0]][0], date=floor[1]) if reached else None,
+        member_floors=member_floors(held[-1].scope),
     )
+
+
+def member_floors(scope: Scope) -> list[BackfillFloor]:
+    """The first member-list day of each index of scope."""
+    return [BackfillFloor(index=index, name=SCOPES[index][0], date=MEMBERS_SINCE[index]) for index in scope.indexes]
 
 
 def scope_size(scope: Scope, years: int) -> int:

@@ -1,4 +1,7 @@
 import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import numpy as np
@@ -6,6 +9,7 @@ import polars as pl
 import pytest
 
 from tests.test_panel import BARS, A, bar, col, commit, install_stub_rules, seed
+from wequant.data.files import FileInUse
 from wequant.data.store import KEEP_VERSIONS
 from wequant.panel import build, load_panel
 from wequant.panel.cache import FORMAT, PanelCache, cache_key, keep_only
@@ -132,3 +136,36 @@ def test_a_panel_folder_another_process_removes_mid_write_still_gives_the_array(
 
     monkeypatch.setattr(os, "replace", lost)
     assert building.array("probe", lambda src: np.arange(3.0)).tolist() == [0.0, 1.0, 2.0]
+
+
+def test_two_threads_missing_one_array_build_it_once_and_both_read_it(store, cache):
+    """The second waits for the first's file instead of writing over it: Windows refuses to replace a file another
+    thread has mapped, which answered 500 in the end-to-end runs."""
+    built, start = [], threading.Barrier(2)
+
+    def slow(src):
+        built.append(1)
+        time.sleep(0.2)
+        return np.arange(3.0)
+
+    def ask():
+        start.wait()
+        return PanelCache(store, store.manifest(), cache).array("probe", slow).tolist()
+
+    with ThreadPoolExecutor(2) as pool:
+        got = list(pool.map(lambda _: ask(), range(2)))
+    assert got == [[0.0, 1.0, 2.0]] * 2 and built == [1]
+
+
+def test_a_file_another_process_holds_through_the_replace_is_read_as_it_stands(store, cache, monkeypatch):
+    """The other process wrote the same array first and maps it: its copy serves."""
+    building = PanelCache(store, store.manifest(), cache)
+    building.array("probe", lambda src: np.arange(3.0))
+    (cache / "panel" / building.key / "probe.npy").rename(cache / "kept.npy")
+
+    def held(source, target):  # the other process writes the file and maps it as this one replaces it
+        (cache / "kept.npy").rename(target)
+        raise FileInUse(target)
+
+    monkeypatch.setattr("wequant.panel.cache.atomic_write", lambda path, data: held(None, path))
+    assert building.array("probe", lambda src: np.zeros(3)).tolist() == [0.0, 1.0, 2.0]

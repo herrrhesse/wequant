@@ -100,6 +100,10 @@ class PoolSpec(Spec):
     """Only these boards, no repeats; null: any board (the frontend writes null for all three)."""
     exclude_st: bool = False
     """Leave out stocks that are ST on the decision day (ST is unknown on the seed store)."""
+    exclude_delisting: bool = False
+    """剔除退市整理期股票: leave out a stock in its delisting period on the decision day (its final name carries 退:
+    its last 15 trading days since 2020-12-31, 30 before). False when left out, so that saved strategies keep their
+    results; new strategies and the templates set it."""
     min_list_days: int | None = Field(None, ge=2)
     """Leave out stocks listed for fewer trading days; null: no limit."""
     stocks: StocksSpec | None = None

@@ -19,6 +19,7 @@ EXAMPLES = {  # each code's params with the keys its warning carries
         "worst_day": "2018-06-25",
     },
     "no_picks": {},
+    "delisting_unknown": {},
     "index_uncovered": {"index": "000852.SH", "days": 9, "first": None, "index_2": "000905.SH", "days_2": 3},
     "list_days_approximate": {"codes_at_calendar_start": 1234, "cells": 56},
     "max_weight_cash": {"days": 12, "mean_share": 0.0625},

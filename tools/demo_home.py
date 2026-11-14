@@ -104,7 +104,7 @@ def _stock_basic(days: list[dt.date], listed: dict[str, dt.date]) -> pl.DataFram
     rows = [
         {
             "code": f"{code[-2:].lower()}.{code[:6]}",
-            "code_name": f"演示{i + 1:02d}",
+            "code_name": _name(i, code),
             "ipoDate": listed[code].isoformat(),
             "outDate": days[DELISTED[1]].isoformat() if code == DELISTED[0] else "",
             "type": "1",
@@ -113,6 +113,11 @@ def _stock_basic(days: list[dt.date], listed: dict[str, dt.date]) -> pl.DataFram
         for i, code in enumerate(CODES)
     ]
     return raw_frame(pl.DataFrame(rows), "query_stock_basic", "demo", dt.datetime.fromisoformat(STAMP))
+
+
+def _name(i: int, code: str) -> str:
+    """A demo stock's name; the delisted one's carries 退, so its last trading days are its delisting period (S2.10a)."""
+    return f"演示{i + 1:02d}" + ("退" if code == DELISTED[0] else "")
 
 
 def _stamp() -> str:
@@ -218,7 +223,7 @@ def _tables(
 
 def _security(i: int, code: str, rows: list[dict], listed: dt.date) -> dict:
     exchange = code[-2:]
-    name = f"演示{i + 1:02d}"
+    name = _name(i, code)
     span = {"first_date": rows[0]["date"], "last_date": rows[-1]["date"]}
     official = {"list_date": listed, "delist_date": rows[-1]["date"] if code == DELISTED[0] else None}
     fields = {"code": code, "exchange": exchange, "board": board(code), **span, **official, "name": name}

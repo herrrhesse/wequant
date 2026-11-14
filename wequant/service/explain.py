@@ -17,6 +17,7 @@ from wequant.runs.causes import with_causes
 from wequant.runs.run import Run
 from wequant.service.base import Code, Context, ErrorDetail, Model, named, names_of, not_found, read_version
 from wequant.service.details import to_data, usage
+from wequant.service.notes import delisting_day, pool_note
 from wequant.service.outputs import (
     Action,
     AnomalyUse,
@@ -75,10 +76,12 @@ class PoolCheck(Model):
     passed: bool | None
     """null: no value, which fails too."""
     value: float | bool | str | None
-    """bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days.
+    """bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; exclude_delisting: "k/N"
+    in its delisting period, null outside; min_list_days: list days.
     universe passes on the strategy's fixed list only, when it has one."""
     note: str | None
-    """A Chinese sentence for the page, e.g. that listing days count from the data's first day; null: none."""
+    """A Chinese sentence for the page: list days counted by a lower bound, the day of a delisting period; null:
+    none."""
 
 
 class StepCheck(Model):
@@ -144,9 +147,6 @@ class Explain(Model):
     """t+1's orders of this stock, forced exits included; null without a run."""
     anomalies: list[AnomalyUse]
     warnings: list[Warning]
-
-
-LIST_DAYS_NOTE = "上市天数从数据里这只股票的第一天算起，不一定是真正的上市日期"  # shown on the page (F-31)
 
 
 def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
@@ -257,6 +257,7 @@ def _pool(strategy: Strategy, panel: Panel, section: Section, row: int, col: int
         "index": None,
         "boards": str(panel.boards[col]),
         "exclude_st": bool(panel.st[row, col]) if panel.st_known[row, col] else None,
+        "exclude_delisting": delisting_day(panel, row, col),
         "min_list_days": int(panel.list_days[row, col]),
     }
     checks = [
@@ -268,9 +269,7 @@ def _pool(strategy: Strategy, panel: Panel, section: Section, row: int, col: int
     for name in pool_items(strategy):
         passed = verdict(section.steps[name][0, col])
         value = passed if name == "index" else values[name]
-        checks.append(
-            PoolCheck(name=name, passed=passed, value=value, note=LIST_DAYS_NOTE if name == "min_list_days" else None)
-        )
+        checks.append(PoolCheck(name=name, passed=passed, value=value, note=pool_note(name, panel, row, col)))
     return checks
 
 

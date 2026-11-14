@@ -29,6 +29,7 @@ from wequant.service.scopes import (
     extend_size,
     held_layers,
     layers_out,
+    member_floors,
     scope_label,
     scope_size,
 )
@@ -68,6 +69,9 @@ class BuildEstimate(Model):
     """Expected time; the frontend shows it as 预计约 X 小时."""
     already: int
     """Stocks whose history files the raw layer holds from an earlier, stopped build: they cost nothing again."""
+    member_floors: list[BackfillFloor]
+    """The first member-list day of each index of the scope (empty for every stock or a list alone): a backfill after
+    the build stops at the latest of them."""
 
 
 class BuildRequest(Model):
@@ -171,6 +175,7 @@ def data_build_estimate(request: BuildEstimateRequest, context: Context = Contex
         requests=todo + stocks + 2 * 12 * request.years + 10,
         seconds=round(seconds),
         already=min(already, stocks),
+        member_floors=member_floors(request.scope.scope()),
     )
 
 

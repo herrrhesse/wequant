@@ -51,6 +51,7 @@ TEXTS: dict[str, Callable[[Params], str]] = {
         f"{p['day']}"
     ),
     "no_picks": lambda p: "no decision day selected a stock",
+    "delisting_unknown": lambda p: "the data names no stock, so no delisting period can be told and none is left out",
     "index_uncovered": _index_uncovered,
     "list_days_approximate": lambda p: (
         f"list_days is a lower bound for {p['codes_at_calendar_start']} codes whose listing day is unknown or before the "

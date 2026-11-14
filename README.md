@@ -353,10 +353,21 @@ uv run wequant pools export ID > 自选.csv ; uv run wequant pools import 自选
   `000300.SH` or CSI 500 `000905.SH`) on each decision day, or a fixed list of stocks (`pool.stocks`); `labels`
   lists them in order (`scopes`), so the frontend shows what the backend offers. An index and a list together are
   refused (`requires`). A list is the scope itself: the funnel's `universe` level (范围) is the universe and the
-  list, right after the bars, and no later level repeats it. Boards, ST and listing days apply on top as before. CSI 800 (`000906.SH`), CSI 1000
+  list, right after the bars, and no later level repeats it. Boards, ST, the delisting period and listing days apply on top as before. CSI 800 (`000906.SH`), CSI 1000
   (`000852.SH`) and CSI All Share (`000985.SH`) are older options: strategies and archived runs that use them validate
   and run as before where the store has their members, with the warning `legacy_index` (param `name`: the index's
   Chinese name), and are never offered again.
+- **The delisting period (S2.10a):** `pool.exclude_delisting` (剔除退市整理期, on in the templates and new
+  strategies; off when a saved strategy or an archived run lacks it, so they rerun byte for byte) leaves out a stock
+  in its delisting period (退市整理期) on the decision day: the last N bars of a stock whose final name carries 退 and
+  that has a delist_date, suspended days not counted, N by the rules in force on its last bar (30 trading days from
+  2012-07-07, 15 from 2020-12-31, none before; `wequant/rules/delisting.toml` names the sources). The exchange
+  announces the decision before the period and the stock trades under its 退 name during it, so the rule reads only
+  what was public on each day. Delistings on trading measures (price, market value, volume) have had no period since
+  2020-12-31 and are left to the rest of the strategy. The funnel gains the pool step `exclude_delisting`, the
+  decision chain says 处于退市整理期（第 k/N 天）, and data without stock names cannot tell the period: the warning
+  `delisting_unknown`. BaoStock drops a stock's ST flag when its period starts, so 剔除 ST alone lets these stocks back
+  in during their last falling days.
 - **Stock pools** are files under `<home>/pools/<id>.json` (id, name, codes in the user's order without repeats,
   created and modified times): the user's data, never in the repository. `pools parse` reads a pasted list or a file's
   text, split at line breaks, commas, spaces, tabs and semicolons; each item is a code (`600519`, `600519.SH`,

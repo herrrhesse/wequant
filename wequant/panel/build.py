@@ -10,6 +10,7 @@ import polars as pl
 
 from wequant.panel.grid import asof_rows, cells, code_columns, fill_forward, scatter
 from wequant.panel.status import NO_ROW, classify
+from wequant.rules.delisting import period_days
 from wequant.rules.limits import FREE, LIMITED
 from wequant.rules.tables import load_limits
 
@@ -82,6 +83,47 @@ def st(src: PanelCache) -> np.ndarray:
     """int8 grid: 1 ST, 0 not ST, NO_ROW where daily_status has no row."""
     daily = src.scan("daily_status", columns=["code", "date", "is_st"]).collect()
     return _place(src, daily, daily["is_st"].cast(pl.Int8).to_numpy(), NO_ROW)
+
+
+def delisting(src: PanelCache) -> np.ndarray:
+    """int16 grid: the day of a stock's delisting period (1 to N) on each of its bars in it, 0 elsewhere.
+
+    The period is the last N bars of a stock whose final name carries 退 and that has a delist_date, N by the rules in
+    force on its last bar (wequant.rules.delisting); suspended days have no bar and do not count. The exchange announces
+    the decision before the period and the stock trades under its 退 name during it, so the period was public as it
+    happened and reading it on those days looks ahead at nothing.
+    """
+    period = _delisting_period(src)
+    return _place(src, period, period["day"].to_numpy(), 0)
+
+
+def delisting_days(src: PanelCache) -> np.ndarray:
+    """(N,) int16: the trading days of each code's delisting period; 0 without one."""
+    period, codes = _delisting_period(src), src.array("codes")
+    days = dict(period.group_by("code").agg(pl.col("days").first()).iter_rows())
+    return np.array([days.get(code, 0) for code in codes], dtype=np.int16)
+
+
+def named(src: PanelCache) -> np.ndarray:
+    """(N,) bool: securities gives the code a name (without names no delisting period can be told)."""
+    found = src.scan("securities").sort("code").select("name").collect()["name"]
+    return found.is_not_null().to_numpy()
+
+
+def _delisting_period(src: PanelCache) -> pl.DataFrame:
+    """code, date, day (1 to days) and days of each bar in a delisting period."""
+    securities = src.scan("securities").select("code", "name", "delist_date").collect()
+    delisted = securities.filter(pl.col("name").str.contains("退") & pl.col("delist_date").is_not_null())["code"]
+    bars = src.scan("bars", columns=["code", "date"]).filter(pl.col("code").is_in(delisted.implode())).collect()
+    last = bars.group_by("code").agg(pl.col("date").max().alias("last"))
+    days = last.with_columns(days=pl.col("last").map_elements(period_days, return_dtype=pl.Int16))
+    back = pl.col("date").rank("ordinal", descending=True).over("code")
+    return (
+        bars.join(days, on="code")
+        .with_columns(back=back)
+        .filter(pl.col("back") <= pl.col("days"))
+        .select("code", "date", day=(pl.col("days") - pl.col("back") + 1).cast(pl.Int16), days="days")
+    )
 
 
 def limits(src: PanelCache) -> np.ndarray:
@@ -189,4 +231,7 @@ BUILDERS: dict[str, Callable[[PanelCache], np.ndarray]] = {
     "st": st,
     "list_days": list_days,
     "list_days_bound": list_days_bound,
+    "delisting": delisting,
+    "delisting_days": delisting_days,
+    "named": named,
 }
