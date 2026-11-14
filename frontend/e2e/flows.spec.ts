@@ -571,25 +571,34 @@ test.describe("data folder", () => {
     await expect(d).toBeHidden();
   });
 
-  test("copy, then move, then back to an existing data folder: each switch shows the new folder at once", async ({ page }) => {
+  test("copy (the default), then move, then back to an existing data folder: each switch shows the new folder at once", async ({ page }) => {
     test.setTimeout(120_000);
     await page.goto("#/data");
     const loc = location(page);
     const modes = loc.getByRole("radiogroup", { name: "怎么处理现有数据" });
-    // Copy into the empty folder made above; switching to it is not offered, it holds no data.
+    // Copy into the empty folder made above: copying is the default; switching to it is not offered, it holds no data.
     await choose(page, join(SCRATCH, "新的数据"));
+    await expect(modes.getByRole("radio", { name: /复制过去/ })).toBeChecked();
+    await expect(modes.getByRole("radio", { name: /把现有数据移过去/ })).toBeEnabled();
     await expect(modes.getByRole("radio", { name: /直接使用那里已有的数据/ })).toBeDisabled();
-    await modes.getByRole("radio", { name: /复制过去/ }).check();
     await loc.getByRole("button", { name: "开始复制" }).click();
-    await expect(loc.getByRole("status")).toContainText("数据已复制到", { timeout: 60_000 });
+    const copied = loc.getByRole("status").filter({ hasText: "数据已复制到" });
+    await expect(copied).toBeVisible({ timeout: 60_000 });
     await expect(loc.locator(".loc-path")).toHaveText(join(SCRATCH, "新的数据"));
     await expect(loc).toContainText("交易日历");
-    // A folder with other folders in it gets one made for the data; moving is the default.
+    // The old folder is still there, with its size; deleting it is the user's to do, not a button here.
+    await expect(copied).toContainText(`旧位置 ${DEMO} 的数据还在`);
+    await expect(copied).toContainText(/约占 [\d.]+ (KB|MB|GB)。确认新位置一切正常后，可以自己删掉旧文件夹/);
+    await expect(loc.getByRole("button", { name: /删除/ })).toHaveCount(0);
+    // A folder with other folders in it gets one made for the data; moving is still there to choose.
     await choose(page, SCRATCH);
     await expect(loc.locator(".loc-confirm")).toContainText(join(SCRATCH, "wequant-data"));
+    await expect(loc.getByRole("button", { name: "开始复制" })).toBeVisible();
+    await modes.getByRole("radio", { name: /把现有数据移过去/ }).check();
     await loc.getByRole("button", { name: "开始移动" }).click();
     await expect(loc.getByRole("status")).toContainText("数据已移动到", { timeout: 60_000 });
     await expect(loc.locator(".loc-path")).toHaveText(join(SCRATCH, "wequant-data"));
+    await expect(loc.getByRole("status")).not.toContainText("旧位置");
     // Other pages read the new folder without a reload.
     await page.getByRole("link", { name: "策略", exact: true }).click();
     await expect(page.locator(".strat-aside .pv-status, .tpl-card").first()).toBeVisible();
@@ -622,6 +631,7 @@ test.describe("data folder", () => {
     await page.goto("#/data");
     const loc = location(page);
     await choose(page, SCRATCH);
+    await loc.getByRole("radiogroup", { name: "怎么处理现有数据" }).getByRole("radio", { name: /把现有数据移过去/ }).check();
     await loc.getByRole("button", { name: "开始移动" }).click();
     const progress = loc.getByRole("status", { name: "正在移动数据" });
     await expect(progress).toContainText("已复制 2/5 MB");
@@ -635,7 +645,7 @@ test.describe("data folder", () => {
       r.fulfill({ status: 409, json: { exit: 5, name: "LOCKED", message: "busy", detail: [{ code: "store_busy", message: "busy", loc: [], path: [], hint: null }], complete: true } }),
     );
     await choose(page, SCRATCH);
-    await loc.getByRole("button", { name: "开始移动" }).click();
+    await loc.getByRole("button", { name: "开始复制" }).click();
     await expect(loc.getByRole("alert")).toContainText("另一个写入");
     // No space: the job stops at its check.
     state = "failed";
@@ -643,7 +653,7 @@ test.describe("data folder", () => {
     await page.route("**/api/jobs_start", (r) => r.fulfill({ json: job() }));
     await loc.getByRole("button", { name: "取消" }).click();
     await choose(page, SCRATCH);
-    await loc.getByRole("button", { name: "开始移动" }).click();
+    await loc.getByRole("button", { name: "开始复制" }).click();
     await expect(loc.getByRole("alert")).toContainText("空间不够");
     await expect(loc.getByRole("alert")).toContainText("数据仍在原来的位置");
     expect(await loc.innerText()).not.toMatch(/no space|busy/);
@@ -709,9 +719,49 @@ async function replayBuilds(page: Page) {
   return { jobs, starts };
 }
 
+const RECONNECT = { stage: "build_reconnect", params: { seconds: 30, attempt: 2, of: 5 } };
+const RECONNECT_TEXT = "BaoStock 连接中断，30 秒后重新连接（第 2/5 次），已下载的部分不会重下";
+
 test.describe("first-run setup", () => {
   test.skip(!EMPTY, "needs npm run e2e's empty serve (release shape)");
   test.use({ baseURL: EMPTY, allowConsole: [/status of 4(04|09|22)/] });
+
+  test.describe("an empty folder", () => {
+    // Nothing allowed but the 422 of every test: no page asks the empty folder for data it does not have.
+    test.use({ allowConsole: [/status of 422/] });
+
+    test("every page leads to the setup without one 404 on the way", async ({ page }) => {
+      await page.request.post("api/setup_save", { data: { clear: true } });
+      const missing: string[] = [];
+      page.on("response", (r) => r.status() === 404 && missing.push(r.url()));
+      for (const at of ["#/", "#/data", "#/strategy", "#/picks", "#/backtest", "#/stock/600000.SH"]) {
+        await page.goto(at);
+        await expect(page).toHaveURL(/#\/setup$/);
+        await expect(page.getByRole("heading", { name: "先把本地数据准备好" })).toBeVisible();
+        await expect(page.getByRole("status", { name: "预计耗时" })).toBeVisible();
+      }
+      expect(missing).toEqual([]);
+    });
+  });
+
+  test("a build waiting to reach BaoStock again (replayed) says so in Chinese, keeps its bar and still pauses", async ({ page }) => {
+    await page.request.post("api/setup_save", { data: { clear: true } });
+    const { jobs } = await replayBuilds(page);
+    await page.goto("#/setup");
+    await page.getByRole("group", { name: "建最近几年" }).getByRole("button", { name: "1 年" }).click();
+    await page.getByRole("button", { name: "下一步" }).click();
+    const build = page.getByRole("status", { name: "用 BaoStock 建最近 1 年的数据" });
+    await expect(build).toContainText("30%");
+    Object.assign([...jobs.values()].at(-1)!, RECONNECT);
+    await expect(build).toContainText(RECONNECT_TEXT);
+    // Still running: the same share done, no failure, pause at hand.
+    await expect(build).toContainText("30%");
+    await expect(build.locator(".bar > span")).toHaveAttribute("style", /width: 30%/);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await build.getByRole("button", { name: "暂停" }).click();
+    await expect(page.getByText("已暂停。已下载的部分保留")).toBeVisible();
+    await page.request.post("api/setup_save", { data: { clear: true } });
+  });
 
   test("an empty folder opens the setup; a BaoStock build (replayed) pauses, goes back, carries on, comes back after a reload and finishes into the history", async ({ page }) => {
     await page.request.post("api/setup_save", { data: { clear: true } });
@@ -816,8 +866,8 @@ test.describe("first-run setup", () => {
   });
 });
 
-test("the history backfill shows in the status bar and on the data page, pauses and carries on; the setup can be run again", async ({ page }) => {
-  await replayBuilds(page);
+test("the history backfill shows in the status bar and on the data page, waits for BaoStock in Chinese, pauses and carries on; the setup can be run again", async ({ page }) => {
+  const { jobs } = await replayBuilds(page);
   await page.goto("#/data");
   const loc = page.getByRole("region", { name: "存储位置" });
   const first = (await (await page.request.post("api/data_calendar", { data: {} })).json()).first as string;
@@ -825,7 +875,16 @@ test("the history backfill shows in the status bar and on the data page, pauses 
   await loc.getByRole("button", { name: "补齐更早的历史（到 2000 年）" }).click();
   const bar = page.getByRole("status", { name: "后台补齐历史" });
   await expect(bar).toContainText("30%");
-  await expect(loc.getByRole("status", { name: "后台补齐更早的历史（到 2000 年）" })).toBeVisible();
+  const fill = loc.getByRole("status", { name: "后台补齐更早的历史（到 2000 年）" });
+  await expect(fill).toBeVisible();
+  // Waiting to reach BaoStock again: both say so, the share done stays, pausing still works.
+  Object.assign([...jobs.values()].at(-1)!, RECONNECT);
+  await expect(bar).toContainText(RECONNECT_TEXT);
+  await expect(fill).toContainText(RECONNECT_TEXT);
+  await expect(bar).toContainText("30%");
+  await expect(fill).toContainText("30%");
+  await expect(bar.locator(".status-progress > span")).toHaveAttribute("style", /width: 30%/);
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await bar.getByRole("button", { name: "暂停" }).click();
   await expect(bar).toBeHidden();
   await expect(loc).toContainText("补齐已暂停");
