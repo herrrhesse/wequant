@@ -22,6 +22,7 @@ import polars as pl
 
 from wequant import service
 from wequant.data.codes import board
+from wequant.data.raw import BaoStockRaw, raw_frame
 from wequant.data.schema import TABLES
 from wequant.data.scope import ALL, Layer, Scope, as_meta
 from wequant.data.store import Store
@@ -86,12 +87,32 @@ def build(out: Path, seed: int = SEED, scope: str = "all") -> dict:
         meta |= as_meta([index])
     tables = _tables(days, bars, [f for f in factors if f["code"] in bars], listed)
     Store(out, clock=_stamp).commit(meta, replace=tables, reason="demo")
+    if scope != "all":  # like a data root built from BaoStock: the whole market's securities list in the raw layer
+        raw = BaoStockRaw.at(out)
+        raw.stock_basic.parent.mkdir(parents=True)
+        raw.write(raw.stock_basic, _stock_basic(days, listed))
     with tempfile.TemporaryDirectory() as cache:  # panel caches stay out of the demo home
         context = service.Context(out, Path(cache), clock=_stamp)
         service.data_check(service.CheckRequest(commit=True), context)
         for id, (name, form) in STRATEGIES.items():
             service.strategy_save(service.SaveRequest(strategy=form, id=id, name=name), context)
     return {name: frame.height for name, frame in tables.items()}
+
+
+def _stock_basic(days: list[dt.date], listed: dict[str, dt.date]) -> pl.DataFrame:
+    """BaoStock's stock_basic of every demo stock, as the raw layer keeps it."""
+    rows = [
+        {
+            "code": f"{code[-2:].lower()}.{code[:6]}",
+            "code_name": f"演示{i + 1:02d}",
+            "ipoDate": listed[code].isoformat(),
+            "outDate": days[DELISTED[1]].isoformat() if code == DELISTED[0] else "",
+            "type": "1",
+            "status": "0" if code == DELISTED[0] else "1",
+        }
+        for i, code in enumerate(CODES)
+    ]
+    return raw_frame(pl.DataFrame(rows), "query_stock_basic", "demo", dt.datetime.fromisoformat(STAMP))
 
 
 def _stamp() -> str:

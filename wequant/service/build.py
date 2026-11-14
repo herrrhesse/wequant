@@ -24,6 +24,7 @@ from wequant.service.scopes import (
     BackfillFloor,
     DataScope,
     ScopeLayer,
+    Size,
     default_scope,
     extend_size,
     held_layers,
@@ -125,7 +126,7 @@ class ExtendEstimate(Model):
     scope: DataScope
     """The widest layer's scope once extended."""
     covered: bool
-    """The data holds it already from its first day: nothing to fetch."""
+    """Nothing to fetch: the data holds it already from its first day, or holds every stock it picks."""
     stocks: int
     """Stocks to fetch: those new to the data and those it holds only from a later day."""
     requests: int
@@ -211,9 +212,9 @@ def data_extend_estimate(request: ExtendEstimateRequest, context: Context = Cont
     found = manifest(store)
     held, added = held_layers(store, found), request.scope.scope()
     widest, first = DataScope.of(held[0].scope | added), held[-1].since
-    if added <= held[-1].scope:
+    size = _size(store, found, added)
+    if size is None:
         return ExtendEstimate(scope=widest, covered=True, stocks=0, requests=0, seconds=0, since=first)
-    size = extend_size(store, found, added, SEGMENT_YEARS)
     seconds = (
         size.histories * SECONDS_PER_HISTORY[SEGMENT_YEARS]
         + size.new * SECONDS_PER_FACTOR
@@ -233,7 +234,7 @@ def data_extend(request: ExtendRequest, context: Context = Context()) -> ExtendR
     before = found["tables"]["securities"]
     added, name = request.scope.scope(), scope_label(request.scope.scope())
     named = lambda say: lambda step: say(step._replace(params={**step.params, "name": name}))  # noqa: E731
-    while True:
+    while _size(store, manifest(store), added) is not None:
         started = time.monotonic()
         work = lambda source, say: extend(store, source, added, _now(context), named(say), context.cancel, name)  # noqa: E731
         built = _session(work, context)
@@ -250,6 +251,15 @@ def data_extend(request: ExtendRequest, context: Context = Context()) -> ExtendR
         added=_rows(after["tables"]["securities"]) - _rows(before),
         pool_id=pool,
     )
+
+
+def _size(store, found: dict, added: Scope) -> Size | None:
+    """What extending by added fetches; None when the data holds it from its first day or nothing is left to fetch."""
+    held = held_layers(store, found)
+    if added <= held[-1].scope:
+        return None
+    size = extend_size(store, found, added, SEGMENT_YEARS)
+    return size if size.stocks else None
 
 
 def save_pool(context: Context, name: str, codes: tuple[str, ...]) -> str | None:

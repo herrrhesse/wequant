@@ -176,3 +176,14 @@ def test_a_build_of_a_list_holds_its_stocks_and_saves_the_list_as_a_stock_pool(t
     built = service.data_build(request, context(home))
     pool = service.pools_show(service.PoolRequest(id=built.pool_id), context(home))
     assert (built.stocks, pool.name, [s.code for s in pool.stocks]) == (1, "我的名单", ["600001.SH"])
+
+
+def test_an_addition_with_nothing_to_fetch_is_covered_and_makes_no_version(tmp_path, fake):
+    """A list of stocks the data holds already: no stock to fetch, so nothing to run (S2.11)."""
+    home = tmp_path / "home"
+    service.data_build(service.BuildRequest(years=1), context(home))  # holds 600000.SH, the fake's member
+    held = {"scope": {"stocks": ["600000.SH"]}}
+    estimate = service.data_extend_estimate(service.ExtendEstimateRequest(**held), context(home))
+    extended = service.data_extend(service.ExtendRequest(**held), context(home))
+    assert (estimate.covered, estimate.stocks, estimate.seconds) == (True, 0, 0)
+    assert (extended.status, Store(home).versions()) == ("covered", [1])
