@@ -20,7 +20,6 @@ import {
   metricName,
   namesIn,
   readCondition,
-  readCustom,
   uniqueName,
   UNIT_TEXT,
   writeCondition,
@@ -30,10 +29,14 @@ import {
 import { metricUnit } from "../../strategy/fields";
 import { cnDate, tx } from "../../text";
 import { st } from "./text";
+import { formulaExpr } from "../../strategy/formula";
+import { ExprFormula, useExample } from "./ExprFormula";
 
 export interface Err {
   loc: Loc;
   text: string;
+  /** At a place in a formula's text (ErrorDetail.position): shown by the formula editor itself. */
+  inFormula?: boolean;
 }
 
 export interface EditorProps {
@@ -56,7 +59,9 @@ const isAuto = (name: string, auto: string) => name === auto || new RegExp(`^${a
 const errsAt = (errors: Err[], at: Loc) => errors.filter((e) => concerns(e.loc, at));
 
 function ErrText({ errors }: { errors: Err[] }) {
-  return errors.length ? <span className="err-text">{errors.map((e) => e.text).join(" ")}</span> : null;
+  // A problem at a place in a formula's text is said by the formula editor, underlined there.
+  const shown = errors.filter((e) => !e.inFormula);
+  return shown.length ? <span className="err-text">{shown.map((e) => e.text).join(" ")}</span> : null;
 }
 
 /* ---------- 1 · scope ---------- */
@@ -74,6 +79,7 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, delistingNone
   const boards = ["main", "chinext", "star"] as const;
   const onBoards = pool.boards ?? [...boards];
   const universeDefault = JSON.stringify(spec.universe ?? ["NOT", "exchange@BJ"]) === JSON.stringify(["NOT", "exchange@BJ"]);
+  const [universeOpen, setUniverseOpen] = useState(false);
   const row = (key: string, label: string, body: ReactNode, path: Loc) => {
     const errs = errsAt(errors, path);
     return (
@@ -94,7 +100,6 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, delistingNone
         <h2>{st.scope.title}</h2>
         <Help text={st.help.scope} />
       </div>
-      {!universeDefault && <span className="warnbox">{st.scope.customUniverse}</span>}
       <div className="scope-grid">
         {row(
           "index",
@@ -176,6 +181,21 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, delistingNone
           </span>,
           ["pool", "min_list_days"],
         )}
+        {row(
+          "universe",
+          st.scope.universe,
+          universeDefault && !universeOpen ? (
+            <span className="row small">
+              {st.scope.universeDefault}
+              <button type="button" className="link small" style={{ border: 0, background: "none", padding: 0 }} onClick={() => setUniverseOpen(true)}>
+                {st.scope.universeEdit}
+              </button>
+            </span>
+          ) : (
+            <ExprFormula expr={spec.universe ?? ["NOT", "exchange@BJ"]} role="universe" label={st.scope.universe} onCommit={(e) => edit((d) => void (d.universe = e))} />
+          ),
+          ["universe"],
+        )}
       </div>
       <span className="note">{st.scope.note}</span>
     </section>
@@ -189,6 +209,7 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("");
   const ind = useIndicators();
+  const example = useExample("condition");
   const list = boxes(spec);
   const at = (d: StrategySpec, path: Loc): ConditionSpec => {
     const f = d.filters![path[1] as number]!;
@@ -198,8 +219,8 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
     edit((d) => {
       const b = bi < 0 ? null : boxes(d)[bi];
       if (bi >= 0 && !b) return;
-      const row: Row = metric ? { custom: false, metric, mode: "gt", dir: "high", value: "0", unit: metricUnit(metric) } : { custom: true, text: "GT(close, 0)" };
-      const expr = row.custom ? readCustom(row.text) : (writeCondition(row) ?? exprOf(metricForm(row.metric)));
+      const expr = metric ? (writeCondition({ custom: false, metric, mode: "gt", dir: "high", value: "0", unit: metricUnit(metric) }) ?? exprOf(metricForm(metric))) : formulaExpr(example?.text ?? "", example?.period ?? "day");
+      const row = readCondition(expr);
       const c: ConditionSpec = { name: uniqueName(autoName(row), namesIn(d)), expr };
       if (!b) d.filters = [...(d.filters ?? []), c];
       else if (b.group !== null) (d.filters![b.group] as GroupSpec).conditions.push(c);
@@ -245,13 +266,14 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
                     ))}
                     <button
                       type="button"
+                      disabled={!example}
                       onClick={() => {
                         addTo(bi, null);
                         setAdding(null);
                       }}
                     >
                       <span className="b">{st.filters.customItem}</span>
-                      <span className="tiny muted">{st.filters.customItemDesc}</span>
+                      <span className="tiny muted">{example ? st.filters.customItemDesc(example.text, example.title) : st.filters.customItemPlain}</span>
                     </button>
                   </div>
                   <button type="button" className="btn sm soft push" onClick={() => setAdding(null)}>
@@ -397,24 +419,25 @@ function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProp
   const auto = autoName(row);
   const named = !isAuto(c.name, auto);
   // Rewrite the expression, and the name when it was automatic, keeping names unique.
-  const write = (next: Row) =>
+  const writeExpr = (expr: ConditionSpec["expr"]) =>
     update((x) => {
       const wasAuto = isAuto(x.name, autoName(readCondition(x.expr)));
-      const expr = next.custom ? readCustom(next.text) : writeCondition(next);
-      if (expr === null) return;
       x.expr = expr;
       if (wasAuto) {
         const others = new Set(taken);
         others.delete(x.name);
-        x.name = uniqueName(autoName(next), others);
+        x.name = uniqueName(autoName(readCondition(expr)), others);
       }
     });
+  const write = (next: Exclude<Row, { custom: true }>) => {
+    const expr = writeCondition(next);
+    if (expr !== null) writeExpr(expr);
+  };
   let hint = "";
   if (!row.custom && (row.mode === "topn" || row.mode === "toppct")) {
     const side = row.dir === "high" ? st.filters.high : st.filters.low;
     hint = st.filters.rankBase(side, row.mode === "topn" ? st.filters.topN(row.value) : st.filters.topPct(row.value));
-  } else if (row.custom) hint = st.filters.customHint;
-  else if (info) hint = `${info.label}：${info.help}`;
+  } else if (info) hint = `${info.label}：${info.help}`;
   return (
     <div
       id={`loc-${path.join("-")}`}
@@ -426,7 +449,9 @@ function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProp
       <div className="cond-grid">
         <input type="checkbox" checked={!off} aria-label={st.filters.enable} onChange={() => update((x) => void (x.enabled = off ? true : false))} />
         {row.custom ? (
-          <input className="input mono grow" aria-label={st.filters.custom} defaultValue={row.text} onBlur={(e) => e.target.value !== row.text && write({ custom: true, text: e.target.value })} style={{ gridColumn: "span 2" }} />
+          <div className="cond-formula">
+            <ExprFormula expr={c.expr} role="condition" label={st.filters.custom} onCommit={writeExpr} />
+          </div>
         ) : (
           <>
             <div className="row nowrap">
@@ -493,6 +518,7 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
   const factors = spec.factors ?? [];
   const up = (i: number, fn: (f: FactorSpec) => void) => edit((d) => fn(d.factors![i]!));
   const errs = errsAt(errors, ["factors"]);
+  const factorExample = useExample("factor");
   return (
     <section id="loc-factors" className={`card ${errs.some((e) => e.loc.length === 1) ? "has-err" : ""}`} aria-label="排名打分">
       <div className="card-head">
@@ -534,7 +560,7 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
                       }
                     />
                   ) : (
-                    <input className="input mono" aria-label={st.factors.metric} defaultValue={typeof f.expr === "string" ? f.expr : JSON.stringify(f.expr)} onBlur={(e) => up(i, (x) => void (x.expr = readCustom(e.target.value)))} />
+                    <ExprFormula expr={f.expr} role="factor" label={st.factors.formula} onCommit={(e) => up(i, (x) => void (x.expr = e))} />
                   )}
                   <span className="row nowrap tiny muted">
                     {st.factors.name}
@@ -588,6 +614,16 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
       >
         {st.factors.add}
       </button>
+      {factorExample && (
+        <button
+          type="button"
+          className="btn sm soft"
+          style={{ alignSelf: "flex-start" }}
+          onClick={() => edit((d) => void (d.factors = [...(d.factors ?? []), { name: uniqueName(st.factors.formula, namesIn(d)), expr: formulaExpr(factorExample.text, factorExample.period), prefer: "high", weight: 1 }]))}
+        >
+          {st.factors.addFormula}
+        </button>
+      )}
     </section>
   );
 }
@@ -596,6 +632,7 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
 
 export function TradeCard({ spec, edit, errors, schedule }: EditorProps & { schedule: Schedule | null }) {
   const L = useLabels();
+  const weightExample = useExample("formula");
   const [adv, setAdv] = useState(false);
   const n = spec.top_n ?? 0;
   const k = spec.hold_rank && spec.hold_rank > n ? spec.hold_rank : n;
@@ -680,9 +717,27 @@ export function TradeCard({ spec, edit, errors, schedule }: EditorProps & { sche
           <button type="button" aria-pressed={spec.weighting === "score"} onClick={() => edit((d) => void (d.weighting = "score"))}>
             {st.trade.score}
           </button>
-          {spec.weighting === "formula" && <button type="button" aria-pressed>{st.trade.formula}</button>}
+          <button
+            type="button"
+            aria-pressed={spec.weighting === "formula"}
+            disabled={spec.weighting !== "formula" && !spec.formula && !weightExample}
+            onClick={() =>
+              edit((d) => {
+                d.weighting = "formula";
+                if (!d.formula && weightExample) d.formula = formulaExpr(weightExample.text, weightExample.period);
+              })
+            }
+          >
+            {st.trade.formula}
+          </button>
         </div>,
         spec.weighting === "formula" ? st.trade.formulaNote : undefined,
+      )}
+      {spec.weighting === "formula" && spec.formula && (
+        <div id="loc-formula" className="col tight">
+          <ExprFormula expr={spec.formula} role="formula" label={st.trade.formulaLabel} onCommit={(e) => edit((d) => void (d.formula = e))} />
+          <ErrText errors={errsAt(errors, ["formula"])} />
+        </div>
       )}
       {field("max_weight", st.trade.cap, <><NumInput aria-label={st.trade.cap} style={{ width: 60 }} value={spec.max_weight ?? null} scale={0.01} onValue={(v) => edit((d) => void (d.max_weight = v))} />{st.trade.pct}</>)}
       <button type="button" className="link small" style={{ alignSelf: "flex-start", border: 0, background: "none", padding: 0 }} aria-expanded={adv} onClick={() => setAdv(!adv)}>

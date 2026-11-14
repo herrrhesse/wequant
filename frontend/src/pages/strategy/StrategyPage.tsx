@@ -1,6 +1,8 @@
 // The strategy page: a one-page editor (scope, filters, ranking, trading on the left; a live preview on the right),
 // the change history drawer and "我的策略". Every edit re-checks the draft (strategy validate) and re-screens it on the
 // latest trading day (about 300 ms after the last change); an older answer never replaces a newer one.
+import { SELL_RULES, SellCard } from "./SellCard";
+import { formulaTexts } from "../../strategy/formula";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { commandOf, useCall, useCallMutation } from "../../api/client";
@@ -115,6 +117,8 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const errors: Err[] = (apiErr?.status === 422 ? (apiErr.body.detail ?? []) : []).map((d) => ({
     loc: strategyLoc(d.loc ?? []),
     text: L.detail(d),
+    // A place in a formula's text: the formula editor underlines it and says it, the row need not repeat it.
+    inFormula: !!d.position,
   }));
   const screen = useCall("screen", check.isSuccess ? { strategy: asked } : null, { placeholderData: keepPreviousData });
   const schedule = useCall("strategy_schedule", check.isSuccess ? { strategy: asked, count: 3 } : null, { placeholderData: keepPreviousData });
@@ -134,7 +138,10 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   // The check's warnings, and the preview's data-scope warning for its day when the check has not given that one.
   const warnings = [...(check.data?.warnings ?? []), ...(screen.data?.warnings ?? []).filter((w) => SCOPE_WARNINGS.has(w.code) && !check.data?.warnings.some((c) => c.code === w.code))];
 
-  const dirty = check.data ? !origin || !check.data.saved_as.some((s) => s.id === origin.id) || name !== origin.name : spec !== savedSpec;
+  // Saved when the backend has this content (by hash) under this strategy and its formulas read as saved: a comment
+  // or a variable name keeps the hash, yet the user wants to find the text as written next time.
+  const textsChanged = !!savedSpec && formulaTexts(spec) !== formulaTexts(savedSpec);
+  const dirty = check.data ? !origin || !check.data.saved_as.some((s) => s.id === origin.id) || name !== origin.name || textsChanged : spec !== savedSpec;
   const state = errors.length ? "errors" : !origin ? "never" : dirty ? "dirty" : "saved";
 
   const save = useCallMutation("strategy_save", ["strategy_list", "strategy_versions", "strategy_show", "strategy_validate"]);
@@ -278,6 +285,7 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
           <FiltersCard {...props} />
           <FactorsCard {...props} shares={check.data?.weight_shares ?? null} />
           <TradeCard {...props} schedule={schedule.data ?? null} />
+          {SELL_RULES && <SellCard {...props} />}
         </div>
         {narrow ? (
           <aside className={`drawer ${drawer ? "open" : ""}`} aria-label={st.preview.title}>

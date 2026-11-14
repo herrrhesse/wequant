@@ -451,4 +451,53 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .seg button[aria-pressed="true"] .seg-note { color: inherit; opacity: 0.8; }
 .scope-layers { display: flex; flex-direction: column; gap: 4px; }
 .tpl-card:disabled { opacity: 0.55; cursor: default; border-color: transparent; }
-.period-tag { margin-left: 6px; font-size: 10px; font-weight: 500; vertical-align: 1px; }
+
+/* Formula editor: a monospace box with line numbers; the backend's problem underlined at its place. */
+.fx { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fx-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.seg.sm button { min-height: 26px; padding: 0 10px; }
+.fx-edit { display: flex; border-radius: 10px; background: var(--soft); overflow: hidden; }
+.fx.has-err .fx-edit { box-shadow: inset 0 0 0 1px var(--red); }
+.fx-edit:focus-within { box-shadow: inset 0 0 0 1px var(--track); }
+.fx.has-err .fx-edit:focus-within { box-shadow: inset 0 0 0 1px var(--red); }
+.fx-gutter { flex: 0 0 auto; min-width: 34px; padding: 8px 6px 8px 8px; overflow: hidden; text-align: right; color: var(--muted); font: 12px/20px "JetBrains Mono", ui-monospace, monospace; user-select: none; display: flex; flex-direction: column; }
+.fx-gutter span { height: 20px; }
+.fx-gutter span.err { color: var(--red); font-weight: 700; }
+.fx-text { position: relative; flex: 1; min-width: 0; }
+.fx-mirror, .fx-area { position: absolute; inset: 0; margin: 0; padding: 8px 10px 8px 6px; border: 0; font: 12px/20px "JetBrains Mono", ui-monospace, monospace; white-space: pre; overflow: auto; tab-size: 4; }
+.fx-mirror { color: transparent; pointer-events: none; scrollbar-width: none; }
+.fx-mirror::-webkit-scrollbar { display: none; }
+.fx-under { color: transparent; background: var(--red-t); text-decoration: underline wavy var(--red); text-decoration-skip-ink: none; text-underline-offset: 3px; border-radius: 2px; }
+.fx-area { background: transparent; color: var(--ink); caret-color: var(--ink); resize: none; outline: none; }
+.fx-area::placeholder { color: var(--muted); }
+.fx-state { font-size: 12px; line-height: 1.6; }
+.fx-state.err { display: flex; flex-direction: column; gap: 2px; color: var(--red); }
+.fx-hint { color: var(--sub); }
+.fx-state.ok { color: var(--green); }
+.fx-help { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.fx-help-list { display: flex; flex-direction: column; gap: 10px; overflow: auto; min-height: 0; padding-right: 4px; }
+.fx-help-item { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 10px; background: var(--soft2); }
+.fx-help-item code { color: var(--sub); white-space: pre-wrap; }
+.fx-example { margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--card); font-size: 11px; line-height: 1.55; white-space: pre; overflow: auto; max-height: 220px; }
+.fx-trial { max-height: 360px; }
+.fx-trial td { white-space: nowrap; }
+.fx-modal { width: min(1180px, 100%); }
+.fx-modal-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.fx-modal-body .fx-help { max-height: 560px; }
+@media (max-width: 860px) { .fx-modal-body { grid-template-columns: 1fr; } }
+.fx-state { display: flex; flex-direction: column; gap: 2px; }
+.fx-note { color: var(--warn); }
+.stock-pick { max-width: 240px; }
+.fx-trial-box { padding-top: 10px; border-top: 1px solid var(--line); }
+.cond-formula { grid-column: span 2; min-width: 0; }
+.fx-help > .input { flex-shrink: 0; }
+.fx-modal-back { color: var(--ink); font-family: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; font-size: 14px; }
+/* Sell rules: one rule per row, a switch, its number, the backend's sentence under it. */
+.sell-rules { display: flex; flex-direction: column; gap: 4px; }
+.sell-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); column-gap: 12px; row-gap: 4px; align-items: center; padding: 6px 8px; border-radius: 10px; }
+.sell-row:hover { background: var(--soft2); }
+.sell-row.has-err { box-shadow: inset 0 0 0 1px var(--red); }
+.sell-name { font-size: 13px; font-weight: 600; }
+.sell-help, .sell-formula, .sell-sub, .sell-row .err-text { grid-column: 2; }
+.sell-row .input:disabled { opacity: 0.5; }
+.chain-formula { flex-basis: 100%; display: flex; flex-direction: column; gap: 1px; padding-left: 22px; }
