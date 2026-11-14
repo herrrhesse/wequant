@@ -34,6 +34,11 @@ def wait(request: Nothing, context: Context) -> Done:
     raise ServiceError(Exit.INTERRUPTED, "run cancelled")
 
 
+def done(request: Nothing, context: Context) -> Done:
+    """Finish at once."""
+    return Done()
+
+
 def boom(request: Nothing, context: Context) -> Done:
     """Fail as a bug would."""
     raise ValueError("boom")
@@ -48,5 +53,5 @@ def stubborn(request: Nothing, context: Context) -> Done:
 
 def pid(request: PidFile, context: Context) -> Done:
     """Write this process's id, then wait until cancelled."""
-    Path(request.path).write_text(str(os.getpid()))
+    Path(request.path).write_text(str(os.getpid()), encoding="utf-8")
     return wait(Nothing(), context)

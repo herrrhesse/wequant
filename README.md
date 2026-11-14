@@ -53,6 +53,28 @@ seed always writes the same bytes, so end-to-end tests run on it.
 - `tools/`: command-line jobs: fetch, merge, data checks and reports. `tools/investment_data/` is a temporary seed
   import and not part of the package.
 
+## Windows and Linux (W0)
+
+wequant runs on Linux and Windows alike; GitHub Actions runs the tests on both on every push to main and every pull
+request (`.github/workflows/ci.yml`: Linux also runs ruff, Windows also times the first numba compile and runs the
+frontend's `npm run e2e`).
+
+- **Default places** (`wequant/paths.py`): the data root is `$WEQUANT_HOME`, else `~/.wequant` (Windows:
+  `%LOCALAPPDATA%\WeQuant\data`); settings outside any data root go to `~/.config/wequant` (`$XDG_CONFIG_HOME`;
+  Windows: `%APPDATA%\WeQuant`); caches to `~/.cache/wequant` (`$XDG_CACHE_HOME`; Windows:
+  `%LOCALAPPDATA%\WeQuant\cache`).
+- **numba's compile cache** goes to the cache folder (`numba/`) unless `NUMBA_CACHE_DIR` names one, so a program
+  installed where it cannot write still compiles its operators once: about 7 s on a first start, 0.3 s after
+  (`uv run python -m tools.compile_time`).
+- **Locks** are the same on both: one writer at a time (`flock` on Linux, a locked byte past the holder text on
+  Windows), a second one refused at once.
+- **Files in use:** Windows refuses to replace or delete a file another handle has open; writes, renames and deletes
+  try again a few times, then stop with `file_in_use` (exit 5) and nothing changed. A panel folder a reader still maps
+  stays until the next cleanup.
+- **Workers:** background jobs start `python -m wequant.service.worker`, or the hidden `wequant job-worker` command in
+  a frozen build (W2). Text files are read and written as UTF-8 everywhere; paths with Chinese characters and spaces
+  work.
+
 ## The wequant command
 
 ```bash
@@ -214,7 +236,7 @@ Exit codes (`wequant.service.Exit`):
 | 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day, an invalid verification record (none of the submission is added), a malformed resolutions file, a decision without a selector or one that would approve an `undetermined` entry (nothing is changed) |
 | 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, run, stock pool, index members, or resolutions file to decide in |
 | 4 | `UNREACHABLE` | a data source cannot be reached or logged in to (`data update`: the store is unchanged) |
-| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock, the verification records' lock or the resolutions file's lock, or another BaoStock session holds `raw/baostock/.lock`; try again later |
+| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock, the verification records' lock or the resolutions file's lock, or another BaoStock session holds `raw/baostock/.lock`; or another program kept a file open through every try (`file_in_use`, nothing changed); try again later |
 | 70 | `INTERNAL` | a bug (the traceback is on stderr), or the cli extra is not installed |
 | 130 | `INTERRUPTED` | Ctrl-C, or a cancelled run |
 
@@ -375,6 +397,35 @@ uv run wequant expr indicators         # every indicator a condition or factor c
   drift), `exit_pool` / `exit_filter` / `exit_no_score` (step), `exit_rank` / `exit_slots` (rank, limit), `delisting`,
   and `unrecorded` when no decision row explains it. They are read from the archive's decision frames, so runs archived
   before round 2 have them too and the archive format is unchanged. `labels` gives each cause's Chinese template.
+
+## The data root's folder and the first-run setup
+
+```bash
+uv run wequant setup status                       # the folder in use, where it comes from, whether setup is needed
+uv run wequant fs places ; uv run wequant fs list PATH ; uv run wequant fs mkdir PATH NAME
+uv run wequant data use-home PATH                 # use another folder that holds complete WeQuant data
+uv run wequant data copy TO ; uv run wequant data move TO   # also background jobs: kind data_relocate
+```
+
+- **Which folder:** `--home`, else `$WEQUANT_HOME`, else the folder chosen last (kept in the user's settings outside
+  any data root: `config.json` in `~/.config/wequant`, Windows `%APPDATA%\WeQuant`), else the system's default.
+  `setup status` says which (`home_source`) and whether the folder holds data; without data it reports
+  `needs_setup` and every other operation refuses with a Chinese reason (`no_store`), never a 500, so `wequant serve`
+  starts on an empty or missing folder. `data status` gives the folder (`home`).
+- **Browsing** (`fs places | list | mkdir`): the home folder, then the drives (Windows) or the root and the mounted
+  disks, with free space; a folder's visible subfolders, each marked when it holds WeQuant data (with its size); a
+  new folder. Only folders: a file's name or content is never returned. A missing folder is NOT_FOUND
+  `no_directory`; one that cannot be read or a bad name is USAGE (`no_access`, `bad_name`, `exists`).
+- **Changing it:** `data use-home` takes a folder only when it holds complete data (`not_a_data_root`,
+  `data_root_incomplete` otherwise). `data copy` / `data move` (job kind `data_relocate`, with progress and cancel)
+  check that the target is a new or empty folder outside the data root with room for the data (`not_empty`,
+  `inside`, `no_space`), hold the writer lock (LOCKED `store_busy`, HTTP 409, while another writer has it), copy file
+  by file (the panel cache is rebuilt, not copied), check every file and that the copy reads as the same version, then
+  use it; a move then removes the old folder (on one disk it is simply renamed). Cancelled or failed, the old folder
+  stays as it was and the target is left as found. The choice is remembered; `wequant serve` switches every later
+  request to the new folder at once (fresh caches, the job queue too), without a restart.
+- **The first-run setup's progress** (`setup save`: step, source, home, years, job_id, import_path; `--clear`) is kept
+  in the same user settings, so the frontend can carry on after the browser is closed.
 
 ## Storage
 

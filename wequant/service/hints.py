@@ -68,6 +68,7 @@ HINTS: dict[tuple[str, str | None, str], str] = {
     ("wrong_type", ANY, "^String should have at least 1 character"): "这一项不能为空",
     ("wrong_type", ANY, "not a date|a valid date"): "日期要写成“年-月-日”，例如 2024-01-31，不带时间",
     ("wrong_type", ANY, "not a wequant code|is not a code such as"): "代码要写成 6 位数字加交易所，例如 600000.SH",
+    ("no_store", ANY, ""): "这个文件夹里还没有数据：请先完成首次设置，或者改用一个已有的数据目录",
     ("version_not_kept", "data_version", ""): "这个数据版本已经被清理：请选一个还保留着的数据版本",
     ("version_not_kept", "id", ""): NOT_KEPT.format("重跑"),
     ("version_not_kept", "run", ""): NOT_KEPT.format("按它解释"),

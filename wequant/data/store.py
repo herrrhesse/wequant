@@ -27,6 +27,8 @@ import polars as pl
 
 from wequant.data.files import atomic_write, check_inside, parquet_bytes, utc_now
 from wequant.data.schema import TABLES, Table
+from wequant.paths import default_home
+from wequant.user_config import configured_home
 
 KEEP_VERSIONS = 5  # the user's default (round 2): the newest five versions, plus those the data root protects
 REASONS = (  # why a version was made; the service layer gives each a Chinese sentence
@@ -85,7 +87,10 @@ class CommitResult:
 
 
 def wequant_home() -> Path:
-    return Path(os.environ.get("WEQUANT_HOME", "~/.wequant")).expanduser()
+    """$WEQUANT_HOME, else the data root the user chose last (wequant.user_config), else the system's default; a
+    command's --home comes before all of them."""
+    found = os.environ.get("WEQUANT_HOME")
+    return Path(found).expanduser() if found else configured_home() or default_home()
 
 
 def prepare(table: Table, df: pl.DataFrame) -> pl.DataFrame:
@@ -391,8 +396,9 @@ class Store:
 
 
 @contextmanager
-def exclusive(path: Path, timeout: float = 0) -> Iterator[None]:
-    """Hold the lock file at path, which names the holder; StoreLocked if it is not free within timeout seconds."""
+def exclusive(path: Path, timeout: float = 0, command: str | None = None) -> Iterator[None]:
+    """Hold the lock file at path, which names the holder (and its command, when given); StoreLocked if it is not free
+    within timeout seconds. The same on Linux (flock) and Windows (a locked byte past the holder text)."""
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
         _acquire(fd, path, timeout)
@@ -400,7 +406,8 @@ def exclusive(path: Path, timeout: float = 0) -> Iterator[None]:
         os.close(fd)
         raise
     try:
-        _write_fd(fd, json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "started": utc_now()}))
+        holder = {"pid": os.getpid(), "host": socket.gethostname(), "started": utc_now()}
+        _write_fd(fd, json.dumps(holder | ({"command": command} if command else {})))
         yield
     finally:
         _write_fd(fd, "")

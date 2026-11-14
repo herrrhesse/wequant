@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -33,7 +34,7 @@ log = logging.getLogger("wequant")
 STATES = ("queued", "running", "succeeded", "failed", "cancelled")
 FINAL = frozenset(STATES[2:])
 STAGES = ("queued", "start", "cancelling", "done", "failed", "cancelled", "crashed", "interrupted")  # the queue's own
-WORKER = (sys.executable, "-m", "wequant.service.worker")
+WORKER_COMMAND = "job-worker"  # the hidden wequant command a frozen build (W2) starts its workers with
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,21 @@ class Jobs:
         for job in self._jobs.values():
             if job.state not in FINAL:
                 self._end(job, "failed", "interrupted", error=_error(Exit.INTERRUPTED, "the server stopped first"))
+
+    def rehome(self, home: Path, context: Context) -> None:
+        """Keep the jobs of data root home from now on (round 3: the server switched to it): its records, with the
+        running and queued jobs carried over; context is the server's new one, which later thread jobs share."""
+        with self._lock:
+            live = {id: job for id, job in self._jobs.items() if job.state not in FINAL}
+            self.home, self.root, self.context = home, home / "jobs", context
+            kept = {job.id: job for job in self._load() if job.id not in live}
+            for job in kept.values():
+                if job.state not in FINAL:  # its server stopped before it ended
+                    self._end(job, "failed", "interrupted", error=_error(Exit.INTERRUPTED, "the server stopped first"))
+            self._jobs = {**kept, **live}
+            for job in live.values():
+                self._save(job)
+            self._changes += 1
 
     def submit(self, kind: str, request: dict) -> Job:
         """Queue a job of kind on request (the operation's request as JSON) and start it when a slot is free."""
@@ -200,9 +216,8 @@ class Jobs:
     def _process(self, job: Job, kind: Kind) -> Callable[[], None]:
         """The reader of a process job: it starts the worker, takes its messages until it exits, then ends the job."""
         order = {"operation": kind.operation, "request": job.request, "home": str(self.home)}
-        worker = subprocess.Popen(
-            WORKER, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8", start_new_session=True
-        )  # its own session: Ctrl-C in the server's terminal reaches the server, which then stops it
+        pipes = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "text": True, "encoding": "utf-8"}
+        worker = subprocess.Popen(worker_command(), **pipes, **_apart())
         _tell(worker, json.dumps(order | {"cache": self.cache and str(self.cache)}) + "\n")
         self._workers[job.id] = worker
 
@@ -300,6 +315,20 @@ class Jobs:
 
 def _error(exit: Exit, message: str) -> dict:
     return error_body(ServiceError(exit, message)).model_dump(mode="json")
+
+
+def worker_command() -> list[str]:
+    """How to start a job's worker: this interpreter on the worker module, or a frozen program's hidden command."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, WORKER_COMMAND]
+    return [sys.executable, "-m", "wequant.service.worker"]
+
+
+def _apart() -> dict:
+    """Popen options that keep Ctrl-C in the server's terminal from reaching a worker: the server then stops it."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
 
 
 def _tell(worker: subprocess.Popen, text: str) -> None:

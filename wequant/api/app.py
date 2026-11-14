@@ -22,7 +22,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
 from wequant.service import Context, ErrorBody, ErrorDetail, Exit, JobRef, SchemaRequest, ServiceError, schema
-from wequant.service.base import error_body
+from wequant.service.base import error_body, failure
 from wequant.service.contract import OPERATIONS, route
 from wequant.service.details import error_details, usage, validated
 from wequant.service.jobs import KINDS, jobs_show
@@ -57,6 +57,22 @@ def static_dir(given: Path | None = None) -> Path:
     return Path(given or os.environ.get("WEQUANT_STATIC") or STATIC)
 
 
+class Live:
+    """The context every request reads (round 3, F-30): switching to another data root swaps it, clears the
+    expression cache and points the job queue at the new root's jobs, without a restart."""
+
+    def __init__(self, context: Context) -> None:
+        self._lock = threading.Lock()
+        self.context = dataclasses.replace(context, switch=self.switch)
+
+    def switch(self, home: Path) -> None:
+        with self._lock:
+            if self.context.expr_cache is not None:
+                self.context.expr_cache.clear()
+            self.context = dataclasses.replace(self.context, home=Path(home))
+            self.context.jobs.rehome(Path(home), self.context)
+
+
 def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, static: Path | None = None) -> FastAPI:
     """The app serving operations (default: all of them) with context, which a resident process keeps between calls,
     and the frontend build at / (static_dir(static)), or a page saying how to build it. Without a job queue in context
@@ -64,6 +80,8 @@ def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, st
     if context.jobs is None:
         jobs = Jobs(context.store().home, KINDS, context.cache, clock=context.clock, context=context)
         context = dataclasses.replace(context, jobs=jobs)
+    live = Live(context)
+    context.jobs.context = live.context  # thread jobs may switch the data root too
     app = FastAPI(  # no Swagger or ReDoc page: they load scripts from a CDN and are blank offline
         title="WeQuant",
         version=code_version(),
@@ -77,15 +95,15 @@ def create_app(context: Context, operations: Iterable[Callable] = OPERATIONS, st
         hints = get_type_hints(operation)
         app.add_api_route(
             path,
-            _endpoint(operation, hints["request"], context),
+            _endpoint(operation, hints["request"], live),
             methods=[method],
             name=operation.__name__,
             summary=(operation.__doc__ or "").split("\n")[0],
             openapi_extra=_documented(hints["request"], hints["return"]),
         )
-    app.add_api_route("/api/jobs/{id}/events", _events(context), methods=["GET"], include_in_schema=False)
-    app.add_api_route("/api/exports/{name}", _download(context), methods=["GET"], include_in_schema=False)
-    app.add_api_route("/api/imports/{name}", _upload(context), methods=["PUT"], include_in_schema=False)
+    app.add_api_route("/api/jobs/{id}/events", _events(live), methods=["GET"], include_in_schema=False)
+    app.add_api_route("/api/exports/{name}", _download(live), methods=["GET"], include_in_schema=False)
+    app.add_api_route("/api/imports/{name}", _upload(live), methods=["PUT"], include_in_schema=False)
     app.add_api_route("/api/{rest:path}", _no_route, methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)  # fmt: skip
     app.add_api_route("/{path:path}", _frontend(static_dir(static)), methods=["GET"], include_in_schema=False)
     app.add_exception_handler(RequestValidationError, _invalid)
@@ -117,11 +135,11 @@ def _stopping(jobs: Jobs) -> Callable:
     return lifespan
 
 
-def _download(context: Context) -> Callable:
+def _download(live: Live) -> Callable:
     """GET of a file an export wrote to <home>/exports/: the browser saves it."""
 
     async def download(name: str) -> Response:
-        path = exported(context, name)
+        path = exported(live.context, name)
         if path is None:
             message = f"no export {name} under exports/ of the data root"
             return _failure(
@@ -132,12 +150,12 @@ def _download(context: Context) -> Callable:
     return download
 
 
-def _upload(context: Context) -> Callable:
+def _upload(live: Live) -> Callable:
     """PUT of a file to import: kept as <home>/imports/<name>; its path is what the import operations take."""
 
     async def upload(name: str, request: Request) -> Response:
         try:
-            path = await anyio.to_thread.run_sync(receive, context, name, await request.body())
+            path = await anyio.to_thread.run_sync(receive, live.context, name, await request.body())
         except ServiceError as error:
             return _failure(error_body(error))
         return Response(json.dumps({"path": str(path)}), media_type="application/json")
@@ -145,17 +163,17 @@ def _upload(context: Context) -> Callable:
     return upload
 
 
-def _events(context: Context) -> Callable:
+def _events(live: Live) -> Callable:
     """GET of a job's events: its JobInfo now and after each change, until it has finished."""
 
     async def events(id: str) -> Response:
         try:
             ref = validated(JobRef, {"id": id})
-            jobs_show(ref, context)
+            jobs_show(ref, live.context)
         except ServiceError as error:
             return _failure(error_body(error))
         headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-        return StreamingResponse(_follow(ref, context), media_type="text/event-stream", headers=headers)
+        return StreamingResponse(_follow(ref, live.context), media_type="text/event-stream", headers=headers)
 
     return events
 
@@ -187,7 +205,7 @@ async def _no_route(rest: str) -> Response:
     return _failure(error_body(ServiceError(Exit.NOT_FOUND, message, [ErrorDetail(code="no_route", message=message)])))
 
 
-def _endpoint(operation: Callable, model: type, context: Context) -> Callable:
+def _endpoint(operation: Callable, model: type, live: Live) -> Callable:
     async def endpoint(request: Request) -> Response:
         try:
             parsed = validated(model, await _body(request))
@@ -196,7 +214,7 @@ def _endpoint(operation: Callable, model: type, context: Context) -> Callable:
         gone = threading.Event()  # the client disconnected: a long run stops and leaves no archive
         watcher = asyncio.create_task(_watch(request, gone))
         try:
-            call = dataclasses.replace(context, cancel=gone.is_set)
+            call = dataclasses.replace(live.context, cancel=gone.is_set)
             return await anyio.to_thread.run_sync(_respond, operation, parsed, call)
         finally:
             watcher.cancel()
@@ -212,9 +230,10 @@ def _respond(operation: Callable, request: object, context: Context) -> Response
         log.error("%s: %s", operation.__name__, error)
         return _failure(error_body(error))
     except Exception as error:
-        log.exception("internal error in %s", operation.__name__)
-        message = f"{type(error).__name__}: {error}"
-        return _failure(ErrorBody(exit=Exit.INTERNAL, name=Exit.INTERNAL.name, message=message))
+        body = failure(error)
+        if body.exit == Exit.INTERNAL:
+            log.exception("internal error in %s", operation.__name__)
+        return _failure(body)
     return Response(result.model_dump_json(), media_type="application/json")
 
 

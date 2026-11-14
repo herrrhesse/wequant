@@ -10,6 +10,14 @@ CACHES = {".hypothesis", ".pytest_cache", "__pycache__"}  # what pytest and hypo
 BEFORE = pytest.StashKey[set[str]]()
 
 
+@pytest.fixture(autouse=True)
+def own_user_config(monkeypatch, tmp_path_factory):
+    """The user's settings outside a data root (wequant.user_config) live in a folder of the test's own, never the
+    real one of whoever runs the tests."""
+    folder = tmp_path_factory.mktemp("user-config")
+    monkeypatch.setattr("wequant.paths.config_dir", lambda: folder)
+
+
 def pytest_sessionstart(session: pytest.Session) -> None:
     session.stash[BEFORE] = entries(session.config.rootpath)
 

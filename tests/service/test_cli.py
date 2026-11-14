@@ -144,7 +144,7 @@ def test_a_reader_closing_the_pipe_early_is_not_an_error():
 def test_strategy_takes_a_file_stdin_or_a_saved_version(cli, library_home, monkeypatch, tmp_path, how):
     """--strategy reads a JSON file, JSON on stdin (-) or a saved version ID@N."""
     path = tmp_path / "mom.json"
-    path.write_text(json.dumps(MOM))
+    path.write_text(json.dumps(MOM), encoding="utf-8")
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(MOM)))
     given = {"file": path, "stdin": "-", "saved": "s@1"}[how]
     code, out, _ = cli("strategy", "validate", "--strategy", given, "--json", "--home", library_home)
@@ -155,7 +155,7 @@ def test_strategy_takes_a_file_stdin_or_a_saved_version(cli, library_home, monke
 def test_save_and_archive_change_the_library(cli, library_home, tmp_path):
     """Wiring of strategy save (FILE, --id, --name, --note) and strategy archive (--restore)."""
     path = tmp_path / "plain.json"
-    path.write_text("{}")
+    path.write_text("{}", encoding="utf-8")
     code, out, _ = cli(
         "strategy", "save", path, "--id", "t", "--name", "T", "--note", "n", "--json", "--home", library_home
     )

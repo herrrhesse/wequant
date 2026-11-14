@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import re
-import shutil
 import threading
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -14,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from wequant.data.files import atomic_write
+from wequant.data.files import FileInUse, atomic_write, remove_tree
 from wequant.data.store import KEEP_VERSIONS, Store, tables_digest
 from wequant.panel.build import BUILDERS
 
@@ -100,5 +99,8 @@ def _remove(directory: Path, doomed: Callable[[re.Match], bool]) -> list[Path]:
         found = [(p, _KEY.fullmatch(p.name)) for p in directory.iterdir()] if directory.is_dir() else []
         removed = [path for path, match in found if match and doomed(match) and path.name not in _BUILDING]
         for path in removed:
-            shutil.rmtree(path, ignore_errors=True)
+            try:
+                remove_tree(path)
+            except FileInUse:  # mapped by a reader on Windows: the next cleanup takes it
+                continue
         return removed

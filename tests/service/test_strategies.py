@@ -42,8 +42,8 @@ def test_a_saved_version_shows_the_content_it_was_saved_with(library_home):
 
 def test_reading_a_saved_strategy_passes_on_the_librarys_warnings(library_home):
     meta = library_home / "strategies" / "s" / "meta.json"
-    index = json.loads(meta.read_text())
-    meta.write_text(json.dumps({**index, "versions": index["versions"][:1]}))
+    index = json.loads(meta.read_text(encoding="utf-8"))
+    meta.write_text(json.dumps({**index, "versions": index["versions"][:1]}), encoding="utf-8")
     checked = strategy_validate(StrategyRequest(saved={"id": "s"}), Context(library_home))
     assert [(w.code, w.params) for w in checked.warnings] == [("meta_rebuilt", {"versions": 1})]
 

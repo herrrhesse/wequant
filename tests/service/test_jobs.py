@@ -5,6 +5,7 @@ import datetime as dt
 import json
 import os
 import signal
+import sys
 import time
 
 import pytest
@@ -15,7 +16,7 @@ from wequant.data.store import Store
 from wequant.service import BacktestRequest, Context, Exit, JobRef, JobStartRequest, ServiceError
 from wequant.service.base import error_body
 from wequant.service.jobs import KINDS
-from wequant.service.queue import Jobs, Kind
+from wequant.service.queue import Jobs, Kind, worker_command
 from wequant.service.running import progress_message
 
 KINDS_FOR_TESTS = KINDS | {  # threads of the queue's process unless marked process
@@ -24,6 +25,7 @@ KINDS_FOR_TESTS = KINDS | {  # threads of the queue's process unless marked proc
     "source": Kind("tests.service.job_ops:wait", source="baostock"),
     "stubborn": Kind("tests.service.job_ops:stubborn", process=True),
     "pid": Kind("tests.service.job_ops:pid", process=True),
+    "done": Kind("tests.service.job_ops:done", process=True),
 }
 
 
@@ -180,19 +182,36 @@ def test_a_queued_job_cancelled_never_starts(home, queue):
     assert (jobs.get(queued.id).state, jobs.get(queued.id).started_at) == ("cancelled", None)
 
 
+KILL = getattr(signal, "SIGKILL", signal.SIGTERM)  # Windows: TerminateProcess, the exit code being the signal number
+KILLED = KILL if os.name == "nt" else -KILL
+
+
 def test_a_killed_worker_fails_its_job_with_its_exit_code(home, queue, tmp_path):
     jobs = queue(home)
     path = tmp_path / "pid"
     job = jobs.submit("pid", {"path": str(path)})
     until(jobs, job.id, started)
-    os.kill(int(path.read_text()), signal.SIGKILL)
+    os.kill(int(path.read_text(encoding="utf-8")), KILL)
     ended = until(jobs, job.id, finished)
     assert (ended.state, ended.stage, ended.params, ended.error["exit"]) == (
         "failed",
         "crashed",
-        {"exit_code": -signal.SIGKILL},
+        {"exit_code": KILLED},
         Exit.INTERNAL,
     )
+
+
+def test_a_frozen_build_starts_its_workers_with_its_hidden_command(monkeypatch):
+    """A PyInstaller build has no python -m; its program runs the worker as `wequant job-worker` (W0, for W2)."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert worker_command() == [sys.executable, "job-worker"]
+
+
+def test_the_hidden_worker_command_runs_a_job(home, queue, monkeypatch):
+    command = [sys.executable, "-c", "from wequant.cli import main; main(['job-worker'])"]
+    monkeypatch.setattr("wequant.service.queue.worker_command", lambda: command)
+    jobs = queue(home)
+    assert until(jobs, jobs.submit("done", {}).id, finished).state == "succeeded"
 
 
 def test_closing_the_queue_fails_the_jobs_it_leaves_unfinished(home, queue):
@@ -206,7 +225,7 @@ def test_closing_the_queue_fails_the_jobs_it_leaves_unfinished(home, queue):
 def test_a_job_a_killed_server_left_running_fails_when_the_next_queue_opens(home, queue):
     record = {"id": 4, "kind": "wait", "request": {}, "created_at": "2024-01-02T00:00:00+00:00", "state": "running"}
     (home / "jobs").mkdir()
-    (home / "jobs" / "4.json").write_text(json.dumps(record))
+    (home / "jobs" / "4.json").write_text(json.dumps(record), encoding="utf-8")
     job = queue(home).get(4)
     assert (job.state, job.stage, job.error["exit"]) == ("failed", "interrupted", Exit.INTERRUPTED)
 

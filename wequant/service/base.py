@@ -14,7 +14,7 @@ from pydantic_core import PydanticCustomError
 
 from wequant.backtest.progress import Progress
 from wequant.data.codes import split as split_code
-from wequant.data.files import OutsideRoot
+from wequant.data.files import FileInUse, OutsideRoot
 from wequant.data.store import Store, version_name
 from wequant.expr import Cache
 from wequant.panel import NotInPanel, Panel, load_panel
@@ -75,6 +75,15 @@ def error_body(error: ServiceError) -> ErrorBody:
     return ErrorBody(exit=error.exit, name=error.exit.name, message=str(error), detail=detail, complete=complete)
 
 
+def failure(error: Exception) -> ErrorBody:
+    """The ErrorBody of an operation's failure that is no ServiceError: a file another program keeps open is LOCKED
+    file_in_use (nothing was changed; round 3, W0), anything else INTERNAL."""
+    if isinstance(error, FileInUse):
+        detail = ErrorDetail(code="file_in_use", message=str(error))
+        return error_body(ServiceError(Exit.LOCKED, str(error), [detail]))
+    return ErrorBody(exit=Exit.INTERNAL, name=Exit.INTERNAL.name, message=f"{type(error).__name__}: {error}")
+
+
 def not_found(code: str, message: str, loc: list[str | int] = ()) -> ServiceError:
     """NOT_FOUND with its one located detail."""
     return ServiceError(Exit.NOT_FOUND, message, [ErrorDetail(code=code, message=message, loc=list(loc))])
@@ -128,7 +137,7 @@ class Context:
     process's expression cache, a long run's progress and cancel callbacks, a stage timer's mark and the server's job
     queue."""
 
-    home: Path | None = None  # None: $WEQUANT_HOME, else ~/.wequant
+    home: Path | None = None  # None: $WEQUANT_HOME, else the system's default (wequant.paths)
     cache: Path | None = None  # panels go under <cache>/panel/; None: <home>/cache
     expr_cache: Cache | None = None  # a resident process's expression results; None: computed afresh
     progress: Callable[[Progress], None] | None = None  # told where a long run is
@@ -136,6 +145,7 @@ class Context:
     mark: Callable[[str], None] | None = None  # told as each stage of the call ends (--profile)
     clock: Callable[[], str] | None = None  # stamps what the call writes; None: now (the demo home fixes it)
     jobs: Jobs | None = None  # wequant serve's job queue; None: no background jobs
+    switch: Callable[[Path], None] | None = None  # wequant serve's: every later request reads this data root
 
     @classmethod
     def resident(cls, home: Path | None = None, cache: Path | None = None, cache_bytes: int = 8 << 30) -> Context:

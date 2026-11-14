@@ -51,11 +51,9 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
-import fcntl
 import itertools
 import json
 import logging
-import os
 import signal
 import statistics
 import sys
@@ -63,7 +61,6 @@ import time
 from collections.abc import Callable, Iterator
 from importlib.metadata import version
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import polars as pl
 
@@ -77,7 +74,8 @@ from wequant.data.sources.baostock import (
     GuardedSocket,
     from_baostock,
 )
-from wequant.data.store import wequant_home
+from wequant.data.store import StoreLocked, exclusive, wequant_home
+from wequant.data.update import SHANGHAI
 
 Check = Callable[[pl.DataFrame], str | None]  # why a response must not be written, or None
 
@@ -114,7 +112,7 @@ class ServerDown(RuntimeError):
 
 
 def shanghai_today() -> dt.date:
-    return dt.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    return dt.datetime.now(SHANGHAI).date()
 
 
 def snapshot_problem(frame: pl.DataFrame, day: dt.date) -> str | None:
@@ -511,21 +509,15 @@ class Backfill:
 
 @contextlib.contextmanager
 def held(path: Path, command: str) -> Iterator[None]:
-    """Hold an exclusive lock on path while the block runs; Busy names the holder when another process has it."""
+    """Hold the lock file at path (wequant.data.store.exclusive, as the daily update does) while the block runs; Busy
+    names the holder's command when another process has it."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a+", encoding="utf-8") as handle:
+    with contextlib.ExitStack() as stack:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            handle.seek(0)
-            raise Busy(f"{path} is held by {handle.read() or 'another process'}") from None
-        handle.truncate(0)
-        handle.write(f"{command} (pid {os.getpid()}, since {_now()})")
-        handle.flush()
-        try:
-            yield
-        finally:
-            handle.truncate(0)
+            stack.enter_context(exclusive(path, command=command))
+        except StoreLocked as error:
+            raise Busy(f"{path} is held by {(error.holder or {}).get('command', 'another process')}") from None
+        yield
 
 
 def status(home: Path | None = None) -> str:

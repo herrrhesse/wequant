@@ -14,7 +14,6 @@ import dataclasses
 import datetime as dt
 import functools
 import os
-import resource
 import subprocess
 import sys
 import tempfile
@@ -25,6 +24,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from tools.peak import peak_mib
 from tools.summary import Summary
 from wequant.account import Execution
 from wequant.backtest import Backtest, run_form
@@ -247,8 +247,7 @@ def index_section(archive: Archive, run_id: str) -> list[str]:
 
 
 def footer(summary: Summary) -> list[str]:
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-    child = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024
+    peak, child = peak_mib(), peak_mib(children=True)
     verdict = summary.check("Memory: peak RSS", peak <= MEMORY_LIMIT, f"{peak:,.0f} MB; fresh process {child:,.0f} MB")
     return [
         f"- **Memory:** peak RSS: {peak:,.0f} MB ({verdict}, at most {MEMORY_LIMIT:,} MB); "

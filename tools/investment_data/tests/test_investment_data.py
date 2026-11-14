@@ -11,8 +11,8 @@ def test_run_import_end_to_end_is_idempotent(tmp_path):
     raw = home / "raw" / "investment_data" / syn.TAG
     syn.write_release(raw, tmp_path / "src")
     code, report = run_import(syn.TAG, home)
-    assert code == 0, report.read_text()
-    assert "Re-import of the same input:** PASS" in report.read_text()
+    assert code == 0, report.read_text(encoding="utf-8")
+    assert "Re-import of the same input:** PASS" in report.read_text(encoding="utf-8")
     manifest = Store(home).manifest()
     assert manifest["version"] == 1 and manifest["release_tag"] == syn.TAG
     assert manifest["last_trade_date"] == str(syn.DAYS[-1])

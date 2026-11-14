@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from wequant.cli import main
+from wequant.data.files import FileInUse
 from wequant.service import ErrorBody, ErrorDetail, Exit, ServiceError
 
 README = Path(__file__).resolve().parents[2] / "README.md"
@@ -43,6 +44,8 @@ class Unprintable:
 
 DETAIL = ErrorDetail(code="no_answer", message="no answer for 600000.SH", loc=["codes", 0])
 BUG = ErrorBody(exit=Exit.INTERNAL, name="INTERNAL", message="ZeroDivisionError: bug")
+IN_USE = FileInUse(Path("manifest.json"))  # another program kept the file open through every try
+IN_USE_DETAIL = ErrorDetail(code="file_in_use", message=str(IN_USE))
 OUTCOMES = [  # what the operation raises or returns, and the ErrorBody --json prints
     (
         ServiceError(Exit.UNREACHABLE, "source down", [DETAIL], complete=False),
@@ -51,10 +54,11 @@ OUTCOMES = [  # what the operation raises or returns, and the ErrorBody --json p
     (ZeroDivisionError("bug"), BUG),
     (Unprintable(), BUG),  # b6c9a93: rendering runs inside the error handling
     (KeyboardInterrupt(), ErrorBody(exit=Exit.INTERRUPTED, name="INTERRUPTED", message="interrupted by Ctrl-C")),
+    (IN_USE, ErrorBody(exit=Exit.LOCKED, name="LOCKED", message=str(IN_USE), detail=[IN_USE_DETAIL])),  # W0
 ]
 
 
-@pytest.mark.parametrize("outcome, body", OUTCOMES, ids=["service error", "bug", "render bug", "ctrl-c"])
+@pytest.mark.parametrize("outcome, body", OUTCOMES, ids=["service error", "bug", "render bug", "ctrl-c", "in use"])
 def test_what_an_operation_raises_decides_the_exit(cli, monkeypatch, outcome, body):
     """A ServiceError exits with its code, any other exception or a failed render 70 with the traceback on stderr,
     Ctrl-C 130; stdout stays empty, or under --json holds the failure's ErrorBody (Ctrl-C's included)."""

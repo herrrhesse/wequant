@@ -40,7 +40,9 @@ def test_without_a_settings_file_every_setting_is_its_default(tmp_path):
 
 
 def test_a_setting_that_is_not_valid_reads_as_its_default_and_says_why(tmp_path):
-    (tmp_path / "settings.json").write_text(json.dumps({"keep_versions": 0, "runs_limit_gb": 1.5, "colour": "red"}))
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"keep_versions": 0, "runs_limit_gb": 1.5, "colour": "red"}), encoding="utf-8"
+    )
     settings, problems = load(tmp_path)
     assert (settings.keep_versions, settings.runs_limit_gb, len(problems)) == (5, 1.5, 2)
 
@@ -59,7 +61,9 @@ def test_cleanup_keeps_the_newest_the_pinned_the_one_in_use_and_those_pinned_run
     assert store.versions() == [1, 3, 5, 7, 8]
 
 
-def test_the_archive_over_its_limit_loses_its_oldest_unpinned_runs(market_home):  # noqa: F811
+def test_the_archive_over_its_limit_loses_its_oldest_unpinned_runs(market_home, monkeypatch):  # noqa: F811
+    stamps = (f"2026-01-0{n}T00:00:00+00:00" for n in range(1, 10))  # one created_at each, whatever the clock's speed
+    monkeypatch.setattr("wequant.runs.record.now", lambda: next(stamps))
     archive = Archive(market_home / RUNS)
     oldest, pinned, middle, newest = backtests(market_home, 4)
     settings = Settings(runs_limit_gb=1e-12, pinned_runs=(pinned,))  # every run is over it

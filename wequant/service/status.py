@@ -77,6 +77,8 @@ class DataStatus(Model):
     tables: list[TableStatus]
     meta: dict[str, JsonValue]
     """Every other manifest key, such as source and limit_check."""
+    home: str
+    """The data root's folder, absolute (round 3: the data page's 存储位置)."""
 
 
 def data_status(request: StatusRequest, context: Context = Context()) -> DataStatus:
@@ -100,6 +102,7 @@ def data_status(request: StatusRequest, context: Context = Context()) -> DataSta
         limit_check_current=limit_check_current(shown),
         tables=[_table(name, entry) for name, entry in sorted(shown["tables"].items())],
         meta={key: value for key, value in shown.items() if key not in (*OWN_KEYS, "last_trade_date")},
+        home=str(store.home.absolute()),
     )
 
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import resource
 import tempfile
 import time
 from collections.abc import Callable
@@ -18,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tools.peak import peak_mib
 from wequant import ops
 from wequant.data.codes import EXCHANGES
 from wequant.data.store import Store
@@ -202,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     text = report(Run(store, manifest["version"], cache, args.years))
     if args.out:
         args.out.write_text(text, "utf-8")
-        print(f"{args.out}: {peak_rss_mb()} MB peak RSS")
+        print(f"{args.out}: {peak_rss_mb():,.0f} MB peak RSS")
     else:
         print(text, end="")
     return 0
@@ -227,14 +227,14 @@ def report(run: Run) -> str:
         f"- **Store:** {run.store.home} (version {panel.version}); code_version {code_version()}",
         f"- **Panel key:** {panel.key}; **rules key:** {panel.rules_key}; **EXPR_VERSION:** {EXPR_VERSION}",
         f"- **Cache:** {run.cache}",
-        f"- **Memory:** peak RSS: {peak_rss_mb():,} MB",
+        f"- **Memory:** peak RSS: {peak_rss_mb():,.0f} MB",
         "",
     ]
     return "\n".join(header + body) + "\n"
 
 
-def peak_rss_mb() -> int:
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
+def peak_rss_mb() -> float:
+    return peak_mib()
 
 
 def table(header: list[str], rows) -> list[str]:
