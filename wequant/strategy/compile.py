@@ -8,7 +8,7 @@ import operator
 from functools import reduce
 from typing import TYPE_CHECKING, NamedTuple
 
-from wequant.expr import IF, Expr, Field, Op
+from wequant.expr import IF, Codes, Expr, Field, Op
 
 if TYPE_CHECKING:
     from wequant.strategy.strategy import Strategy
@@ -18,7 +18,7 @@ FLIPPED = {"GT": "lt", "GE": "le", "LT": "gt", "LE": "ge", "EQ": "eq"}  # the co
 
 
 def pool_items(strategy: Strategy) -> dict[str, Expr]:
-    """The set pool items as conditions, in the order index, boards, exclude_st, min_list_days."""
+    """The set pool items as conditions, in the order index, boards, exclude_st, min_list_days, stocks."""
     pool, items = strategy.pool, {}
     if pool.index is not None:
         items["index"] = Field(f"member@{pool.index}")
@@ -28,6 +28,8 @@ def pool_items(strategy: Strategy) -> dict[str, Expr]:
         items["exclude_st"] = ~Field("st")
     if pool.min_list_days is not None:
         items["min_list_days"] = Field("list_days") >= pool.min_list_days
+    if pool.stocks is not None:
+        items["stocks"] = Codes(pool.stocks.codes)
     return items
 
 

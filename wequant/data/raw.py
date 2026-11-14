@@ -70,6 +70,10 @@ class BaoStockRaw:
     def index(self, code: str, first: dt.date, last: dt.date) -> Path:
         return self.root / "index" / code / f"{first.isoformat()}_{last.isoformat()}.parquet"
 
+    def members(self, index: str, day: dt.date) -> Path:
+        """BaoStock's member list of an index as of day (round 3)."""
+        return self.root / "members" / index / f"{day.isoformat()}.parquet"
+
     def daily_days(self) -> set[dt.date]:
         return {dt.date.fromisoformat(p.stem) for p in (self.root / "daily").glob("*/*.parquet")}
 

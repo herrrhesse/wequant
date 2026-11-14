@@ -23,6 +23,11 @@ def split(code: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
+def is_code(code: str) -> bool:
+    """code is a wequant code such as 600000.SH."""
+    return _WEQUANT_RE.fullmatch(code) is not None
+
+
 def security_type(code: str) -> str:
     """stock / index / fund for a wequant code; ValueError for anything unrecognized.
 

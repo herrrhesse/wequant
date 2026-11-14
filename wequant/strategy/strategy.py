@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import ClassVar, NamedTuple
 
 from wequant.canonical import canonical
+from wequant.data.codes import is_code
 from wequant.expr import INDEXES, NOT, Expr, ExprError, Field
 from wequant.strategy.checks import (
     Checked,
@@ -35,7 +36,7 @@ PREFERS = ("high", "low")
 PERIODS = ("day", "week", "month")
 WEIGHTINGS = ("equal", "score", "formula")
 POOL_BOARDS = ("main", "chinext", "star")
-POOL_ITEMS = ("index", "boards", "exclude_st", "min_list_days")
+POOL_ITEMS = ("index", "boards", "exclude_st", "min_list_days", "stocks")
 RESERVED = (
     *("code", "date", "universe", "scored", "score", "rank", "role", "weight", "targets", "backups", "formula"),
     *("listed", "bar", "pool", *POOL_ITEMS, "held", "action"),
@@ -62,6 +63,24 @@ def _boards(value: object) -> tuple[str, ...]:
         if board in boards[:i]:
             raise SpecError("duplicate_value", (i,), f"{board!r} is given twice")
     return tuple(sorted(boards, key=POOL_BOARDS.index))
+
+
+def _codes(value: object) -> tuple[str, ...]:
+    """At least one code such as 600000.SH, each once, in the order given."""
+    codes, seen = items(str, "codes", 1)(value), set()
+    for i, code in enumerate(codes):
+        if not is_code(code):
+            raise SpecError("wrong_type", (i,), f"{code!r} is not a code such as 600000.SH")
+        if code in seen:
+            raise SpecError("duplicate_value", (i,), f"{code!r} is given twice")
+        seen.add(code)
+    return codes
+
+
+def _label(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise wrong_type(value, "a non-empty str")
+    return value
 
 
 @dataclass(frozen=True)
@@ -109,6 +128,17 @@ class Factor(Checked):
 
 
 @dataclass(frozen=True)
+class Stocks(Checked):
+    """A fixed list of stocks (round 3), copied from a stock pool when the strategy is saved so that the strategy keeps
+    it as it was: the codes in order, and the pool they came from (shown only)."""
+
+    codes: tuple[str, ...]
+    pool_id: str | None = None  # the stock pool's id in <home>/pools
+    pool_name: str | None = None  # its name when copied
+    RULES: ClassVar[dict[str, Rule]] = {"codes": _codes, "pool_id": optional(_label), "pool_name": optional(_label)}
+
+
+@dataclass(frozen=True)
 class Pool(Checked):
     """The items the pool adds to the universe, each a pass on the decision day; the defaults add none."""
 
@@ -116,11 +146,13 @@ class Pool(Checked):
     boards: tuple[str, ...] | None = None  # some of POOL_BOARDS, kept in that order: on one of them
     exclude_st: bool = False  # not ST
     min_list_days: int | None = None  # listed at least this many trading days, the day itself included
+    stocks: Stocks | None = None  # on this fixed list; never together with index
     RULES: ClassVar[dict[str, Rule]] = {
         "index": optional(choice(INDEXES)),
         "boards": optional(_boards),
         "exclude_st": flag,
         "min_list_days": optional(count(2)),
+        "stocks": optional(instance(Stocks)),
     }
 
 
@@ -172,7 +204,7 @@ class Strategy(Checked):
 
     def check(self) -> None:
         """SpecErrors of every rule across fields that is broken."""
-        if errors := [*_duplicates(self), *_selection(self), *_compiled(self)]:
+        if errors := [*_duplicates(self), *_selection(self), *_scope(self), *_compiled(self)]:
             raise SpecErrors(errors)
 
     def steps(self) -> tuple[Step, ...]:
@@ -252,6 +284,12 @@ def _selection(strategy: Strategy) -> Iterator[SpecError]:
         yield SpecError("requires", ("hold_rank",), "hold_rank needs an int top_n")
     elif strategy.hold_rank is not None and strategy.hold_rank <= top_n:
         yield SpecError("out_of_range", ("hold_rank",), f"{strategy.hold_rank} is not above top_n {top_n}")
+
+
+def _scope(strategy: Strategy) -> Iterator[SpecError]:
+    """An index and a fixed list of stocks are two scopes: one at most."""
+    if strategy.pool.index is not None and strategy.pool.stocks is not None:
+        yield SpecError("requires", ("pool", "stocks"), "give at most one of pool index and pool stocks")
 
 
 def _compiled(strategy: Strategy) -> Iterator[SpecError]:

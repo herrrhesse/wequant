@@ -43,6 +43,8 @@ class Market:
     trading: tuple[dt.date, ...] = (*CALENDAR, D4, D5)
     events: dict[dt.date, list[tuple[str, float]]] = field(default_factory=dict)  # (code, back factor) by ex-date
     histories: dict[str, list[tuple[dt.date, float]]] = field(default_factory=dict)  # per-code factor histories
+    members: dict[str, list[str]] = field(default_factory=dict)  # each index's member list by query method
+    listed: dt.date | None = None  # the member lists' date; None: the day asked for
     fail_on: str | None = None
     calls: list[tuple[str, dict]] = field(default_factory=list)
 
@@ -91,3 +93,14 @@ class Market:
         return FakeResult(
             fields.split(","), [[d.isoformat(), code, *["3100.0000"] * 4, "1000000", "3.1e9"] for d in days]
         )
+
+    def _query_hs300_stocks(self, date):
+        return self._members("query_hs300_stocks", date)
+
+    def _query_zz500_stocks(self, date):
+        return self._members("query_zz500_stocks", date)
+
+    def _members(self, method, date):
+        listed = self.listed.isoformat() if self.listed else date
+        rows = [[listed, to_baostock(code), NAMES.get(code, "")] for code in self.members.get(method, [])]
+        return FakeResult(["updateDate", "code", "code_name"], rows)

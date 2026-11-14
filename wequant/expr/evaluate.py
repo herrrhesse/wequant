@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from wequant.expr.cache import Cache, panel_key
-from wequant.expr.tree import Expr, Field, Op
+from wequant.expr.tree import Codes, Expr, Field, Op
 from wequant.expr.vocab import FAMILIES, FIELDS, OPERATORS
 
 if TYPE_CHECKING:
@@ -63,7 +63,7 @@ def _value(node: Expr | float | int | None, panel: Panel, memo: dict, keep: set[
         return np.nan if node is None else node
     grid = memo.get(node.key)
     if grid is None:
-        grid = _load(node.name, panel) if isinstance(node, Field) else _call(node, panel, memo, keep)
+        grid = _leaf(node, panel) if isinstance(node, Field | Codes) else _call(node, panel, memo, keep)
         grid.flags.writeable = False
         if node.key in keep:
             memo[node.key] = grid
@@ -72,6 +72,12 @@ def _value(node: Expr | float | int | None, panel: Panel, memo: dict, keep: set[
 
 def _call(node: Op, panel: Panel, memo: dict, keep: set[str]) -> np.ndarray:
     return OPERATORS[node.name].function(*[_value(a, panel, memo, keep) for a in node.args])
+
+
+def _leaf(node: Field | Codes, panel: Panel) -> np.ndarray:
+    if isinstance(node, Codes):  # 1.0 on the bars of the listed codes, 0.0 on other bars
+        return panel.on_bars(np.broadcast_to(np.isin(panel.codes, node.codes), panel.traded.shape))
+    return _load(node.name, panel)
 
 
 def _load(name: str, panel: Panel) -> np.ndarray:

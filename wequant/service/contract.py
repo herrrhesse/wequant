@@ -22,6 +22,16 @@ from wequant.service.issues import data_issues
 from wequant.service.jobs import jobs_cancel, jobs_list, jobs_result, jobs_show, jobs_start
 from wequant.service.labels import labels
 from wequant.service.names import data_names
+from wequant.service.pools import (
+    pools_delete,
+    pools_export,
+    pools_from_index,
+    pools_import,
+    pools_list,
+    pools_parse,
+    pools_save,
+    pools_show,
+)
 from wequant.service.profile import ProfileReport
 from wequant.service.resolutions import data_resolve_approve, data_resolve_list, data_resolve_reject
 from wequant.service.schedule import strategy_schedule
@@ -131,6 +141,8 @@ OPERATIONS = (
     *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
     *(strategy_export, strategy_import),
     strategy_schedule,
+    *(pools_list, pools_show, pools_save, pools_delete, pools_parse, pools_from_index),
+    *(pools_export, pools_import),
     screen,
     backtest,
     *(runs.runs_list, runs.runs_show, runs.runs_report, runs.runs_rerun, runs.runs_diff, runs.runs_orders),

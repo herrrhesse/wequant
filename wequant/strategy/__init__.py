@@ -39,6 +39,7 @@ from wequant.strategy.strategy import (
     Group,
     Pool,
     Step,
+    Stocks,
     Strategy,
 )
 
@@ -70,6 +71,7 @@ __all__ = [
     "SpecError",
     "SpecErrors",
     "Step",
+    "Stocks",
     "Strategy",
     "actions",
     "check_anchor",

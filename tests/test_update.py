@@ -92,10 +92,18 @@ def test_an_event_on_a_new_day_extends_the_code_s_factors(store):
     assert factors.select("ex_date", "factor").rows()[-1] == (D4, 1.04)
 
 
-def test_the_new_days_bring_each_stored_index_s_bars(store):
+def test_the_new_days_bring_the_members_of_the_offered_indexes(store):
+    """CSI 300's list names 600000.SH as of D4 (stored as 399300.SZ); CSI 500's comes back empty and adds nothing."""
+    run(store, Market(days={D4: rows(D4)}, members={"query_hs300_stocks": ["600000.SH"]}))
+    members = store.read_table("index_members").filter(pl.col("end_date") == D4)
+    assert members.select("index_code", "code", "start_date").rows() == [("399300.SZ", "600000.SH", D4)]
+
+
+def test_the_new_days_bring_the_bars_of_the_offered_indexes_only(store):
+    """Round 3: CSI 300 and CSI 500, whatever indexes the store holds."""
     run(store, Market(days={D4: rows(D4)}))
     index = store.read_table("index_bars", start=D4)
-    assert index.select("code", "date", "close").rows() == [("000300.SH", D4, 3_100_000)]
+    assert index.select("code", "date", "close").rows() == [("000300.SH", D4, 3_100_000), ("000905.SH", D4, 3_100_000)]
 
 
 def test_a_conflict_becomes_a_proposed_resolution_and_the_store_is_unchanged(store):

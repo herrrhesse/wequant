@@ -39,6 +39,8 @@ seed always writes the same bytes, so end-to-end tests run on it.
 - `wequant/strategy/`: strategy descriptions (universe, pool items, filters, ranked factors, top N, hold rank, schedule
   and weights) with one canonical form, the screen (a strategy's selection at one day's close), the saved-strategy
   library under `$WEQUANT_HOME/strategies/` and the Chinese summary sentence.
+- `wequant/pools/`: stock pools, the user's named lists of stocks under `$WEQUANT_HOME/pools/`, and the reading of
+  a pasted list or a CSV/TXT file of codes and names.
 - `wequant/backtest/`: the rebalance engine: decides at each decision day's close, trades the next day through one
   account and returns the run with its metrics and warnings; it reports progress and can be cancelled.
 - `wequant/runs/`: runs and the archive under `$WEQUANT_HOME/runs/`: each run with each decision day's selection, kept
@@ -210,7 +212,7 @@ Exit codes (`wequant.service.Exit`):
 | 0 | `OK` | success |
 | 1 | `PROBLEMS` | a check found something to act on: `data check` found breaches the store does not record, recorded breaches that are gone, or no current limit check; `data index-check` found days off an index's nominal size; `data update` stopped at conflicts waiting for a decision or at BaoStock rows that fail the checks (the store is unchanged) |
 | 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day, an invalid verification record (none of the submission is added), a malformed resolutions file, a decision without a selector or one that would approve an `undetermined` entry (nothing is changed) |
-| 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, run, or resolutions file to decide in |
+| 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, run, stock pool, index members, or resolutions file to decide in |
 | 4 | `UNREACHABLE` | a data source cannot be reached or logged in to (`data update`: the store is unchanged) |
 | 5 | `LOCKED` | another writer holds the store lock, a strategy's lock, the verification records' lock or the resolutions file's lock, or another BaoStock session holds `raw/baostock/.lock`; try again later |
 | 70 | `INTERNAL` | a bug (the traceback is on stderr), or the cli extra is not installed |
@@ -286,14 +288,18 @@ uv run wequant data names [--commit]  # "补充股票名称", once, from raw/bao
   version (reason "每日更新"). A day counts as closed once 18:00 has passed in Shanghai; missed days all come in
   together, and a day BaoStock has not published yet ends the fetch normally (`status: not_published`, or `updated`
   with `waiting` set). A second run with nothing new makes no version (`up_to_date`). Each day costs two requests
-  (the day's snapshot of every SH/SZ stock and its adjustment events); the calendar, stock_basic and each stored index
-  one per update, and a code new to the store or without a factor file one more.
+  (the day's snapshot of every SH/SZ stock and its adjustment events); the calendar, stock_basic and each offered
+  index's bars and member list one per update, and a code new to the store or without a factor file one more.
 - The fetched responses go to the raw layer (`daily/`, `daily_factor/`, `index/`, and `meta/stock_basic.parquet` and
   `meta/trade_dates.parquet` refreshed); the merge is the S2.4b one (`wequant.data.merge`): its checks write
   `data_issues` rows by level and never correct silently, and approved resolutions apply. A conflict without an
   approved resolution becomes a proposed entry in the resolutions file and stops the update with the store unchanged
   (`status: conflicts`, exit 1) until it is decided (`wequant data resolve`). Names and official listing and
-  delisting dates come in with each update, and each stored index gets the new days' bars.
+  delisting dates come in with each update, and the offered indexes (CSI 300 `000300.SH`, CSI 500 `000905.SH`) get
+  the new days' bars and members: BaoStock's member list as of the last new day, dated L, grows the spans current on
+  the store's last day while their code stays a member (to the day before L once it left) and starts spans for new
+  members on L. Other indexes' stored bars and members (CSI 800, CSI 1000, CSI All Share) stay as they are and are no
+  longer updated.
 - **Failures leave the store as it was:** BaoStock unreachable or refusing the login is exit 4
   (`source_unreachable`), another writer or BaoStock session exit 5 (`store_busy`), cancel exit 130; a day already
   fetched stays in the raw layer and is not fetched again. The update holds `raw/baostock/.lock`, as the backfill does,
@@ -304,6 +310,35 @@ uv run wequant data names [--commit]  # "补充股票名称", once, from raw/bao
   official listing date reads its official delisting date (null: still listed); one without approximates the day from
   its data. Results that list stocks name them as the newest version does: screen rows and rejects, explain, a run's
   orders, holdings and decisions, and `data bars` (`names`); `data securities --query` matches names.
+
+## Stock pools and a strategy's scope
+
+```bash
+uv run wequant pools list | show ID | delete ID
+uv run wequant pools save 600519.SH 000001.SZ --name 自选 [--id ID]   # a new pool, or pool ID renamed and refilled
+uv run wequant pools parse "600519 平安银行 sh.600000"                  # or --file list.csv
+uv run wequant pools from-index 000300.SH                             # CSI 300 or CSI 500 members, to start from
+uv run wequant pools export ID > 自选.csv ; uv run wequant pools import 自选.csv --name 副本
+```
+
+- **Scopes (round 3):** a strategy reads all SH/SZ stocks, the members of an offered index (`pool.index`: CSI 300
+  `000300.SH` or CSI 500 `000905.SH`) on each decision day, or a fixed list of stocks (`pool.stocks`); `labels`
+  lists them in order (`scopes`), so the frontend shows what the backend offers. An index and a list together are
+  refused (`requires`). Boards, ST and listing days apply on top as before. CSI 800 (`000906.SH`), CSI 1000
+  (`000852.SH`) and CSI All Share (`000985.SH`) are older options: strategies and archived runs that use them validate
+  and run as before where the store has their members, with the warning `legacy_index`, and are never offered again.
+- **Stock pools** are files under `<home>/pools/<id>.json` (id, name, codes in the user's order without repeats,
+  created and modified times): the user's data, never in the repository. `pools parse` reads a pasted list or a file's
+  text, split at line breaks, commas, spaces, tabs and semicolons; each item is a code (`600519`, `600519.SH`,
+  `sh600519`, `sh.600519`, `SH600519`) or a stock's current name (exact). Every item ends up in exactly one place: the
+  stocks found (in order, each once), `duplicates`, or `unparsed` with its reason (`not_found`, `ambiguous` with the
+  candidates, `beijing`, `not_a_stock`, `header`). `pools export` writes CSV (a header row, then code and name; UTF-8
+  with a byte order mark so spreadsheet programs read the names) and `pools import` reads it back as a new pool.
+- **A strategy keeps its own copy:** `pool.stocks` holds the codes themselves, and the pool they were copied from
+  (`pool_id`, `pool_name`, shown only), so a saved version's hash (D16) and an archived run name the exact list.
+  Changing or deleting the pool later leaves strategies as they were; `strategy validate` and `strategy show` report
+  `pool_drift` (codes added to and removed from the pool since) for the user to decide. Listed codes the data lacks
+  are a warning (`stocks_not_in_data`), not an error. The summary reads 在自定义股票池“自选”（120 只）中…
 
 ## Index bars, rebalance days and order causes
 
