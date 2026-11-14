@@ -55,6 +55,7 @@ def test_the_seed_store(home, context):
             "stock_count": 4,
             "first_date": "2024-01-02",
             "backfill_floor": None,
+            "member_floors": [],
         },
     }
 

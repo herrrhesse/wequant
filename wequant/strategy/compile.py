@@ -18,7 +18,7 @@ FLIPPED = {"GT": "lt", "GE": "le", "LT": "gt", "LE": "ge", "EQ": "eq"}  # the co
 
 
 def pool_items(strategy: Strategy) -> dict[str, Expr]:
-    """The set pool items as conditions, in the order index, boards, exclude_st, min_list_days; a fixed list of
+    """The set pool items as conditions, in the order index, boards, exclude_st, exclude_delisting, min_list_days; a fixed list of
     stocks is part of the scope instead (scope)."""
     pool, items = strategy.pool, {}
     if pool.index is not None:
@@ -27,6 +27,8 @@ def pool_items(strategy: Strategy) -> dict[str, Expr]:
         items["boards"] = reduce(operator.or_, [Field(f"board@{board}") for board in pool.boards])
     if pool.exclude_st:
         items["exclude_st"] = ~Field("st")
+    if pool.exclude_delisting:
+        items["exclude_delisting"] = ~Field("delisting")
     if pool.min_list_days is not None:
         items["min_list_days"] = Field("list_days") >= pool.min_list_days
     return items

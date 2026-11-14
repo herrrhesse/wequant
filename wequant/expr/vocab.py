@@ -80,6 +80,7 @@ FIELDS: dict[str, FieldSpec] = {
     **{name: _limit(name) for name in ("limit_up_price", "limit_down_price")},
     **{name: _mask(name) for name in ("limit_up", "limit_down", "limit_locked", "limit_known", "st", "st_known")},
     "list_days": FieldSpec(NUM, _list_days),
+    "delisting": FieldSpec(BOOL, lambda p: p.on_bars(p.delisting > 0)),  # in its delisting period (S2.10a)
 }
 FAMILIES: dict[str, Family] = {
     "board": _member("boards", BOARDS),

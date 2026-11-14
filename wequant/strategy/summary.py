@@ -87,6 +87,9 @@ def _excluded(s: Strategy) -> Part:
     if s.pool.exclude_st:
         items.append("ST 股")
         loc.append(("pool", "exclude_st"))
+    if s.pool.exclude_delisting:
+        items.append("退市整理期的股票")
+        loc.append(("pool", "exclude_delisting"))
     if s.pool.min_list_days is not None:
         items.append(f"上市不足{s.pool.min_list_days}个交易日的次新股")
         loc.append(("pool", "min_list_days"))

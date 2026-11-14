@@ -21,6 +21,7 @@ FORMAT = 2  # bump when the meaning of a cached array changes (2: list_days from
 _KEY = re.compile(r"f([0-9]+)-v([0-9]+)-[0-9a-f]{12}")
 _BUILDING: Counter[str] = Counter()  # panel keys a thread of this process is building arrays for
 _LOCK = threading.Lock()
+_ARRAYS: dict[tuple[str, str], threading.Lock] = {}  # one builder per panel key and array name in this process
 
 
 def cache_key(manifest: dict) -> str:
@@ -49,7 +50,11 @@ class PanelCache:
             return np.load(path, mmap_mode="r")
         except FileNotFoundError:
             pass
-        with _building(self.key):
+        with _building(self.key), _one_builder(self.key, name):
+            try:  # another thread built it while this one waited
+                return np.load(path, mmap_mode="r")
+            except FileNotFoundError:
+                pass
             array = (build or BUILDERS[name])(self)
             try:
                 self._save(path, array)
@@ -57,6 +62,8 @@ class PanelCache:
             except FileNotFoundError:  # the folder went meanwhile: the array as built; the next call writes again
                 array.setflags(write=False)
                 return array
+            except FileInUse:  # another process wrote it and maps it (Windows refuses the replace): read its copy
+                return np.load(path, mmap_mode="r")
 
     def _save(self, path: Path, array: np.ndarray) -> None:
         if not self.directory.is_dir():
@@ -86,6 +93,16 @@ def _building(key: str) -> Iterator[None]:
             _BUILDING[key] -= 1
             if not _BUILDING[key]:
                 del _BUILDING[key]
+
+
+@contextmanager
+def _one_builder(key: str, name: str) -> Iterator[None]:
+    """Hold the lock of one array of one panel: a second thread waits for the first's file instead of writing over it,
+    which Windows refuses once the first has mapped it."""
+    with _LOCK:
+        lock = _ARRAYS.setdefault((key, name), threading.Lock())
+    with lock:
+        yield
 
 
 def _prune(root: Path, version: int) -> None:

@@ -36,7 +36,7 @@ PREFERS = ("high", "low")
 PERIODS = ("day", "week", "month")
 WEIGHTINGS = ("equal", "score", "formula")
 POOL_BOARDS = ("main", "chinext", "star")
-POOL_ITEMS = ("index", "boards", "exclude_st", "min_list_days")
+POOL_ITEMS = ("index", "boards", "exclude_st", "exclude_delisting", "min_list_days")
 RESERVED = (
     *("code", "date", "universe", "scored", "score", "rank", "role", "weight", "targets", "backups", "formula"),
     *("listed", "bar", "pool", *POOL_ITEMS, "stocks", "held", "action"),
@@ -145,12 +145,14 @@ class Pool(Checked):
     index: str | None = None  # one of INDEXES: a member of that index
     boards: tuple[str, ...] | None = None  # some of POOL_BOARDS, kept in that order: on one of them
     exclude_st: bool = False  # not ST
+    exclude_delisting: bool = False  # not in its delisting period (S2.10a; a form without it keeps it off)
     min_list_days: int | None = None  # listed at least this many trading days, the day itself included
     stocks: Stocks | None = None  # on this fixed list; never together with index
     RULES: ClassVar[dict[str, Rule]] = {
         "index": optional(choice(INDEXES)),
         "boards": optional(_boards),
         "exclude_st": flag,
+        "exclude_delisting": flag,
         "min_list_days": optional(count(2)),
         "stocks": optional(instance(Stocks)),
     }

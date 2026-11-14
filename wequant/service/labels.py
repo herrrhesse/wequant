@@ -30,6 +30,12 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
         None,
     ),
     "no_picks": ("没有选出股票", "所有决策日都没有选出股票", {}, None),
+    "delisting_unknown": (
+        "认不出退市整理期",
+        "这份数据没有股票名称，认不出退市整理期，“剔除退市整理期”没有生效",
+        {},
+        None,
+    ),
     "legacy_index": ("旧的范围选项", "{name}是旧的范围选项，新建策略不再提供；这个策略照样能校验和运行", {}, None),
     "scope_beyond_data": (
         "范围超出数据",
@@ -477,6 +483,15 @@ SCOPES = {  # code -> (name, sentence, kind): the scopes a new strategy offers, 
     "stocks": ("自定义名单", "从自己的股票池复制的一份固定名单", "stocks"),
 }
 
+POOL_ITEMS = {  # code -> (the funnel's and the decision chain's name, the strategy page's sentence)
+    "index": ("指数成分", "只留指数在决策日的成分股"),
+    "boards": ("板块", "只留选中板块（主板、创业板、科创板）的股票"),
+    "exclude_st": ("剔除 ST", "当天是 ST 的股票不参与"),
+    "exclude_delisting": ("剔除退市整理期", "退市前最后一段交易日（简称里带“退”）的股票不参与"),
+    "min_list_days": ("剔除次新股", "上市不足设定天数的股票不参与"),
+    "stocks": ("自定义名单", "只留名单里的股票"),
+}
+
 LEGACY_SCOPES = {  # code -> (name, sentence): older index options existing strategies still read
     "000906.SH": ("中证800", "中证800指数在决策日的成分股；旧选项，新建策略不再提供"),
     "000852.SH": ("中证1000", "中证1000指数在决策日的成分股；旧选项，新建策略不再提供"),
@@ -618,6 +633,8 @@ class Labels(Model):
     """Where a scheduled rebalance day comes from (ScheduledDay.source)."""
     scopes: list[ScopeLabel]
     """The scopes a strategy may have, the offered ones first in the order to show; legacy ones last."""
+    pool_items: list[Label]
+    """The pool's items (strategy pool fields, funnel steps of kind pool): a short name and the page's sentence."""
     parse_reasons: list[Label]
     """Why an item of a pasted list or file names no stock (UnparsedItem.reason)."""
     indicator_categories: list[Label]
@@ -656,6 +673,7 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         day_sources=_labels(DAY_SOURCES),
         scopes=[ScopeLabel(code=c, label=n, help=h, kind=k, legacy=False) for c, (n, h, k) in SCOPES.items()]
         + [ScopeLabel(code=c, label=n, help=h, kind="index", legacy=True) for c, (n, h) in LEGACY_SCOPES.items()],
+        pool_items=_labels(POOL_ITEMS),
         parse_reasons=_labels(PARSE_REASONS),
         indicator_categories=_labels(INDICATOR_CATEGORIES),
         own_rules=_labels(OWN_RULES),
