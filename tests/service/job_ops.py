@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from wequant.backtest import Progress
+from wequant.data.update import Step
 from wequant.service import Context, Exit, ServiceError
 from wequant.service.base import Model
 
@@ -32,6 +33,14 @@ def wait(request: Nothing, context: Context) -> Done:
     while not context.cancel():
         time.sleep(0.01)
     raise ServiceError(Exit.INTERRUPTED, "run cancelled")
+
+
+def paced(request: Nothing, context: Context) -> Done:
+    """Report a step with the seconds it has left, then wait until cancelled."""
+    context.progress(Step("build_stocks", 0.5, {"code": "600000.SH", "done": 1, "total": 2, "eta_seconds": 30}))
+    while not context.cancel():
+        time.sleep(0.01)
+    raise ServiceError(Exit.INTERRUPTED, "cancelled")
 
 
 def done(request: Nothing, context: Context) -> Done:

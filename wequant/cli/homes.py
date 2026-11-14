@@ -16,15 +16,18 @@ setup = app.command(App(name="setup", help="The first-run setup: whether this da
 
 
 @data.command(name="use-home")
-def data_use_home(path: str, /, *, common: Common = COMMON) -> int:
+def data_use_home(path: str, /, *, empty_ok: bool = False, common: Common = COMMON) -> int:
     """Read and write another folder that holds complete WeQuant data from now on (remembered for later commands).
 
     Parameters
     ----------
     path
         A WeQuant data root.
+    empty_ok
+        Also a new or empty folder, made when missing, to build or import into.
     """
-    return run(service.data_use_home, lambda: validated(service.UseHomeRequest, {"path": path}), common)
+    fields = {"path": path, "empty_ok": empty_ok}
+    return run(service.data_use_home, lambda: validated(service.UseHomeRequest, fields), common)
 
 
 @data.command(name="move")

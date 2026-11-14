@@ -88,3 +88,22 @@ def test_an_import_needs_an_empty_data_root(tmp_path):
     with pytest.raises(ServiceError) as raised:
         service.data_own_import(service.OwnRequest(path=str(tmp_path / "mine")), context(home))
     assert raised.value.detail[0].code == "store_exists"
+
+
+def test_a_built_or_imported_version_is_named_by_its_data_s_last_trading_day(tmp_path, fake):
+    """F-29: YYYYMMDD of the data's last trading day, not of the day it was made (coordinator, round 3)."""
+    service.data_build(service.BuildRequest(years=1), context(tmp_path / "built"))
+    service.data_own_import(service.OwnRequest(path=str(own_folder(tmp_path))), context(tmp_path / "imported"))
+    names = [service.data_status(service.StatusRequest(), context(tmp_path / h)) for h in ("built", "imported")]
+    assert [(s.data_version_name, s.last_trade_date.isoformat()) for s in names] == [
+        ("20240104.1", "2024-01-04"),
+        ("20240103.1", "2024-01-03"),
+    ]
+
+
+def test_an_import_reports_its_stages(tmp_path):
+    steps = []
+    service.data_own_import(
+        service.OwnRequest(path=str(own_folder(tmp_path))), context(tmp_path / "home", progress=steps.append)
+    )
+    assert [s.stage for s in steps] == ["own_read", "own_commit"]

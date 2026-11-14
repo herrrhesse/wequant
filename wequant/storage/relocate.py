@@ -23,9 +23,9 @@ class Refused(ValueError):
     """A folder that cannot take or be the data root: a stable code (no_directory, not_a_data_root,
     data_root_incomplete, not_empty, inside, no_space, copy_mismatch) and an English message."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, **params: int) -> None:
         super().__init__(message)
-        self.code = code
+        self.code, self.params = code, params
 
 
 class Cancelled(Exception):
@@ -81,7 +81,7 @@ def check_target(source: Path, target: Path, size: int) -> None:
         raise Refused("not_empty", f"{target} is not an empty folder")
     free = shutil.disk_usage(_existing(target)).free
     if free < size:
-        raise Refused("no_space", f"{target} has {free} bytes free; the data takes {size}")
+        raise Refused("no_space", f"{target} has {free} bytes free; the data takes {size}", free=free, size=size)
 
 
 def copy_root(
