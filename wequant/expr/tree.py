@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import math
 import operator
+from collections.abc import Iterable
 from functools import cached_property
 
 import numpy as np
 
+from wequant.data.codes import is_code
 from wequant.expr.vocab import BOOL, DESCRIPTIVE, FAMILIES, FIELDS, FUTURE, NUM, OPERATORS, SAME, Signature
 
 MAX_NODES = 10_000  # nodes of the expanded tree: keeps keys and archived forms small
@@ -157,6 +159,29 @@ class Op(Expr):
         return f"{self.name}({', '.join([repr(a) for a in self.args])})"
 
 
+class Codes(Expr):
+    """A fixed list of stocks (round 3): a condition true on the bars of these codes, whatever the day."""
+
+    name = "CODES"
+    codes: tuple[str, ...]
+
+    def __init__(self, codes: Iterable[str]) -> None:
+        found = tuple(codes)
+        for i, code in enumerate(found):
+            if not isinstance(code, str) or not is_code(code):
+                raise ExprError("not_a_form", f"argument {i} of CODES is not a code such as 600000.SH: {code!r}", i)
+        if not found:
+            raise ExprError("bad_arity", "CODES takes at least one code")
+        vars(self).update(codes=tuple(sorted(set(found))), kind=BOOL, size=1, depth=1)
+
+    @property
+    def form(self) -> list:
+        return [self.name, *self.codes]
+
+    def __repr__(self) -> str:
+        return f"CODES({len(self.codes)} codes)"
+
+
 def from_form(form: str | list) -> Expr:
     """The expression of a canonical form, built and checked exactly as in Python."""
     return _from_form(form, 1)
@@ -168,6 +193,8 @@ def _from_form(form: object, level: int) -> Expr:
         raise ExprError("too_deep", f"the form is deeper than {MAX_DEPTH} levels")
     if isinstance(form, str):
         return Field(form)
+    if isinstance(form, list) and form and form[0] == Codes.name:
+        return Codes(form[1:])
     if isinstance(form, list) and form and isinstance(form[0], str):
         return Op(form[0], *[_argument_form(a, i, level) for i, a in enumerate(form[1:], 1)])
     raise ExprError("not_a_form", f"not an expression form: {form!r}")

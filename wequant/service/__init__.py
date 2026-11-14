@@ -34,6 +34,32 @@ from wequant.service.jobs import (
 )
 from wequant.service.labels import IssueKindLabel, Label, Labels, LabelsRequest, TemplateLabel, WarningLabel, labels
 from wequant.service.names import NamesReport, NamesRequest, data_names
+from wequant.service.pools import (
+    IndexPool,
+    IndexPoolRequest,
+    ParsedStocks,
+    ParseRequest,
+    PoolCsv,
+    PoolDrift,
+    PoolImported,
+    PoolImportRequest,
+    PoolList,
+    PoolOut,
+    PoolRequest,
+    PoolRow,
+    PoolSaveRequest,
+    PoolsListRequest,
+    PoolStock,
+    UnparsedItem,
+    pools_delete,
+    pools_export,
+    pools_from_index,
+    pools_import,
+    pools_list,
+    pools_parse,
+    pools_save,
+    pools_show,
+)
 from wequant.service.profile import ProfileReport, Stage
 from wequant.service.resolutions import (
     Decision,
@@ -154,6 +180,30 @@ from wequant.service.verify import (
 )
 
 __all__ = [
+    "IndexPool",
+    "IndexPoolRequest",
+    "ParseRequest",
+    "ParsedStocks",
+    "PoolCsv",
+    "PoolDrift",
+    "PoolImportRequest",
+    "PoolImported",
+    "PoolList",
+    "PoolOut",
+    "PoolRequest",
+    "PoolRow",
+    "PoolSaveRequest",
+    "PoolStock",
+    "PoolsListRequest",
+    "UnparsedItem",
+    "pools_delete",
+    "pools_export",
+    "pools_from_index",
+    "pools_import",
+    "pools_list",
+    "pools_parse",
+    "pools_save",
+    "pools_show",
     "IndexBar",
     "IndexBars",
     "IndexBarsRequest",

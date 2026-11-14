@@ -75,7 +75,8 @@ class PoolCheck(Model):
     passed: bool | None
     """null: no value, which fails too."""
     value: float | bool | str | None
-    """bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days."""
+    """bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days;
+    stocks: on the fixed list."""
     note: str | None
     """e.g. listing days counted from the data's first day before S2.3."""
 
@@ -257,6 +258,7 @@ def _pool(strategy: Strategy, panel: Panel, section: Section, row: int, col: int
         "boards": str(panel.boards[col]),
         "exclude_st": bool(panel.st[row, col]) if panel.st_known[row, col] else None,
         "min_list_days": int(panel.list_days[row, col]),
+        "stocks": None,
     }
     checks = [
         PoolCheck(
@@ -266,7 +268,7 @@ def _pool(strategy: Strategy, panel: Panel, section: Section, row: int, col: int
     ]
     for name in pool_items(strategy):
         passed = verdict(section.steps[name][0, col])
-        value = passed if name == "index" else values[name]
+        value = passed if name in ("index", "stocks") else values[name]
         checks.append(
             PoolCheck(name=name, passed=passed, value=value, note=LIST_DAYS_NOTE if name == "min_list_days" else None)
         )

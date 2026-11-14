@@ -14,6 +14,7 @@ from wequant.service.base import Context, Model, not_found
 from wequant.service.details import Loc, spec_details, to_strategy, usage
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.outputs import Params, SavedRef, Warning, warnings_out
+from wequant.service.pools import PoolDrift, pool_drift, scope_warnings
 from wequant.service.specs import ExecutionSpec, Name, StrategyRef, StrategySpec
 from wequant.strategy import SpecError, SpecErrors, Strategy
 from wequant.strategy.library import Entry, Library, NotSaved, read_warnings, strategy_hash
@@ -51,6 +52,9 @@ class StrategyCheck(Model):
     weight_shares: dict[str, float]
     """Each enabled factor's share of the total weight, in factor order; empty: no enabled factor."""
     warnings: list[Warning]
+    """e.g. legacy_index, stocks_not_in_data, and those of reading a saved version."""
+    pool_drift: PoolDrift | None = None
+    """How the copied stock list differs from its stock pool now; null: no pool, or no difference."""
 
 
 class SummaryPart(Model):
@@ -178,7 +182,9 @@ class SavedStrategy(Model):
     strategy: StrategySpec
     summary: str
     warnings: list[Warning]
-    """e.g. strategy_version_changed, meta_rebuilt."""
+    """e.g. strategy_version_changed, meta_rebuilt, legacy_index, stocks_not_in_data."""
+    pool_drift: PoolDrift | None = None
+    """How the copied stock list differs from its stock pool now; null: no pool, or no difference."""
 
 
 class ArchiveRequest(Model):
@@ -198,7 +204,8 @@ def strategy_validate(request: StrategyRequest, context: Context = Context()) ->
         form=StrategySpec.model_validate(strategy.form),
         saved_as=saved_as(library, found),
         weight_shares=weight_shares(strategy),
-        warnings=warnings,
+        warnings=warnings + scope_warnings(strategy, context),
+        pool_drift=pool_drift(strategy, context),
     )
 
 
@@ -258,7 +265,8 @@ def strategy_show(request: ShowRequest, context: Context = Context()) -> SavedSt
         **vars(version),
         strategy=StrategySpec.model_validate(strategy.form),
         summary=sentence(summary(strategy)),
-        warnings=warnings_out(read_warnings(entry, version)),
+        warnings=warnings_out(read_warnings(entry, version)) + scope_warnings(strategy, context),
+        pool_drift=pool_drift(strategy, context),
     )
 
 

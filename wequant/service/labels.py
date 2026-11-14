@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import string
 from collections.abc import Mapping
+from typing import Literal
 
 from wequant.data.schema import ISSUE_KINDS
 from wequant.service.base import Context, Model
@@ -29,6 +30,13 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
         None,
     ),
     "no_picks": ("没有选出股票", "所有决策日都没有选出股票", {}, None),
+    "legacy_index": ("旧的范围选项", "{index} 是旧的范围选项，新建策略不再提供；这个策略照样能校验和运行", {}, None),
+    "stocks_not_in_data": (
+        "名单里有数据中没有的股票",
+        "自定义名单里有 {count} 只股票不在这个数据库里：{codes}；选股时它们不会入选",
+        {},
+        None,
+    ),
     "index_uncovered": (
         "指数成分数据不全",
         "{index}：{days} 个决策日不在成分股数据覆盖的范围内",
@@ -207,7 +215,7 @@ FUNNEL_KINDS = {
     "listed": ("在市", "决策日已上市、未退市"),
     "bar": ("有 K 线", "决策日有 K 线（没有停牌、不缺数据）"),
     "universe": ("范围", "满足策略的范围条件"),
-    "pool": ("股票池", "股票池的一项：指数成分、板块、剔除 ST、上市天数"),
+    "pool": ("股票池", "股票池的一项：指数成分、自定义名单、板块、剔除 ST、上市天数"),
     "condition": ("条件", "一个筛选条件"),
     "group": ("条件组", "一组条件，全部或任一满足"),
     "scored": ("打分", "所有因子都有值、参与排名"),
@@ -315,6 +323,7 @@ ERROR_CODES = {
     "unknown_code": ("没有这只股票", "数据里没有这个代码"),
     "unknown_field": ("没有这个字段", "表达式里用了不存在的字段"),
     "unknown_job": ("没有这个任务", "没有这个任务，或者它已经被清理"),
+    "unknown_pool": ("没有这个股票池", "没有这个股票池，可能已经删除"),
     "unknown_key": ("多余的字段", "出现了不认识的字段"),
     "unknown_operator": ("没有这个函数", "表达式里用了不存在的函数"),
     "unknown_run": ("没有这次运行", "运行记录里没有这个编号"),
@@ -398,6 +407,27 @@ JOB_STAGES = {  # code -> (name, template over the stage's params)
     "update_commit": ("写入版本", "正在写入新版本"),
 }
 
+SCOPES = {  # code -> (name, sentence, kind): the scopes a new strategy offers, in this order
+    "all": ("沪深全部", "沪深两市的全部股票", "all"),
+    "000300.SH": ("沪深300", "沪深300指数在决策日的成分股", "index"),
+    "000905.SH": ("中证500", "中证500指数在决策日的成分股", "index"),
+    "stocks": ("自定义名单", "从自己的股票池复制的一份固定名单", "stocks"),
+}
+
+LEGACY_SCOPES = {  # code -> (name, sentence): older index options existing strategies still read
+    "000906.SH": ("中证800", "中证800指数在决策日的成分股；旧选项，新建策略不再提供"),
+    "000852.SH": ("中证1000", "中证1000指数在决策日的成分股；旧选项，新建策略不再提供"),
+    "000985.SH": ("中证全指", "中证全指在决策日的成分股；旧选项，新建策略不再提供"),
+}
+
+PARSE_REASONS = {
+    "not_found": ("找不到", "数据里没有这个代码或名称的股票"),
+    "ambiguous": ("有歧义", "这个名称或代码对应不止一只股票，请改用带交易所的代码，例如 600000.SH"),
+    "beijing": ("北交所暂不支持", "北交所的股票暂时没有数据"),
+    "not_a_stock": ("不是股票", "这是指数或基金的代码，不是股票"),
+    "header": ("表头", "像是表头（例如“代码”“名称”），已跳过"),
+}
+
 UPDATE_STATUSES = {  # code -> (name, template over update_params)
     "updated": ("已更新", "更新完成：新增 {days} 个交易日，数据到 {last_day}"),
     "up_to_date": ("已是最新", "已是最新，没有新的已收盘交易日"),
@@ -453,6 +483,14 @@ class WarningLabel(TemplateLabel):
     """Not null: params repeat per item with suffixes _2, _3, ...; the filled templates are joined by this."""
 
 
+class ScopeLabel(Label):
+    """A scope a strategy may have: all stocks, an index's members, or a fixed list of stocks."""
+
+    kind: Literal["all", "index", "stocks"]
+    legacy: bool
+    """True: an older index option, still read in existing strategies, never offered for new ones."""
+
+
 class Labels(Model):
     """The Chinese of every code: warnings, data issues, metrics, funnel, orders, delistings, anomalies, errors,
     versions and jobs."""
@@ -483,6 +521,10 @@ class Labels(Model):
     """Why an order was placed (OrderRow.cause), filled from its cause_params."""
     day_sources: list[Label]
     """Where a scheduled rebalance day comes from (ScheduledDay.source)."""
+    scopes: list[ScopeLabel]
+    """The scopes a strategy may have, the offered ones first in the order to show; legacy ones last."""
+    parse_reasons: list[Label]
+    """Why an item of a pasted list or file names no stock (UnparsedItem.reason)."""
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -511,6 +553,9 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         update_statuses=[_template(code, name, text) for code, (name, text) in UPDATE_STATUSES.items()],
         order_causes=[_template(code, name, text) for code, (name, text) in ORDER_CAUSES.items()],
         day_sources=_labels(DAY_SOURCES),
+        scopes=[ScopeLabel(code=c, label=n, help=h, kind=k, legacy=False) for c, (n, h, k) in SCOPES.items()]
+        + [ScopeLabel(code=c, label=n, help=h, kind="index", legacy=True) for c, (n, h) in LEGACY_SCOPES.items()],
+        parse_reasons=_labels(PARSE_REASONS),
     )
 
 

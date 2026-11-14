@@ -11,6 +11,7 @@ from typing import get_type_hints
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.frames import table_frame
 from tests.service.conftest import MOM
 from tests.service.test_cli import CASES, RUNS
 from tests.test_merge_resolutions import EARLY
@@ -20,7 +21,7 @@ from wequant import service
 from wequant.api import create_app
 from wequant.cli.commands import DEFAULT_PORT
 from wequant.data.merge.resolutions import add, default_path
-from wequant.data.store import exclusive
+from wequant.data.store import Store, exclusive
 from wequant.service import Context, ErrorBody, Exit, JobInfo, JobRef, ServiceError
 from wequant.service.contract import OPERATIONS
 from wequant.service.jobs import KINDS
@@ -66,7 +67,7 @@ def test_every_operation_of_the_snapshot_has_its_route_and_no_route_is_extra(hom
 
 
 def test_the_contract_cases_cover_every_operation():
-    covered = {name for _, name, *_ in CASES + RUNS + WRITES + STORAGE} | set(JOBS) | {"data_update"}
+    covered = {name for _, name, *_ in CASES + RUNS + WRITES + STORAGE + POOLS} | set(JOBS) | {"data_update"}
     assert covered == {operation.__name__ for operation in OPERATIONS}
 
 
@@ -97,6 +98,41 @@ def test_a_storage_operation_returns_the_bytes_the_cli_prints(cli, market_home, 
     service.strategy_export(service.ExportStrategyRequest(id="m", path=str(tmp_path / "in.wqstrategy")), origin)
     by_cli, by_http = (shutil.copytree(market_home, tmp_path / side) for side in ("cli", "http"))
     fill = lambda value: value.format(dir=tmp_path, id=run_id) if isinstance(value, str) else value  # noqa: E731
+    _, out, _ = cli(*map(fill, argv), "--json", "--home", by_cli, "--cache", cache)
+    response = post(by_http, cache, name, {key: fill(value) for key, value in fields.items()})
+    assert (response.status_code, response.text) == (200, out.removesuffix("\n"))
+
+
+CSV = "代码,名称\n600004.SH,\n000001.SZ,\n"
+POOLS = [  # on copies of a market with stock pool {pool} and CSI 300 members; {dir}/in.csv holds CSV
+    (["pools", "list"], "pools_list", {}),
+    (["pools", "show", "{pool}"], "pools_show", {"id": "{pool}"}),
+    (
+        ["pools", "save", "600004.SH", "--name", "b", "--id", "{pool}"],
+        "pools_save",
+        {"id": "{pool}", "name": "b", "codes": ["600004.SH"]},
+    ),  # fmt: skip
+    (["pools", "delete", "{pool}"], "pools_delete", {"id": "{pool}"}),
+    (["pools", "parse", "600004 x"], "pools_parse", {"text": "600004 x"}),
+    (["pools", "from-index", "000300.SH"], "pools_from_index", {"index": "000300.SH"}),
+    (["pools", "export", "{pool}"], "pools_export", {"id": "{pool}"}),
+    (["pools", "import", "{dir}/in.csv", "--name", "c"], "pools_import", {"name": "c", "text": CSV}),
+]
+
+
+@pytest.mark.parametrize("argv, name, fields", POOLS, ids=[case[1] for case in POOLS])
+def test_a_pool_operation_returns_the_bytes_the_cli_prints(
+    cli, market_home, cache, tmp_path, monkeypatch, argv, name, fields
+):
+    """New pools get the same id and every write the same time on both sides."""
+    members = [{"index_code": "399300.SZ", "code": "000001.SZ", "start_date": "2024-01-02", "end_date": "2024-01-11"}]
+    Store(market_home).commit({}, replace={"index_members": table_frame("index_members", members)})
+    pool = service.pools_save(service.PoolSaveRequest(name="a", codes=["000001.SZ"]), Context(market_home)).id
+    (tmp_path / "in.csv").write_text(CSV, encoding="utf-8")
+    monkeypatch.setattr("wequant.pools.book.utc_now", lambda: "2026-11-14T00:00:00+00:00")
+    monkeypatch.setattr("wequant.pools.book.secrets.token_hex", lambda n: "0" * 2 * n)
+    by_cli, by_http = (shutil.copytree(market_home, tmp_path / side) for side in ("cli", "http"))
+    fill = lambda value: value.format(dir=tmp_path, pool=pool) if isinstance(value, str) else value  # noqa: E731
     _, out, _ = cli(*map(fill, argv), "--json", "--home", by_cli, "--cache", cache)
     response = post(by_http, cache, name, {key: fill(value) for key, value in fields.items()})
     assert (response.status_code, response.text) == (200, out.removesuffix("\n"))

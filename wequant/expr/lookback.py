@@ -6,7 +6,7 @@ be longer and a lookback understates it, never overstates it.
 
 from __future__ import annotations
 
-from wequant.expr.tree import Expr, Field, Op
+from wequant.expr.tree import Codes, Expr, Field, Op
 
 WINDOWS = frozenset("MA WMA STD STDP AVEDEV SLOPE TS_RANK CORR SUM HHV LLV HHVBARS LLVBARS COUNT EVERY EXIST".split())
 WHOLE = frozenset("EMA SMA BARSLAST BARSCOUNT VALUEWHEN".split())  # every bar from the panel's first row
@@ -14,7 +14,7 @@ WHOLE = frozenset("EMA SMA BARSLAST BARSCOUNT VALUEWHEN".split())  # every bar f
 
 def lookback(expr: Expr) -> int | None:
     """Bars before the last one that expr reads at most; None when it reads a stock's whole history."""
-    if isinstance(expr, Field):
+    if isinstance(expr, Field | Codes):
         return 0
     reach = [lookback(a) for a in expr.args if isinstance(a, Expr)]
     if expr.name in WHOLE or None in reach:
@@ -31,4 +31,6 @@ def fields(expr: Expr) -> frozenset[str]:
     """The names of the fields expr reads."""
     if isinstance(expr, Field):
         return frozenset((expr.name,))
+    if isinstance(expr, Codes):
+        return frozenset()
     return frozenset().union(*(fields(a) for a in expr.args if isinstance(a, Op | Field)))
