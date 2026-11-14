@@ -46,6 +46,16 @@ def test_the_seed_store(home, context):
         ],
         "meta": {"source": "test"},
         "home": str(home),
+        "scope": {  # made before S2.11: every stock from the first day
+            "layers": [{"all": True, "indexes": [], "stocks": [], "label": "沪深全部", "since": "2024-01-02"}],
+            "covers": [
+                {"code": code, "since": "2024-01-02"}
+                for code in ("all", "000300.SH", "000905.SH", "000906.SH", "000852.SH", "000985.SH")
+            ],
+            "stock_count": 4,
+            "first_date": "2024-01-02",
+            "backfill_floor": None,
+        },
     }
 
 

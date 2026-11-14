@@ -16,6 +16,7 @@ from wequant.service.contract import OPERATIONS, route
 COVERED = ("fs_places", "fs_list", "fs_mkdir", "data_use_home", "data_relocate", "setup_status", "setup_save")
 COVERED += ("data_build_estimate", "data_build", "data_backfill", "data_own_check", "data_own_import")  # and S2.9:
 # the BaoStock ones run on tests.service.test_build's fake; their routes are the snapshot's like every other
+COVERED += ("data_extend_estimate", "data_extend")  # S2.11
 
 
 def call(client, name: str, fields: dict | None = None):
@@ -70,6 +71,11 @@ READS = [  # the same request on one folder: the command's --json and the route'
     (["setup", "status"], "setup_status", {}),
     (["data", "build-estimate", "--years", "1"], "data_build_estimate", {"years": 1}),
     (["data", "own-check", "{dir}"], "data_own_check", {"path": "{dir}"}),
+    (
+        ["data", "extend-estimate", "--scope", "000300.SH"],
+        "data_extend_estimate",
+        {"scope": {"indexes": ["000300.SH"]}},
+    ),
 ]
 
 

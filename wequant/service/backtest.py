@@ -32,6 +32,7 @@ from wequant.service.outputs import (
     data_anomaly,
     warnings_out,
 )
+from wequant.service.scopes import beyond_data
 from wequant.service.specs import DataSpec, ExecutionSpec, IsoDate, MetricSpecModel
 from wequant.service.strategies import Hash, StrategyInput, resolve, saved_as
 from wequant.storage.retention import prune_runs
@@ -112,9 +113,11 @@ def backtest(request: BacktestRequest, context: Context = Context()) -> Backtest
     with located_run(where):
         callbacks = {"progress": context.progress, "cancel": context.cancel, "mark": context.mark}
         run = engine_run(spec, panel, cache=context.expr_cache, **callbacks)
-    if request.save:
+    beyond = beyond_data(strategy, store, panel.manifest, run.ledger.daily["date"][0])
+    if request.save:  # the data scope warnings stay with the run: the data may cover its scope later
         archive = Archive(store.home / RUNS)
-        archive.save(run, {"store_version_name": version_name(panel.manifest)})
+        notes = {"store_version_name": version_name(panel.manifest), "warnings": [w.model_dump() for w in beyond]}
+        archive.save(run, notes)
         with contextlib.suppress(OutsideRoot):  # a runs folder linked elsewhere is never pruned
             prune_runs(archive, load_settings(store.home)[0], keep=[run.id])  # the oldest unpinned beyond the limit
         context.stage("archive_save")
@@ -133,7 +136,7 @@ def backtest(request: BacktestRequest, context: Context = Context()) -> Backtest
         orders=order_counts(run.ledger.orders),
         delisted=[DelistedRow(**row) for row in run.ledger.delisted.iter_rows(named=True)],
         anomalies=data_anomaly(run.anomalies, panel.excluded),
-        warnings=warnings + warnings_out(run.warnings),
+        warnings=warnings + warnings_out(run.warnings) + beyond,
         report=None,
     )
     if request.report:

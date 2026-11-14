@@ -11,6 +11,7 @@ import logging
 import socket
 from typing import Literal
 
+from wequant.data.build import join
 from wequant.data.merge import RawDataError, StalePlan
 from wequant.data.sources.baostock import BaoStock, BaoStockError
 from wequant.data.store import StoreLocked
@@ -53,16 +54,21 @@ class UpdateResult(Check):
     """Why BaoStock's rows were rejected; empty otherwise."""
     requests: int
     """Requests to BaoStock, the login included."""
+    joined: int = 0
+    """New members of an index the data's scope names whose history was added (S2.11), as a version of its own."""
 
 
 def data_update(request: UpdateRequest, context: Context = Context()) -> UpdateResult:
     """Fetch and merge the closed trading days after the store's last one; a second run the same day changes nothing."""
     store = context.store()
     base = manifest(store)
+    before = store.read_table("calendar", columns=["date"], manifest=base)["date"].max()
     now = dt.datetime.fromisoformat(context.clock()) if context.clock else dt.datetime.now(dt.UTC)
     try:
         with guarded(), BaoStock() as source:
             outcome = update(store, source, now, context.progress, context.cancel)
+            if outcome.status == "updated":  # a data root built by index: its new members' history (S2.11)
+                outcome.joined = join(store, source, before, now, context.progress, context.cancel)
     except (RawDataError, RawRejected) as error:
         problems = getattr(error, "problems", [str(error)])
         outcome = Outcome("rejected", base["version"])
@@ -97,6 +103,7 @@ def result(outcome: Outcome, problems: list[str], context: Context) -> UpdateRes
         "indexes": outcome.indexes,
         "problems": problems,
         "requests": outcome.requests,
+        "joined": outcome.joined,
     }
     ok = outcome.status not in ("conflicts", "rejected")
     return UpdateResult(ok=ok, text=update_text(fields), **named(current), **fields)

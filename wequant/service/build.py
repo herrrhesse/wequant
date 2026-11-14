@@ -1,26 +1,38 @@
-"""data build | build-estimate | backfill (round 3, S2.9): the first version of an empty data root from BaoStock, how
-long it will take, and the earlier years in the background. Each is a background job under wequant serve (kinds
-data_build and data_backfill), one BaoStock session at a time with the daily update."""
+"""data build | build-estimate | backfill | extend | extend-estimate (round 3, S2.9; S2.11): the first version of an
+empty data root from BaoStock for a scope, how long it will take, the earlier years and a wider scope in the
+background. Builds, backfills and extensions are background jobs under wequant serve (kinds data_build, data_backfill
+and data_extend), one BaoStock session at a time with the daily update."""
 
 from __future__ import annotations
 
 import datetime as dt
-import socket
 import time
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from typing import Literal
 
 from pydantic import Field
 
-from wequant.data.build import OLDEST, Built, Say, backfill, build
-from wequant.data.merge import StalePlan
+from wequant.data.build import OLDEST, SEGMENT_YEARS, Built, Say, backfill, build, extend
 from wequant.data.raw import BaoStockRaw
-from wequant.data.sources.baostock import BaoStock, BaoStockError
-from wequant.data.store import StoreLocked
-from wequant.data.update import Step, UpdateCancelled
-from wequant.service.base import Context, ErrorDetail, Model, guarded, manifest, name_of
+from wequant.data.scope import Scope
+from wequant.data.sources.baostock import BaoStock
+from wequant.data.update import Step
+from wequant.service.base import Context, Model, manifest, name_of
 from wequant.service.errors import Exit, ServiceError
+from wequant.service.pools import PoolSaveRequest, pools_save
+from wequant.service.scopes import (
+    BackfillFloor,
+    DataScope,
+    ScopeLayer,
+    default_scope,
+    extend_size,
+    held_layers,
+    layers_out,
+    scope_label,
+    scope_size,
+)
+from wequant.service.sessions import baostock
+from wequant.service.specs import Name
 from wequant.service.storage import tidy
 
 TRADING_DAYS = 243  # a year's trading days, for an estimate before the calendar is known
@@ -30,19 +42,23 @@ SECONDS_PER_FACTOR = 0.51  # one stock's whole factor history (measured 2026-11-
 SECONDS_INDEXES = 180.0  # the offered indexes' bars and monthly member lists
 RECONNECTS = 5  # new sessions a build or a backfill segment starts after BaoStock fails, before it gives up
 PAUSE = 60.0  # seconds before each new session (BaoStock's outages of 2026-11-14 lasted minutes)
-STAGES = ("build_reconnect",)  # waiting to start a new session
+STAGES = ("build_reconnect", "backfill_floor")  # waiting to start a new session; history stops at a member list
 
 
 class BuildEstimateRequest(Model):
-    """How long a first build of the last `years` years will take."""
+    """How long a first build of the last `years` years of a scope will take."""
 
     years: Literal[1, 3, 5] = 3
+    scope: DataScope = Field(default_factory=default_scope)
 
 
 class BuildEstimate(Model):
     """A first build's size and expected time, from measured BaoStock speeds; BaoStock's own speed varies."""
 
     years: int
+    scope: DataScope
+    stocks: int
+    """Stocks to fetch: an index's from member counts measured over the last 1, 3 and 5 years, a list's its codes."""
     days: int
     """Trading days, from BaoStock's calendar when the raw layer has it, else 243 a year."""
     requests: int
@@ -53,9 +69,12 @@ class BuildEstimate(Model):
 
 
 class BuildRequest(Model):
-    """A first build of an empty data root from BaoStock."""
+    """A first build of an empty data root from BaoStock: the last `years` years of a scope."""
 
     years: Literal[1, 3, 5] = 3
+    scope: DataScope = Field(default_factory=default_scope)
+    pool_name: Name | None = None
+    """The stock pool a scope's stocks are saved as once built (default 首次建库名单); unused without stocks."""
 
 
 class BuildResult(Model):
@@ -71,6 +90,10 @@ class BuildResult(Model):
     days: int
     requests: int
     seconds: float
+    stocks: int = 0
+    """Stocks with bars in the version made; 0 without one."""
+    pool_id: str | None = None
+    """The stock pool a build saved its scope's stocks as; null otherwise."""
 
 
 class BackfillRequest(Model):
@@ -84,20 +107,68 @@ class BackfillResult(Model):
 
     segments: list[BuildResult]
     status: Literal["complete"]
+    floor: BackfillFloor | None = None
+    """Set when the history stops at the first member list of an index of the oldest layer (S2.11)."""
+
+
+class ExtendEstimateRequest(Model):
+    """How long adding scope to the data's widest layer will take."""
+
+    scope: DataScope
+    """What to add: an index, every stock or a list."""
+
+
+class ExtendEstimate(Model):
+    """An extension's size and expected time; sends no request."""
+
+    scope: DataScope
+    """The widest layer's scope once extended."""
+    covered: bool
+    """The data holds it already from its first day: nothing to fetch."""
+    stocks: int
+    """Stocks to add, over the data's whole window."""
+    requests: int
+    seconds: int
+    since: dt.date
+    """The day the added stocks reach back to: the data's first day."""
+
+
+class ExtendRequest(Model):
+    """Add scope to the data's widest layer, newest years first, SEGMENT_YEARS years a version, back to its first day;
+    the same request again carries on a stopped extension."""
+
+    scope: DataScope
+    pool_name: Name | None = None
+    """The stock pool the added stocks are saved as (default 扩大范围名单); unused without stocks."""
+
+
+class ExtendResult(Model):
+    """The segments added, newest first, and the layers after them."""
+
+    status: Literal["built", "covered"]
+    """built: at least one segment; covered: nothing to add (no version)."""
+    segments: list[BuildResult]
+    layers: list[ScopeLayer]
+    added: int
+    """Stocks with bars now that had none before."""
+    pool_id: str | None
 
 
 def data_build_estimate(request: BuildEstimateRequest, context: Context = Context()) -> BuildEstimate:
-    """A first build's trading days, requests and expected seconds; sends no request."""
+    """A first build's stocks, trading days, requests and expected seconds for its scope; sends no request."""
     history = BaoStockRaw.at(context.store().home).root / "history"
     already = sum(1 for _ in history.glob("*/*.parquet")) if history.is_dir() else 0
-    todo = max(STOCKS - already, 0)
-    seconds = todo * SECONDS_PER_HISTORY[request.years] + STOCKS * SECONDS_PER_FACTOR + SECONDS_INDEXES
+    stocks = scope_size(request.scope.scope(), request.years)
+    todo = max(stocks - already, 0)
+    seconds = todo * SECONDS_PER_HISTORY[request.years] + stocks * SECONDS_PER_FACTOR + SECONDS_INDEXES
     return BuildEstimate(
         years=request.years,
+        scope=request.scope,
+        stocks=stocks,
         days=request.years * TRADING_DAYS,
-        requests=todo + STOCKS + 2 * 12 * request.years + 10,
+        requests=todo + stocks + 2 * 12 * request.years + 10,
         seconds=round(seconds),
-        already=already,
+        already=min(already, stocks),
     )
 
 
@@ -107,11 +178,14 @@ def data_build(request: BuildRequest, context: Context = Context()) -> BuildResu
     started, store = time.monotonic(), context.store()
     if (found := store.manifest()) is not None:  # no BaoStock session for a data root that has data
         return _result(Built("exists", found["version"]), started, context)
-    work = lambda source, say: build(store, source, request.years, _now(context), say, context.cancel)  # noqa: E731
+    scope = request.scope.scope()
+    work = lambda source, say: build(store, source, request.years, _now(context), say, context.cancel, scope=scope)  # noqa: E731
     built = _session(work, context)
-    if built.version is not None:
-        tidy(context)
-    return _result(built, started, context)
+    if built.version is None:
+        return _result(built, started, context)
+    tidy(context)
+    pool = save_pool(context, request.pool_name or "首次建库名单", scope.stocks)
+    return _result(built, started, context).model_copy(update={"pool_id": pool})
 
 
 def data_backfill(request: BackfillRequest, context: Context = Context()) -> BackfillResult:
@@ -124,9 +198,84 @@ def data_backfill(request: BackfillRequest, context: Context = Context()) -> Bac
         work = lambda source, say: backfill(store, source, _now(context), say, context.cancel, request.oldest)  # noqa: E731
         built = _session(work, context)
         if built.status != "built":
-            return BackfillResult(segments=segments, status="complete")
+            return BackfillResult(segments=segments, status="complete", floor=_floor(built, context))
         tidy(context)
         segments.append(_result(built, started, context))
+
+
+def data_extend_estimate(request: ExtendEstimateRequest, context: Context = Context()) -> ExtendEstimate:
+    """How many stocks adding scope brings in and how long fetching them back to the data's first day takes; sends no
+    request."""
+    store = context.store()
+    found = manifest(store)
+    held = held_layers(store, found)
+    target = held[0].scope | request.scope.scope()
+    first = held[-1].since
+    if target <= held[-1].scope:
+        return ExtendEstimate(scope=DataScope.of(target), covered=True, stocks=0, requests=0, seconds=0, since=first)
+    stocks, segments = extend_size(store, found, target), _segments(store, found)
+    seconds = stocks * (segments * SECONDS_PER_HISTORY[SEGMENT_YEARS] + SECONDS_PER_FACTOR)
+    return ExtendEstimate(
+        scope=DataScope.of(target),
+        covered=False,
+        stocks=stocks,
+        requests=stocks * (segments + 1) + segments,
+        seconds=round(seconds),
+        since=first,
+    )
+
+
+def data_extend(request: ExtendRequest, context: Context = Context()) -> ExtendResult:
+    """Add scope to the data's widest layer segment by segment, newest first, each a version, until the added stocks
+    reach the data's first day; a cancel keeps the segments added and leaves no half segment."""
+    store, segments = context.store(), []
+    found = manifest(store)
+    before = found["tables"]["securities"]
+    target, name = held_layers(store, found)[0].scope | request.scope.scope(), scope_label(request.scope.scope())
+    named = lambda say: lambda step: say(step._replace(params={**step.params, "name": name}))  # noqa: E731
+    while True:
+        started = time.monotonic()
+        work = lambda source, say: extend(store, source, target, _now(context), named(say), context.cancel, name)  # noqa: E731
+        built = _session(work, context)
+        if built.status != "built":
+            break
+        tidy(context)
+        segments.append(_result(built, started, context))
+    after = manifest(store)
+    pool = save_pool(context, request.pool_name or "扩大范围名单", request.scope.stocks) if segments else None
+    return ExtendResult(
+        status="built" if segments else "covered",
+        segments=segments,
+        layers=layers_out(held_layers(store, after)),
+        added=_rows(after["tables"]["securities"]) - _rows(before),
+        pool_id=pool,
+    )
+
+
+def save_pool(context: Context, name: str, codes: tuple[str, ...]) -> str | None:
+    """The id of a new stock pool of codes; None without codes."""
+    return pools_save(PoolSaveRequest(name=name, codes=list(codes)), context).id if codes else None
+
+
+def _segments(store, found: dict) -> int:
+    """The SEGMENT_YEARS segments the data's calendar spans."""
+    days = store.read_table("calendar", columns=["date"], manifest=found)["date"]
+    return -(-(days.max().year - days.min().year + 1) // SEGMENT_YEARS)
+
+
+def _rows(table: dict) -> int:
+    return sum(f["rows"] for f in table["files"])
+
+
+def _floor(built: Built, context: Context) -> BackfillFloor | None:
+    """The floor a backfill stopped at, said as its last step."""
+    if built.floor is None:
+        return None
+    index, day = built.floor
+    floor = BackfillFloor(index=index, name=scope_label(Scope(indexes=(index,))), date=day)
+    if context.progress:
+        context.progress(Step(STAGES[1], 1.0, floor.model_dump(mode="json")))
+    return floor
 
 
 def _session(work: Callable[[BaoStock, Say], Built], context: Context) -> Built:
@@ -142,7 +291,7 @@ def _session(work: Callable[[BaoStock, Say], Built], context: Context) -> Built:
 
     for attempt in range(RECONNECTS + 1):
         try:
-            with _baostock() as source:
+            with baostock() as source:
                 return work(source, say)
         except ServiceError as error:
             if error.exit != Exit.UNREACHABLE or attempt == RECONNECTS:
@@ -161,26 +310,10 @@ def _pause(seconds: float, cancel: Callable[[], bool]) -> None:
         time.sleep(min(1.0, max(end - time.monotonic(), 0)))
 
 
-@contextmanager
-def _baostock() -> Iterator[BaoStock]:
-    """A BaoStock session, its failures as service errors: UNREACHABLE, LOCKED store_busy, INTERRUPTED."""
-    try:
-        with guarded(), BaoStock() as source:
-            yield source
-    except UpdateCancelled as error:
-        raise ServiceError(Exit.INTERRUPTED, str(error)) from None
-    except (StoreLocked, StalePlan) as error:
-        raise ServiceError(Exit.LOCKED, str(error), [ErrorDetail(code="store_busy", message=str(error))]) from None
-    except (BaoStockError, ConnectionError, TimeoutError, socket.gaierror) as error:
-        message = f"BaoStock cannot be reached: {error}"
-        raise ServiceError(
-            Exit.UNREACHABLE, message, [ErrorDetail(code="source_unreachable", message=message)]
-        ) from None
-
-
 def _result(built: Built, started: float, context: Context) -> BuildResult:
     name = name_of(context.store(), built.version) if built.version is not None else None
     return BuildResult(
+        stocks=built.stocks,
         status=built.status,
         version=built.version,
         version_name=name,

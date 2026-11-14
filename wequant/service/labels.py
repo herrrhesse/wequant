@@ -31,6 +31,18 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
     ),
     "no_picks": ("没有选出股票", "所有决策日都没有选出股票", {}, None),
     "legacy_index": ("旧的范围选项", "{name}是旧的范围选项，新建策略不再提供；这个策略照样能校验和运行", {}, None),
+    "scope_beyond_data": (
+        "范围超出数据",
+        "这份数据只下载了{data}的股票，选“{scope}”实际只在这些股票里选。可以在数据页扩大数据范围",
+        {},
+        None,
+    ),
+    "scope_beyond_data_before": (
+        "早期范围超出数据",
+        "{since} 之前只有{data}的数据，选“{scope}”在那之前只在这些股票里选。可以在数据页扩大数据范围",
+        {},
+        None,
+    ),
     "stocks_not_in_data": (
         "名单里有数据中没有的股票",
         "自定义名单里有 {count} 只股票不在这个数据库里：{codes}；选股时它们不会入选",
@@ -373,6 +385,8 @@ VERSION_REASONS = {  # code -> (name, template over the reason's params)
     "first_build": ("首次建库", "首次建库，从 BaoStock 取了 {days} 个交易日"),
     "history_backfill": ("补齐历史", "补齐历史 {first_year}–{last_year}，{days} 个交易日"),
     "own_import": ("导入自备数据", "导入自备数据，{days} 个交易日"),
+    "scope_extend": ("扩大数据范围", "扩大数据范围：{name}（{first_year}–{last_year}），{days} 个交易日"),
+    "members_joined": ("补新调入成分股", "补新调入的成分股 {count} 只的历史"),
     "names": ("补充股票名称", "补充股票名称"),
     "version_import": ("从文件导入", "从文件导入（原版本 {name}）"),
     "demo": ("生成演示数据", "生成演示数据"),
@@ -406,6 +420,7 @@ JOB_KINDS = {
     "data_build": ("首次建库", "从 BaoStock 建好最近几年的数据"),
     "data_backfill": ("补齐历史", "在后台把更早的历史一段一段补进来"),
     "data_own_import": ("导入自备数据", "把自己的数据文件导入成一个数据版本"),
+    "data_extend": ("扩大数据范围", "在后台把更多股票补进来，一直补到数据的起始日"),
 }
 
 JOB_STATES = {
@@ -442,6 +457,10 @@ JOB_STAGES = {  # code -> (name, template over the stage's params)
     "build_reconnect": (
         "等待重连",
         "BaoStock 连接中断，{seconds} 秒后重新连接（第 {attempt}/{of} 次），已下载的部分不会重下",
+    ),
+    "backfill_floor": (
+        "成分名单最早到这里",
+        "{name}的成分名单最早到 {date}，更早的历史补不了；要补更早的历史，请把数据范围扩大到沪深全部",
     ),
     "own_read": ("读取并检查文件", "正在读取并检查自备数据"),
     "own_commit": ("写入版本", "正在把自备数据写成数据版本"),

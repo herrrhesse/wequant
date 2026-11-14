@@ -1,11 +1,12 @@
 """A synthetic data root for trying WeQuant and for end-to-end tests: 60 made-up stocks over three years.
 
-python -m tools.demo_home --out DIR [--seed 7]
+python -m tools.demo_home --out DIR [--seed 7] [--scope layered]
 
 Every number comes from the seed, none from a real market; the same seed writes the same bytes. The market has every
 board, ST stocks, a suspension, a delisting, a new listing, limit-up and limit-down streaks, a bonus issue and a
 dividend, an index (000300.SH, synthetic members) and a few data issues, one of them error level. The store's price
-limits are checked and two strategies are saved.
+limits are checked and two strategies are saved. With --scope layered (S2.11) the data holds every stock from LAYERED
+on and only the index's members before, in two layers.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import polars as pl
 from wequant import service
 from wequant.data.codes import board
 from wequant.data.schema import TABLES
+from wequant.data.scope import ALL, Layer, Scope, as_meta
 from wequant.data.store import Store
 from wequant.expr.vocab import STORED_AS
 
@@ -44,6 +46,7 @@ DELISTED = ("600070.SH", 520)  # last bar; it rises hard before, so momentum hol
 LISTED = ("300042.SZ", 330)  # first bar; ChiNext lists without a limit for five days
 EVENTS = {"000071.SZ": (250, "bonus", 2.0), "600080.SH": (400, "dividend", 300)}  # 10-for-10; 0.30 yuan
 INDEX, SWAP = "000300.SH", 400  # a member leaves and another joins on SWAP
+LAYERED = 450  # --scope layered: the trading-day index from which every stock has bars
 DROPPED = ("000081.SZ", 260)  # a bar recorded as dropped (off_scale): the day reads as missing
 STRATEGIES = {
     "demo-momentum": (
@@ -61,8 +64,9 @@ STRATEGIES = {
 }
 
 
-def build(out: Path, seed: int = SEED) -> dict:
-    """Write the demo data root at out (which must not exist yet); counts of what it holds."""
+def build(out: Path, seed: int = SEED, scope: str = "all") -> dict:
+    """Write the demo data root at out (which must not exist yet); counts of what it holds. scope layered: every
+    stock from LAYERED on, the index's members before."""
     if out.exists():
         raise FileExistsError(f"{out} exists; the demo home goes into a new directory")
     rng = np.random.default_rng(seed)
@@ -71,8 +75,12 @@ def build(out: Path, seed: int = SEED) -> dict:
     for code in CODES:
         bars[code], events = _bars(rng, code, days)
         factors += events
-    tables = _tables(days, bars, factors)
     meta = {"source": "demo", "seed": seed, "last_trade_date": days[-1].isoformat()}
+    if scope == "layered":
+        members = set(_index_members(days))
+        bars = {c: [r for r in rows if c in members or r["date"] >= days[LAYERED]] for c, rows in bars.items()}
+        meta |= as_meta([Layer(ALL, days[LAYERED]), Layer(Scope(indexes=(INDEX,)), days[0])])
+    tables = _tables(days, bars, factors)
     Store(out, clock=_stamp).commit(meta, replace=tables, reason="demo")
     with tempfile.TemporaryDirectory() as cache:  # panel caches stay out of the demo home
         context = service.Context(out, Path(cache), clock=_stamp)
@@ -278,8 +286,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tools.demo_home", description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, required=True, help="a new directory for the demo data root")
     parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--scope", choices=("all", "layered"), default="all", help="layered: two data scope layers")
     args = parser.parse_args(argv)
-    counts = build(args.out, args.seed)
+    counts = build(args.out, args.seed, args.scope)
     print(f"demo home at {args.out}: " + ", ".join(f"{n} {name}" for name, n in counts.items()))
     print(f"serve it: uv run wequant serve --home {args.out}")
     return 0

@@ -11,7 +11,7 @@ from wequant.service import runs, strategies
 from wequant.service.backtest import backtest
 from wequant.service.bars import data_bars
 from wequant.service.base import Context, ErrorBody, Model
-from wequant.service.build import data_backfill, data_build, data_build_estimate
+from wequant.service.build import data_backfill, data_build, data_build_estimate, data_extend, data_extend_estimate
 from wequant.service.calendar import data_calendar
 from wequant.service.check import data_check
 from wequant.service.delistings import data_delistings
@@ -142,7 +142,8 @@ OPERATIONS = (
     data_update,
     *(data_use_version, data_pin_version, data_export, data_import),
     *(data_use_home, data_relocate, fs_places, fs_list, fs_mkdir, setup_status, setup_save),
-    *(data_build_estimate, data_build, data_backfill, data_own_check, data_own_import),
+    *(data_build_estimate, data_build, data_backfill, data_extend_estimate, data_extend),
+    *(data_own_check, data_own_import),
     *(data_verify_submit, data_verify_list, data_resolve_list, data_resolve_approve, data_resolve_reject),
     *(expr_check, expr_eval, expr_indicators),
     *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),
