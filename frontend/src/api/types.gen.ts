@@ -2570,6 +2570,11 @@ export interface JobInfo {
    */
   text: string;
   /**
+   * Expected seconds left, for the jobs that measure their own pace (a first build, a backfill); null otherwise
+   * (F-33).
+   */
+  eta_seconds?: number | null;
+  /**
    * Why a failed or cancelled job has no result; null otherwise.
    */
   error: ErrorBody | null;
@@ -4169,6 +4174,10 @@ export interface SetupSaveRequest {
    * The folder of the user's own data to import.
    */
   import_path?: string | null;
+  /**
+   * Add the earlier years in the background once the build is done (F-33).
+   */
+  backfill?: boolean | null;
   updated_at?: string | null;
   clear?: boolean;
 }
@@ -4200,6 +4209,10 @@ export interface SetupState {
    * The folder of the user's own data to import.
    */
   import_path?: string | null;
+  /**
+   * Add the earlier years in the background once the build is done (F-33).
+   */
+  backfill?: boolean | null;
   updated_at?: string | null;
 }
 /**
@@ -4588,13 +4601,18 @@ export interface UpdateRequest {}
  */
 export interface UsageRequest {}
 /**
- * Read and write another, existing data root from now on.
+ * Read and write another data root from now on.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "UseHomeRequest".
  */
 export interface UseHomeRequest {
   path: string;
+  /**
+   * Also a new or empty folder, made when missing (the setup's 换一个文件夹, F-33); a folder with other files is
+   * still refused (not_empty).
+   */
+  empty_ok?: boolean;
 }
 /**
  * The version requests read when they name none.
