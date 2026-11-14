@@ -40,6 +40,7 @@ STOCKS = 5_566  # SH/SZ stocks in BaoStock's stock_basic, delisted ones included
 SECONDS_PER_HISTORY = {1: 2.0, 3: 3.9, 5: 5.8}  # one stock's history over the window (measured 2026-11-14 for 3 years)
 SECONDS_PER_FACTOR = 0.51  # one stock's whole factor history (measured 2026-11-14)
 SECONDS_INDEXES = 180.0  # the offered indexes' bars and monthly member lists
+SECONDS_PER_SEGMENT = 2.0  # an extension segment's stock_basic and commit, with or without stocks to fetch
 RECONNECTS = 5  # new sessions a build or a backfill segment starts after BaoStock fails, before it gives up
 PAUSE = 60.0  # seconds before each new session (BaoStock's outages of 2026-11-14 lasted minutes)
 STAGES = ("build_reconnect", "backfill_floor")  # waiting to start a new session; history stops at a member list
@@ -126,7 +127,7 @@ class ExtendEstimate(Model):
     covered: bool
     """The data holds it already from its first day: nothing to fetch."""
     stocks: int
-    """Stocks to add, over the data's whole window."""
+    """Stocks to fetch: those new to the data and those it holds only from a later day."""
     requests: int
     seconds: int
     since: dt.date
@@ -208,34 +209,33 @@ def data_extend_estimate(request: ExtendEstimateRequest, context: Context = Cont
     request."""
     store = context.store()
     found = manifest(store)
-    held = held_layers(store, found)
-    target = held[0].scope | request.scope.scope()
-    first = held[-1].since
-    if target <= held[-1].scope:
-        return ExtendEstimate(scope=DataScope.of(target), covered=True, stocks=0, requests=0, seconds=0, since=first)
-    stocks, segments = extend_size(store, found, target), _segments(store, found)
-    seconds = stocks * (segments * SECONDS_PER_HISTORY[SEGMENT_YEARS] + SECONDS_PER_FACTOR)
+    held, added = held_layers(store, found), request.scope.scope()
+    widest, first = DataScope.of(held[0].scope | added), held[-1].since
+    if added <= held[-1].scope:
+        return ExtendEstimate(scope=widest, covered=True, stocks=0, requests=0, seconds=0, since=first)
+    size = extend_size(store, found, added, SEGMENT_YEARS)
+    seconds = (
+        size.histories * SECONDS_PER_HISTORY[SEGMENT_YEARS]
+        + size.new * SECONDS_PER_FACTOR
+        + size.segments * SECONDS_PER_SEGMENT
+    )
+    requests = size.histories + size.new + size.segments
     return ExtendEstimate(
-        scope=DataScope.of(target),
-        covered=False,
-        stocks=stocks,
-        requests=stocks * (segments + 1) + segments,
-        seconds=round(seconds),
-        since=first,
+        scope=widest, covered=False, stocks=size.stocks, requests=requests, seconds=round(seconds), since=first
     )
 
 
 def data_extend(request: ExtendRequest, context: Context = Context()) -> ExtendResult:
-    """Add scope to the data's widest layer segment by segment, newest first, each a version, until the added stocks
-    reach the data's first day; a cancel keeps the segments added and leaves no half segment."""
+    """Add scope's stocks segment by segment, newest first, each a version, until the data holds them from its first
+    day; a cancel keeps the segments added and leaves no half segment."""
     store, segments = context.store(), []
     found = manifest(store)
     before = found["tables"]["securities"]
-    target, name = held_layers(store, found)[0].scope | request.scope.scope(), scope_label(request.scope.scope())
+    added, name = request.scope.scope(), scope_label(request.scope.scope())
     named = lambda say: lambda step: say(step._replace(params={**step.params, "name": name}))  # noqa: E731
     while True:
         started = time.monotonic()
-        work = lambda source, say: extend(store, source, target, _now(context), named(say), context.cancel, name)  # noqa: E731
+        work = lambda source, say: extend(store, source, added, _now(context), named(say), context.cancel, name)  # noqa: E731
         built = _session(work, context)
         if built.status != "built":
             break
@@ -255,12 +255,6 @@ def data_extend(request: ExtendRequest, context: Context = Context()) -> ExtendR
 def save_pool(context: Context, name: str, codes: tuple[str, ...]) -> str | None:
     """The id of a new stock pool of codes; None without codes."""
     return pools_save(PoolSaveRequest(name=name, codes=list(codes)), context).id if codes else None
-
-
-def _segments(store, found: dict) -> int:
-    """The SEGMENT_YEARS segments the data's calendar spans."""
-    days = store.read_table("calendar", columns=["date"], manifest=found)["date"]
-    return -(-(days.max().year - days.min().year + 1) // SEGMENT_YEARS)
 
 
 def _rows(table: dict) -> int:

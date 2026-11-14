@@ -293,10 +293,11 @@ uv run wequant serve --home /path/to/home    # http://127.0.0.1:8731, until Ctrl
 - **The frontend at `/`:** the build in `--static DIR`, else `$WEQUANT_STATIC`, else the repository's `frontend/dist`.
   A file of the build is served as is and any other path outside `/api` gets its `index.html`. Without a build, `/`
   is a page saying how to build it; the API works either way. An unknown `/api/...` path is a 404 ErrorBody.
-- **Demo home:** `uv run python -m tools.demo_home --out DIR [--seed N]` writes a synthetic data root into a new
+- **Demo home:** `uv run python -m tools.demo_home --out DIR [--seed N] [--scope ...]` writes a synthetic data root into a new
   directory: every board, two ST stocks, a suspension, a delisting, a new listing, limit-up and limit-down streaks, a
   bonus issue and a dividend, 000300.SH with synthetic members, data issues (one at error level), its limit check
-  recorded and two saved strategies. Nothing comes from a real market.
+  recorded and two saved strategies. Nothing comes from a real market. `--scope layered` holds every stock from
+  2024-09-23 and only the index's members before (two scope layers); `--scope csi300` holds the members alone (S2.11).
 
 ## Daily update and stock names
 
@@ -456,11 +457,13 @@ uv run wequant data own-check FOLDER ; uv run wequant data own-import FOLDER   #
 - **Beyond the data:** a strategy whose scope the data does not hold still validates, screens and backtests, with
   the warning `scope_beyond_data`, or `scope_beyond_data_before` when the layer holding it starts after the run's or
   screen's day. A saved run keeps these warnings, so they still show once the data is widened.
-- **`data extend`** adds an index, every stock or a list to the widest layer: the stocks without bars, newest three
-  years first, one version per segment (reason 扩大数据范围：name（first–last）), back to the data's first day; the
-  widened layer covers from the day it has reached, and folds into the next layer once it reaches that one's first
-  day. The same command again carries on after a stop; a cancel keeps the segments made. `data extend-estimate`
-  counts the stocks it adds from the stored member spans and stock_basic.
+- **`data extend`** adds an index, every stock or a list: from the day before the data first holds it (or the last
+  day), three years per version, newest first (reason 扩大数据范围：name（first–last）), the stocks it picks beyond
+  those held on the segment's first day, back to the data's first day. Every layer from the day reached holds the
+  addition, and a layer with the scope of the one before it folds into it. Nothing is fetched when the first layer
+  already holds it (`covered`). The same command again carries on after a stop; a cancel keeps the segments made.
+  `data extend-estimate` counts the stocks to fetch (new ones and those held only from a later day) and their time,
+  from the stored member spans and stock_basic (else the stored securities).
 - **`data build`** fills an empty data root from BaoStock with the last 1, 3 or 5 years of its scope up to the latest
   closed trading day, fetched stock by stock (measured 2.4 times as fast as a cross-section per day on 2026-11-14):
   first stock_basic and the CSI 300 and CSI 500 bars and members (member lists of each month's first trading day,

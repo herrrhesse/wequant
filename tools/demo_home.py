@@ -77,13 +77,14 @@ def build(out: Path, seed: int = SEED, scope: str = "all") -> dict:
         factors += events
     meta = {"source": "demo", "seed": seed, "last_trade_date": days[-1].isoformat()}
     members, index = set(_index_members(days)), Layer(Scope(indexes=(INDEX,)), days[0])
+    listed = {code: rows[0]["date"] for code, rows in bars.items()}  # official listing days, whatever the scope
     if scope == "layered":
         bars = {c: [r for r in rows if c in members or r["date"] >= days[LAYERED]] for c, rows in bars.items()}
         meta |= as_meta([Layer(ALL, days[LAYERED]), index])
     if scope == "csi300":
         bars = {c: rows for c, rows in bars.items() if c in members}
         meta |= as_meta([index])
-    tables = _tables(days, bars, [f for f in factors if f["code"] in bars])
+    tables = _tables(days, bars, [f for f in factors if f["code"] in bars], listed)
     Store(out, clock=_stamp).commit(meta, replace=tables, reason="demo")
     with tempfile.TemporaryDirectory() as cache:  # panel caches stay out of the demo home
         context = service.Context(out, Path(cache), clock=_stamp)
@@ -173,13 +174,17 @@ def _st(code: str, t: int) -> bool:
     return t in ST.get(code, ())
 
 
-def _tables(days: list[dt.date], bars: dict[str, list[dict]], factors: list[dict]) -> dict[str, pl.DataFrame]:
+def _tables(
+    days: list[dt.date], bars: dict[str, list[dict]], factors: list[dict], listed: dict
+) -> dict[str, pl.DataFrame]:
     rows = [row for code_rows in bars.values() for row in code_rows]
     dropped = (DROPPED[0], days[DROPPED[1]])
     kept = [r for r in rows if (r["code"], r["date"]) != dropped]
     frames = {
         "calendar": pl.DataFrame({"date": days}),
-        "securities": pl.DataFrame([_security(i, code, bars[code]) for i, code in enumerate(CODES) if code in bars]),
+        "securities": pl.DataFrame(
+            [_security(i, code, bars[code], listed[code]) for i, code in enumerate(CODES) if code in bars]
+        ),
         "bars": pl.DataFrame(kept).with_columns(preclose_derived=False, tradestatus=1, source=pl.lit("demo")),
         "daily_status": _status(days, bars),
         "adj_factor": pl.DataFrame(factors),
@@ -190,11 +195,11 @@ def _tables(days: list[dt.date], bars: dict[str, list[dict]], factors: list[dict
     return {name: _typed(name, frame) for name, frame in frames.items()}
 
 
-def _security(i: int, code: str, rows: list[dict]) -> dict:
+def _security(i: int, code: str, rows: list[dict], listed: dt.date) -> dict:
     exchange = code[-2:]
     name = f"演示{i + 1:02d}"
     span = {"first_date": rows[0]["date"], "last_date": rows[-1]["date"]}
-    official = {"list_date": rows[0]["date"], "delist_date": rows[-1]["date"] if code == DELISTED[0] else None}
+    official = {"list_date": listed, "delist_date": rows[-1]["date"] if code == DELISTED[0] else None}
     fields = {"code": code, "exchange": exchange, "board": board(code), **span, **official, "name": name}
     return fields | {"source": "demo"}
 

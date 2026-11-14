@@ -82,11 +82,37 @@ def as_meta(found: list[Layer]) -> dict:
     return {"scope": {"layers": [{**layer.scope.as_json(), "since": layer.since.isoformat()} for layer in found]}}
 
 
-def widen(found: list[Layer], scope: Scope, since: dt.date) -> list[Layer]:
-    """The layers once scope holds its stocks from since: a layer it contains from that day on or later folds into it,
-    so no two layers share a first day."""
-    kept = [layer for layer in found if not (layer.scope <= scope and layer.since >= since)]
-    return sorted([Layer(scope, since), *kept], key=lambda layer: layer.since, reverse=True)
+def segments(end: dt.date, first: dt.date, years: int) -> list[tuple[dt.date, dt.date]]:
+    """The windows from end back to first, newest first, each within `years` calendar years."""
+    found = []
+    while end >= first:
+        start = max(first, dt.date(end.year - years + 1, 1, 1))
+        found.append((start, end))
+        end = start - dt.timedelta(days=1)
+    return found
+
+
+def at(found: list[Layer], day: dt.date) -> Scope:
+    """The stocks the data holds on day: the widest layer begun by then."""
+    return next(layer.scope for layer in found if layer.since <= day)
+
+
+def reach(found: list[Layer], added: Scope) -> dt.date | None:
+    """The first day from which the data holds added's stocks; None when no layer does."""
+    return min((layer.since for layer in found if added <= layer.scope), default=None)
+
+
+def widen(found: list[Layer], added: Scope, since: dt.date) -> list[Layer]:
+    """The layers once added's stocks have bars from since on: every layer from since on holds them too (one starts on
+    since if none does), and a layer with the scope of the one before it folds into it, so no two share a scope."""
+    days = sorted({layer.since for layer in found} | {since}, reverse=True)
+    merged: list[Layer] = []
+    for day in days:  # widest first
+        scope = at(found, day) | added if day >= since else at(found, day)
+        merged = (
+            [*merged[:-1], Layer(scope, day)] if merged and merged[-1].scope == scope else [*merged, Layer(scope, day)]
+        )
+    return merged
 
 
 def covers(found: list[Layer]) -> dict[str, dt.date]:

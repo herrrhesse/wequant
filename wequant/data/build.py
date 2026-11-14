@@ -26,7 +26,7 @@ from wequant.data.merge.daily import read_history
 from wequant.data.names import basic_rows, with_basic
 from wequant.data.raw import BaoStockRaw
 from wequant.data.schema import TABLES
-from wequant.data.scope import Layer, Scope, as_meta, layers, needed, widen
+from wequant.data.scope import Layer, Scope, as_meta, at, layers, needed, reach, segments, widen
 from wequant.data.sources.baostock import FIRST_DAY, INDEX_FIELDS, BaoStock, from_baostock, parse_index, to_baostock
 from wequant.data.store import Store, exclusive
 from wequant.data.update import SHANGHAI, Step, UpdateCancelled, due_days, refresh
@@ -107,25 +107,26 @@ def backfill(
 def extend(
     store: Store,
     source: BaoStock,
-    scope: Scope,
+    added: Scope,
     now: dt.datetime,
     progress: Say | None = None,
     cancel: Callable[[], bool] | None = None,
     name: str = "",
 ) -> Built:
-    """One segment of a wider scope (holding the widest layer's) as one version: the stocks it picks over the segment
-    that have no bars there, newest segment first, SEGMENT_YEARS years at most; covered once the oldest layer holds
-    scope. name goes into the version's reason (scope_extend)."""
+    """One segment of added's stocks as one version, newest first: the segment before the first day the data holds
+    them (or the last SEGMENT_YEARS years), and in it the stocks added picks beyond those the data holds there; covered
+    once the data holds them from its first day. name goes into the version's reason (scope_extend)."""
     say, cancel = progress or (lambda step: None), cancel or (lambda: False)
     found = store.manifest()
     if found is None:
         raise ValueError(f"{store.home} has no version to extend")
     calendar = store.read_table("calendar", columns=["date"], manifest=found)["date"]
     held = layers(found, calendar.min())
-    if scope <= held[-1].scope:
+    if added <= held[-1].scope:
         return Built("covered", found["version"])
-    end = held[0].since - dt.timedelta(days=1) if held[0].scope == scope else calendar.max()
-    start = max(calendar.min(), dt.date(end.year - SEGMENT_YEARS + 1, 1, 1))
+    reached = reach(held, added)
+    end = reached - dt.timedelta(days=1) if reached else calendar.max()
+    start, end = segments(end, calendar.min(), SEGMENT_YEARS)[0]
     days = calendar.filter(calendar.is_between(start, end)).to_list()
     say = _with_years(say, start, end)
     raw = BaoStockRaw.at(store.home)
@@ -135,13 +136,13 @@ def extend(
         say(Step(STAGES[0], 0.0, {}))
         basic = fetch(source, raw, raw.stock_basic, "query_stock_basic", {}, force=True)
         spans = store.read_table("index_members", manifest=found)
-        whole = next(layer for layer in held if layer.since <= days[0])  # its stocks have every bar of the segment
-        have = set(needed(whole.scope, start, end, basic, spans))
-        stocks = [code for code in needed(scope, start, end, basic, spans) if code not in have]
+        base = at(held, days[0])  # its stocks have every bar of the segment
+        have = set(needed(base, start, end, basic, spans))
+        stocks = [code for code in needed(base | added, start, end, basic, spans) if code not in have]
         paths = _histories(source, raw, stocks, start, end, say, cancel)
         daily = read_history(paths, days) if paths else None
         params = {"name": name, "first_year": start.year, "last_year": end.year}
-        meta = as_meta(widen(held, scope, days[0]))
+        meta = as_meta(widen(held, added, days[0]))
         if daily is None or daily.is_empty():  # no stock of the scope traded then: the layer reaches back all the same
             _check(cancel)
             result = store.commit(meta, reason="scope_extend", reason_params=params | {"days": 0})

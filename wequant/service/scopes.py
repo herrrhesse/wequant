@@ -4,7 +4,7 @@ their Chinese names, and the warnings for a strategy whose scope reaches beyond 
 from __future__ import annotations
 
 import datetime as dt
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NamedTuple
 
 import polars as pl
 from pydantic import model_validator
@@ -13,7 +13,7 @@ from pydantic_core import PydanticCustomError
 from wequant.data.build import members_floor
 from wequant.data.indexes import OFFERED
 from wequant.data.raw import BaoStockRaw
-from wequant.data.scope import Layer, Scope, covers, layers, needed
+from wequant.data.scope import Layer, Scope, at, covers, layers, needed, reach, segments
 from wequant.data.sources.baostock import to_baostock
 from wequant.data.store import Store
 from wequant.service.base import Code, Distinct, Model
@@ -21,7 +21,6 @@ from wequant.service.labels import LEGACY_SCOPES, SCOPES
 from wequant.service.outputs import Warning
 from wequant.strategy import Strategy
 
-BASIC_COLUMNS = ("code", "code_name", "ipoDate", "outDate", "type", "status")  # stock_basic's columns, all text
 ALL_STOCKS = {1: 5_250, 3: 5_330, 5: 5_418}  # SH/SZ stocks listed in the last 1, 3, 5 years (stock_basic, 2026-11-14)
 MEMBER_STOCKS = {  # stocks that were members at some time in the last 1, 3, 5 years: PLACEHOLDER until S2.11 measures
     ("000300.SH",): {1: 330, 3: 400, 5: 470},
@@ -185,12 +184,43 @@ def scope_size(scope: Scope, years: int) -> int:
     return (MEMBER_STOCKS[scope.indexes][years] if scope.indexes else 0) + len(scope.stocks)
 
 
-def extend_size(store: Store, found: dict, target: Scope) -> int:
-    """The stocks target picks over the data's window that have no bars yet, from the raw layer's stock_basic and
-    the stored member spans."""
-    days = store.read_table("calendar", columns=["date"], manifest=found)["date"]
-    path = BaoStockRaw.at(store.home).stock_basic
-    basic = pl.read_parquet(path) if path.exists() else pl.DataFrame(schema=dict.fromkeys(BASIC_COLUMNS, pl.String))
+class Size(NamedTuple):
+    """What an extension fetches: stocks, their histories (a stock in each segment it needs), the stocks new to the
+    data (each a factor history) and the segments."""
+
+    stocks: int
+    histories: int
+    new: int
+    segments: int
+
+
+def extend_size(store: Store, found: dict, added: Scope, years: int) -> Size:
+    """The segments data_extend would fetch for added and the stocks each needs, as data.build.extend picks them, from
+    the raw layer's stock_basic (else the stored securities) and the stored member spans."""
+    calendar = store.read_table("calendar", columns=["date"], manifest=found)["date"]
+    held, basic = layers(found, calendar.min()), _basic(store, found)
     spans = store.read_table("index_members", manifest=found)
-    held = {to_baostock(code) for code in store.read_table("securities", columns=["code"], manifest=found)["code"]}
-    return len(set(needed(target, days.min(), days.max(), basic, spans)) - held)
+    reached = reach(held, added)
+    windows = segments(reached - dt.timedelta(days=1) if reached else calendar.max(), calendar.min(), years)
+    fetched, histories = set(), 0
+    for start, end in windows:
+        base = at(held, calendar.filter(calendar >= start).min())
+        stocks = set(needed(base | added, start, end, basic, spans)) - set(needed(base, start, end, basic, spans))
+        fetched, histories = fetched | stocks, histories + len(stocks)
+    codes = store.read_table("securities", columns=["code"], manifest=found)["code"]
+    stored = {to_baostock(code) for code in codes if not code.endswith(".BJ")}
+    return Size(len(fetched), histories, len(fetched - stored), len(windows))
+
+
+def _basic(store: Store, found: dict) -> pl.DataFrame:
+    """The raw layer's stock_basic, or one made from the stored SH/SZ securities (official dates, else the data's)."""
+    path = BaoStockRaw.at(store.home).stock_basic
+    if path.exists():
+        return pl.read_parquet(path)
+    securities = store.read_table("securities", manifest=found).filter(~pl.col("code").str.ends_with(".BJ"))
+    return securities.select(
+        code=pl.col("code").map_elements(to_baostock, return_dtype=pl.String),
+        ipoDate=pl.coalesce("list_date", "first_date").cast(pl.String),
+        outDate=pl.col("delist_date").cast(pl.String).fill_null(""),
+        type=pl.lit("1"),
+    )
