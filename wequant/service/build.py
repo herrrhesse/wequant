@@ -13,12 +13,12 @@ from typing import Literal
 
 from pydantic import Field
 
-from wequant.data.build import OLDEST, Built, backfill, build
+from wequant.data.build import OLDEST, Built, Say, backfill, build
 from wequant.data.merge import StalePlan
 from wequant.data.raw import BaoStockRaw
 from wequant.data.sources.baostock import BaoStock, BaoStockError
 from wequant.data.store import StoreLocked
-from wequant.data.update import UpdateCancelled
+from wequant.data.update import Step, UpdateCancelled
 from wequant.service.base import Context, ErrorDetail, Model, guarded, manifest, name_of
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.storage import tidy
@@ -28,6 +28,9 @@ STOCKS = 5_566  # SH/SZ stocks in BaoStock's stock_basic, delisted ones included
 SECONDS_PER_HISTORY = {1: 2.0, 3: 3.9, 5: 5.8}  # one stock's history over the window (measured 2026-11-14 for 3 years)
 SECONDS_PER_FACTOR = 0.51  # one stock's whole factor history (measured 2026-11-14)
 SECONDS_INDEXES = 180.0  # the offered indexes' bars and monthly member lists
+RECONNECTS = 5  # new sessions a build or a backfill segment starts after BaoStock fails, before it gives up
+PAUSE = 60.0  # seconds before each new session (BaoStock's outages of 2026-11-14 lasted minutes)
+STAGES = ("build_reconnect",)  # waiting to start a new session
 
 
 class BuildEstimateRequest(Model):
@@ -104,8 +107,8 @@ def data_build(request: BuildRequest, context: Context = Context()) -> BuildResu
     started, store = time.monotonic(), context.store()
     if (found := store.manifest()) is not None:  # no BaoStock session for a data root that has data
         return _result(Built("exists", found["version"]), started, context)
-    with _baostock() as source:
-        built = build(store, source, request.years, _now(context), context.progress, context.cancel)
+    work = lambda source, say: build(store, source, request.years, _now(context), say, context.cancel)  # noqa: E731
+    built = _session(work, context)
     if built.version is not None:
         tidy(context)
     return _result(built, started, context)
@@ -118,12 +121,44 @@ def data_backfill(request: BackfillRequest, context: Context = Context()) -> Bac
     manifest(store)  # NOT_FOUND no_store: history goes behind a first version
     while True:
         started = time.monotonic()
-        with _baostock() as source:
-            built = backfill(store, source, _now(context), context.progress, context.cancel, request.oldest)
+        work = lambda source, say: backfill(store, source, _now(context), say, context.cancel, request.oldest)  # noqa: E731
+        built = _session(work, context)
         if built.status != "built":
             return BackfillResult(segments=segments, status="complete")
         tidy(context)
         segments.append(_result(built, started, context))
+
+
+def _session(work: Callable[[BaoStock, Say], Built], context: Context) -> Built:
+    """work in a BaoStock session, started again (from the files fetched so far) while BaoStock fails, RECONNECTS
+    times at most, PAUSE seconds apart; the last failure raises. The share done never goes back: the wait and a new
+    session's first steps, over files already fetched, report the share reached before."""
+    reached, cancel = [0.0], context.cancel or (lambda: False)
+
+    def say(step: Step) -> None:
+        reached[0] = max(reached[0], step.fraction)
+        if context.progress:
+            context.progress(step._replace(fraction=reached[0]))
+
+    for attempt in range(RECONNECTS + 1):
+        try:
+            with _baostock() as source:
+                return work(source, say)
+        except ServiceError as error:
+            if error.exit != Exit.UNREACHABLE or attempt == RECONNECTS:
+                raise
+            say(Step(STAGES[0], 0.0, {"attempt": attempt + 1, "of": RECONNECTS, "seconds": round(PAUSE)}))
+            _pause(PAUSE, cancel)
+    raise AssertionError("unreachable")
+
+
+def _pause(seconds: float, cancel: Callable[[], bool]) -> None:
+    """Wait, looking at cancel every second."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if cancel():
+            raise ServiceError(Exit.INTERRUPTED, "stopped while waiting to reach BaoStock; the store is unchanged")
+        time.sleep(min(1.0, max(end - time.monotonic(), 0)))
 
 
 @contextmanager

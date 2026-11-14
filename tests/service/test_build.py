@@ -107,3 +107,40 @@ def test_an_import_reports_its_stages(tmp_path):
         service.OwnRequest(path=str(own_folder(tmp_path))), context(tmp_path / "home", progress=steps.append)
     )
     assert [s.stage for s in steps] == ["own_read", "own_commit"]
+
+
+@pytest.fixture
+def flaky(monkeypatch):
+    """BaoStock dropping the connection once, at the second stock's history; no pause before a new session."""
+    fails = iter([True])
+
+    def client():
+        found = market()
+        history = found._query_history_k_data_plus
+
+        def flaky(**params):
+            if params["code"] == "sh.600001" and next(fails, False):
+                raise ConnectionError("BaoStock closed the connection")
+            return history(**params)
+
+        found._query_history_k_data_plus = flaky
+        return found
+
+    monkeypatch.setattr("wequant.data.sources.baostock.import_baostock", client)
+    monkeypatch.setattr("wequant.service.build.PAUSE", 0.0)
+
+
+def test_a_build_reaches_baostock_again_and_carries_on_after_it_fails(tmp_path, flaky):
+    """A new session after a pause, from the files fetched so far."""
+    steps = []
+    built = service.data_build(service.BuildRequest(years=1), context(tmp_path / "home", progress=steps.append))
+    assert built.status == "built" and [s.params["attempt"] for s in steps if s.stage == "build_reconnect"] == [1]
+
+
+def test_a_builds_share_done_never_goes_back_through_a_reconnect(tmp_path, flaky):
+    """A progress bar holds its place while the build waits for BaoStock and starts its new session."""
+    shares = []
+    service.data_build(
+        service.BuildRequest(years=1), context(tmp_path / "home", progress=lambda step: shares.append(step.fraction))
+    )
+    assert shares == sorted(shares) and shares[-1] > 0

@@ -103,6 +103,7 @@ STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's
     "relocate_copy": ["done_mb", "total_mb"],
     "build_stocks": ["code", "done", "total"],
     "build_factors": ["done", "total"],
+    "build_reconnect": ["seconds", "attempt", "of"],
 }
 
 

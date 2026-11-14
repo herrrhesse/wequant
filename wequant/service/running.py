@@ -12,6 +12,7 @@ from wequant.data.build import STAGES as BUILD_STAGES
 from wequant.data.update import STAGES as UPDATE_STAGES
 from wequant.data.update import Step
 from wequant.service.base import Context, error_body, failure
+from wequant.service.build import STAGES as RECONNECT_STAGES
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.homes import STAGES as RELOCATE_STAGES
 from wequant.service.own import STAGES as OWN_STAGES
@@ -24,6 +25,7 @@ STAGES = (
     *RELOCATE_STAGES,
     *BUILD_STAGES,
     *OWN_STAGES,
+    *RECONNECT_STAGES,
 )  # the stages an operation reports; the queue's own
 
 
