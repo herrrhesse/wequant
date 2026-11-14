@@ -10,7 +10,7 @@ from pathlib import Path
 
 from wequant.canonical import document
 from wequant.data.codes import is_code
-from wequant.data.files import atomic_write, check_inside, utc_now
+from wequant.data.files import atomic_write, check_inside, read_text, utc_now
 from wequant.strategy.errors import SpecError
 
 FORMAT = 1  # bump when a pool file changes meaning
@@ -91,6 +91,6 @@ def _check(name: str, codes: Sequence[str]) -> None:
 
 
 def _read(path: Path) -> StockPool:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(read_text(path))
     fields = ("id", "name", "created_at", "modified_at")
     return StockPool(**{key: data[key] for key in fields}, codes=tuple(data["codes"]))

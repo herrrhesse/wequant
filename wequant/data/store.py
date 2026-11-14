@@ -25,7 +25,7 @@ from pathlib import Path
 
 import polars as pl
 
-from wequant.data.files import atomic_write, check_inside, parquet_bytes, utc_now
+from wequant.data.files import atomic_write, check_inside, parquet_bytes, read_text, utc_now
 from wequant.data.schema import TABLES, Table
 from wequant.paths import default_home
 from wequant.user_config import configured_home
@@ -138,7 +138,7 @@ class Store:
         path = self.home / "manifest.json" if version is None else self._manifest_path(version)
         if not path.exists():
             return None
-        return json.loads(path.read_text("utf-8"))
+        return json.loads(read_text(path))
 
     def versions(self) -> list[int]:
         directory = self.home / "manifests"

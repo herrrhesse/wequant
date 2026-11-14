@@ -58,10 +58,12 @@ jobs:
         if: always()
         shell: pwsh
         run: Get-Process python, node -ErrorAction SilentlyContinue | Stop-Process -Force
-      - name: Keep the end-to-end logs of a failed run (the serves' tracebacks)
+      - name: Keep the end-to-end results and the serve logs of a failed run
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-windows
-          path: frontend/test-results
+          path: |
+            frontend/test-results
+            frontend/e2e-logs
           retention-days: 7
