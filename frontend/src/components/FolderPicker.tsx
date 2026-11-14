@@ -168,3 +168,13 @@ export function FolderPicker({ title, start, openParent = false, current = null,
     </div>
   );
 }
+
+/** A folder as the backend sees it: its listing (free space, subfolders) and whether it holds WeQuant data. */
+export function useFolder(path: string | null) {
+  const listing = useCall("fs_list", path ? { path } : null, { staleTime: 0 });
+  const parent = listing.data?.parent ?? null;
+  const above = useCall("fs_list", parent ? { path: parent } : null, { staleTime: 0 });
+  const entry = above.data?.dirs.find((d) => d.path === listing.data?.path);
+  const ready = !!listing.data && (!parent || !!above.data);
+  return { listing, entry, ready, isHome: !!entry?.is_wequant_home };
+}

@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useCall, useCallMutation } from "../api/client";
 import { cancelJob, finished, useJob } from "../api/jobs";
+import { fillYears } from "./JobBar";
 import type { UpdateResult } from "../api/types.gen";
 import { useLabels, type LabelBook } from "../labels";
 import { href } from "../router";
@@ -24,6 +25,9 @@ export function StatusBar({ right }: { right?: ReactNode }) {
   const jobs = useCall("jobs_list", {}, { staleTime: 0 });
   const running = jobs.data?.jobs.find((j) => j.kind === "data_update" && !finished(j)) ?? null;
   const [jobId, setJobId] = useState<number | null>(null);
+  // The earlier history filling in behind (after a first build, or started on the data page).
+  const filling = jobs.data?.jobs.find((j) => j.kind === "data_backfill" && !finished(j)) ?? null;
+  const fill = useJob(filling?.id ?? null);
   const job = useJob(jobId ?? running?.id ?? null);
   const result = useCall("jobs_result", job?.state === "succeeded" && job.kind === "data_update" ? { id: job.id } : null);
   const out = result.data && "status" in result.data ? (result.data as UpdateResult) : null;
@@ -86,13 +90,28 @@ export function StatusBar({ right }: { right?: ReactNode }) {
             </button>
           </>
         )}
+        {fill && !finished(fill) && (
+          <span className="row nowrap" role="status" aria-label="后台补齐历史">
+            <span className="small sub">
+              后台补齐历史{fillYears(fill) ? ` ${fillYears(fill)}` : ""} · {L.stage(fill.stage, fill.params) || fill.text}
+            </span>
+            <span className="progress status-progress">
+              <span style={{ width: `${Math.round(fill.fraction * 100)}%` }} />
+            </span>
+            <span className="num small b">{Math.round(fill.fraction * 100)}%</span>
+            <button type="button" className="btn sm ghost" onClick={() => void cancelJob(fill.id)}>
+              暂停
+            </button>
+          </span>
+        )}
         {!active && out && <span className={out.ok ? "small ok" : "small warn-text"}>{outcome(L, out)}</span>}
         {!active && job && job.kind === "data_update" && job.state === "failed" && <span className="small warn-text">{L.stage(job.stage, job.params)}</span>}
         {canUpdate && (
           <button
             type="button"
             className="btn acc"
-            disabled={begin.isPending}
+            disabled={begin.isPending || (!!fill && !finished(fill))}
+            title={fill && !finished(fill) ? "后台正在补齐历史，BaoStock 一次只允许一个连接；暂停补齐后再更新" : undefined}
             onClick={async () => {
               const j = await begin.mutateAsync({ kind: "data_update", request: {} });
               setJobId(j.id);

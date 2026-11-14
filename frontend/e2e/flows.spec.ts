@@ -1,4 +1,5 @@
 // F8 end-to-end flows on the demo home. They assert rules, never the synthetic numbers.
+import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test, withApi } from "./fixtures";
@@ -209,7 +210,7 @@ test("data: the page opens with its sections", async ({ page }) => {
 test("ordinary pages show no developer details: no curl, hashes, decision numbers, code names or English text", async ({ page }) => {
   const runs = await (await page.request.post("api/runs_list", { data: { limit: 1 } })).json();
   const run = runs.rows[0]?.id as string | undefined;
-  const pages = ["#/", `#/strategy?id=${preset}`, `#/strategy?view=list`, "#/strategy?new=pick", `#/picks?id=${preset}`, "#/backtest", "#/data", "#/stock/600030.SH"];
+  const pages = ["#/", "#/setup", `#/strategy?id=${preset}`, `#/strategy?view=list`, "#/strategy?new=pick", `#/picks?id=${preset}`, "#/backtest", "#/data", "#/stock/600030.SH"];
   if (run) pages.push(`#/backtest?run=${run}`);
   for (const at of pages) {
     await page.goto(at);
@@ -218,8 +219,8 @@ test("ordinary pages show no developer details: no curl, hashes, decision number
     // Hash routes load their data after the page itself: give the requests time to finish.
     await page.waitForTimeout(1500);
     await page.waitForLoadState("networkidle");
-    // Folder paths are the user's own names, not page text.
-    await page.evaluate(() => document.querySelectorAll(".path").forEach((e) => e.remove()));
+    // Folder paths and file column names are literal text, not page text.
+    await page.evaluate(() => document.querySelectorAll('.path, [translate="no"]').forEach((e) => e.remove()));
     const text = await page.locator("body").innerText();
     expect(text, at).not.toMatch(/curl/);
     expect(text, at).not.toMatch(/\b[0-9a-f]{16}\b/);
@@ -647,4 +648,193 @@ test.describe("data folder", () => {
     await expect(loc.getByRole("alert")).toContainText("数据仍在原来的位置");
     expect(await loc.innerText()).not.toMatch(/no space|busy/);
   });
+});
+
+// The first-run setup. Builds and the history backfill would ask BaoStock: they are always replayed in the browser and
+// never reach the backend. The user's own data imports for real, into the empty serve's folder.
+const EMPTY = process.env.WQ_EMPTY_URL ?? "";
+const EMPTY_HOME = process.env.WQ_EMPTY_HOME ?? "";
+
+interface FakeJob {
+  id: number;
+  kind: string;
+  state: string;
+  fraction: number;
+  stage: string;
+  params: Record<string, string | number>;
+}
+/** Replayed build and backfill jobs: started, followed, cancelled and finished in the browser only. */
+async function replayBuilds(page: Page) {
+  const jobs = new Map<number, FakeJob>();
+  const starts: { kind: string; request: Record<string, unknown> }[] = [];
+  let next = 880001;
+  const info = (j: FakeJob) => ({
+    ...j, request: {}, data_version: null, data_version_name: null, position: null, text: "", error: null,
+    created_at: "2026-11-14T10:00:00", started_at: "2026-11-14T10:00:01", ended_at: null, seq: 1,
+  });
+  const idOf = (r: { request: () => { postDataJSON: () => { id?: number } } }) => r.request().postDataJSON()?.id ?? 0;
+  // Never let a build reach the backend.
+  await page.route(/\/api\/data_(build|backfill)$/, (r) => r.abort());
+  await page.route("**/api/jobs_start", (r) => {
+    const body = r.request().postDataJSON() as { kind: string; request: Record<string, unknown> };
+    if (body.kind !== "data_build" && body.kind !== "data_backfill") return r.fallback();
+    starts.push(body);
+    const j: FakeJob = { id: next++, kind: body.kind, state: "running", fraction: 0.3, stage: "build_stocks", params: { code: "600000.SH", done: 120, total: 5566 } };
+    jobs.set(j.id, j);
+    return r.fulfill({ json: info(j) });
+  });
+  await page.route(/\/api\/jobs\/88\d+\/events$/, (r) => {
+    const j = jobs.get(Number(r.request().url().match(/jobs\/(\d+)\//)![1]))!;
+    return r.fulfill({ headers: { "content-type": "text/event-stream" }, body: `event: job\ndata: ${JSON.stringify(info(j))}\n\n` });
+  });
+  await page.route("**/api/jobs_show", (r) => (jobs.has(idOf(r)) ? r.fulfill({ json: info(jobs.get(idOf(r))!) }) : r.fallback()));
+  await page.route("**/api/jobs_cancel", (r) => {
+    const j = jobs.get(idOf(r));
+    if (!j) return r.fallback();
+    j.state = "cancelled";
+    return r.fulfill({ json: info(j) });
+  });
+  await page.route("**/api/jobs_result", (r) => {
+    const j = jobs.get(idOf(r));
+    if (!j) return r.fallback();
+    const built = { status: "built", version: 1, version_name: "20261113.1", first: "2025-11-13", last: "2026-11-13", days: 243, requests: 11000, seconds: 3600 };
+    return r.fulfill({ json: j.kind === "data_build" ? built : { segments: [], status: "complete" } });
+  });
+  await page.route("**/api/jobs_list", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    const mine = [...jobs.values()].filter((j) => j.state === "running").map(info);
+    return r.fulfill({ response: res, json: { ...body, jobs: [...mine, ...body.jobs] } });
+  });
+  return { jobs, starts };
+}
+
+test.describe("first-run setup", () => {
+  test.skip(!EMPTY, "needs npm run e2e's empty serve (release shape)");
+  test.use({ baseURL: EMPTY, allowConsole: [/status of 4(04|09|22)/] });
+
+  test("an empty folder opens the setup; a BaoStock build (replayed) pauses, goes back, carries on, comes back after a reload and finishes into the history", async ({ page }) => {
+    await page.request.post("api/setup_save", { data: { clear: true } });
+    const { jobs, starts } = await replayBuilds(page);
+    await page.goto("#/strategy");
+    await expect(page).toHaveURL(/#\/setup$/);
+    await expect(page.getByRole("heading", { name: "先把本地数据准备好" })).toBeVisible();
+    await expect(page.getByLabel("数据文件夹")).toHaveText(EMPTY_HOME);
+    await expect(page.getByRole("button", { name: /用 BaoStock 新建/ })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("group", { name: "建最近几年" }).getByRole("button", { name: "1 年" }).click();
+    await expect(page.getByRole("status", { name: "预计耗时" })).toContainText(/约 \d+ 个交易日，预计约/);
+    await page.getByRole("button", { name: "下一步" }).click();
+    const build = page.getByRole("status", { name: "用 BaoStock 建最近 1 年的数据" });
+    await expect(build).toContainText("正在下载 600000.SH 的行情（已完成 120/5566 只）");
+    expect(starts).toEqual([{ kind: "data_build", request: { years: 1 } }]);
+    // The backend remembers the step: a reload comes back to the running build.
+    await page.reload();
+    await expect(build).toContainText("30%");
+    await build.getByRole("button", { name: "暂停" }).click();
+    await expect(page.getByText("已暂停。已下载的部分保留")).toBeVisible();
+    await page.getByRole("button", { name: "‹ 上一步" }).click();
+    await expect(page.getByRole("button", { name: "下一步" })).toBeVisible();
+    // The build's step stays reachable at the top; going on starts it again, carrying on from what it fetched.
+    await expect(page.getByRole("list", { name: "步骤" }).getByRole("button", { name: /建最近 1 年/ })).toBeEnabled();
+    await page.getByRole("button", { name: "下一步" }).click();
+    await expect(build).toBeVisible();
+    expect(starts.map((x) => x.kind)).toEqual(["data_build", "data_build"]);
+    const second = [...jobs.values()].at(-1)!;
+    Object.assign(second, { state: "succeeded", fraction: 1, stage: "build_commit", params: {} });
+    // Done: the history fills in behind (on by default), and the setup goes on.
+    const history = page.getByRole("status", { name: "后台补全更早的历史（到 2000 年）" });
+    await expect(history).toBeVisible();
+    expect(starts.at(-1)!.kind).toBe("data_backfill");
+    await expect(page.getByText("最近 1 年的数据已经可用")).toBeVisible();
+    await page.getByRole("button", { name: "先去用，让它在后台跑" }).click();
+    await expect(page.getByRole("heading", { name: "准备好了" })).toBeVisible();
+    const templates = (await (await page.request.post("api/strategy_templates", { data: {} })).json()).rows as unknown[];
+    await expect(page.getByRole("button", { name: /^模板：/ })).toHaveCount(templates.length);
+    await page.request.post("api/setup_save", { data: { clear: true } });
+  });
+
+  test("own data into a new folder: the setup switches to it; the format is explained with example files; the check lists what it found and what is wrong; the import is real and leads to a template", async ({ page }) => {
+    test.setTimeout(90_000);
+    // Three stocks over 30 weekdays, one repeated row and one row whose prices do not fit; a list for two of them.
+    const own = join(SCRATCH, "own-data");
+    mkdirSync(own, { recursive: true });
+    const days: string[] = [];
+    for (let d = new Date("2025-01-02"); days.length < 30; d.setDate(d.getDate() + 1)) if (d.getDay() % 6 !== 0) days.push(d.toISOString().slice(0, 10));
+    const lines = ["code,date,open,high,low,close,volume,amount"];
+    ["600000.SH", "600001.SH", "000002.SZ"].forEach((code, k) =>
+      days.forEach((day, i) => {
+        const p = 10 + k + i * 0.05;
+        lines.push(`${code},${day},${p.toFixed(2)},${(p + 0.2).toFixed(2)},${(p - 0.2).toFixed(2)},${(p + 0.1).toFixed(2)},100000,${(100000 * p).toFixed(0)}`);
+      }),
+    );
+    lines.push(lines[1]!);
+    lines.push(`600001.SH,2025-02-20,10,9,11,10,100,1000`);
+    writeFileSync(join(own, "bars.csv"), lines.join("\n") + "\n");
+    writeFileSync(join(own, "securities.csv"), "code,name,list_date,delist_date\n600000.SH,自备甲,2000-01-04,\n600001.SH,自备乙,2001-03-01,\n");
+    await page.request.post("api/setup_save", { data: { clear: true } });
+    await page.goto("#/");
+    await expect(page).toHaveURL(/#\/setup$/);
+    await page.getByRole("button", { name: /导入自己的数据/ }).click();
+    // The data goes into a new folder made in the browser; the backend switches to it.
+    await page.getByRole("button", { name: "浏览…" }).click();
+    const d = page.getByRole("dialog", { name: "选择数据存放的文件夹" });
+    await d.getByLabel("文件夹路径").fill(SCRATCH);
+    await d.getByLabel("文件夹路径").press("Enter");
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(SCRATCH);
+    await d.getByLabel("新文件夹名称").fill("向导新建");
+    await d.getByRole("button", { name: "新建文件夹" }).click();
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(join(SCRATCH, "向导新建"));
+    await d.getByRole("button", { name: "选择这个文件夹" }).click();
+    await expect(page.getByLabel("数据文件夹")).toHaveText(join(SCRATCH, "向导新建"));
+    await expect(page.getByText("下一步时改用这个文件夹")).toBeVisible();
+    await page.getByRole("button", { name: "下一步" }).click();
+    await expect(page.getByText("文件要求")).toBeVisible();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载示例 bars.csv" }).click();
+    expect((await download).suggestedFilename()).toBe("bars.csv");
+    await page.getByLabel("要导入的文件夹").fill(own);
+    await page.getByRole("button", { name: "检查这个文件夹" }).click();
+    const found = page.getByLabel("检查结果");
+    await expect(found).toContainText("3 只股票");
+    await expect(found).toContainText("重复的行");
+    await expect(found).toContainText("价格不合理");
+    // A reload comes back to the check, with the folder.
+    await page.reload();
+    await expect(found).toContainText("3 只股票");
+    await page.getByRole("button", { name: "开始导入" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "导入完成" })).toContainText("3 只股票", { timeout: 60_000 });
+    await page.getByRole("button", { name: "下一步" }).click();
+    await expect(page.getByRole("heading", { name: "准备好了" })).toBeVisible();
+    const first = page.getByRole("button", { name: /^模板：/ }).first();
+    const name = ((await first.getAttribute("aria-label")) ?? "").replace("模板：", "");
+    await first.click();
+    await expect(page).toHaveURL(/#\/strategy\?new=1/);
+    await expect(page.getByLabel("策略名称")).toHaveValue(name);
+    // The folder has data now: other pages open as usual.
+    await page.goto("#/data");
+    await expect(page.getByRole("region", { name: "存储位置" }).locator(".loc-path")).toHaveText(join(SCRATCH, "向导新建"));
+  });
+});
+
+test("the history backfill shows in the status bar and on the data page, pauses and carries on; the setup can be run again", async ({ page }) => {
+  await replayBuilds(page);
+  await page.goto("#/data");
+  const loc = page.getByRole("region", { name: "存储位置" });
+  const first = (await (await page.request.post("api/data_calendar", { data: {} })).json()).first as string;
+  test.skip(first.slice(0, 4) <= "2000", "the demo data already starts in 2000");
+  await loc.getByRole("button", { name: "补齐更早的历史（到 2000 年）" }).click();
+  const bar = page.getByRole("status", { name: "后台补齐历史" });
+  await expect(bar).toContainText("30%");
+  await expect(loc.getByRole("status", { name: "后台补齐更早的历史（到 2000 年）" })).toBeVisible();
+  await bar.getByRole("button", { name: "暂停" }).click();
+  await expect(bar).toBeHidden();
+  await expect(loc).toContainText("补齐已暂停");
+  await loc.getByRole("button", { name: "继续补齐" }).click();
+  await expect(bar).toBeVisible();
+  await loc.getByRole("link", { name: "重新运行首次启动向导 ›" }).click();
+  await expect(page).toHaveURL(/#\/setup$/);
+  await expect(page.getByText("现在的数据文件夹里已经有数据，重新运行向导不会删除它")).toBeVisible();
+  await page.getByRole("button", { name: /用 BaoStock 新建/ }).click();
+  await expect(page.getByText("这个文件夹里已经有数据；新建或导入需要一个空的文件夹")).toBeVisible();
+  await expect(page.getByRole("button", { name: "下一步" })).toBeDisabled();
 });

@@ -24,7 +24,8 @@ export function leftOver(): { spec: StrategySpec; name: string } | null {
   }
 }
 
-function open(spec: StrategySpec | null, name: string) {
+/** Open the editor on a new unsaved strategy: the template's, or a blank one. */
+export function startDraft(spec: StrategySpec | null, name: string) {
   try {
     if (spec) localStorage.setItem(DRAFT, JSON.stringify({ id: null, spec, name }));
     else localStorage.removeItem(DRAFT);
@@ -35,7 +36,7 @@ function open(spec: StrategySpec | null, name: string) {
 }
 
 /** The settings a template card lists: scope, conditions, factors, hold count, rebalancing. */
-function facts(s: StrategySpec, scopeName: (code: string | null) => string): string[] {
+export function facts(s: StrategySpec, scopeName: (code: string | null) => string): string[] {
   const conds = boxes(s).reduce((n, b) => n + b.items.length, 0);
   const factors = (s.factors ?? []).filter((f) => f.enabled !== false).map((f) => (f.prefer === "low" ? `${f.name}（越小越好）` : f.name));
   const every = s.every ?? 1;
@@ -78,12 +79,12 @@ export function NewStrategy() {
               </span>
             </button>
           )}
-          <button type="button" className="inner tpl-card blank" onClick={() => open(null, st.newName)}>
+          <button type="button" className="inner tpl-card blank" onClick={() => startDraft(null, st.newName)}>
             <span className="b big">空白策略</span>
             <span className="small sub">什么都不设，自己从范围、条件、打分到交易一项项写。</span>
           </button>
           {(templates.data?.rows ?? []).map((t) => (
-            <button key={t.id} type="button" className="inner tpl-card" aria-label={`模板：${t.name}`} onClick={() => open(t.strategy, t.name)}>
+            <button key={t.id} type="button" className="inner tpl-card" aria-label={`模板：${t.name}`} onClick={() => startDraft(t.strategy, t.name)}>
               <span className="b big">{t.name}</span>
               <span className="small sub">{t.description}</span>
               <span className="tpl-facts">

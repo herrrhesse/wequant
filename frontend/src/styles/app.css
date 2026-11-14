@@ -411,3 +411,29 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .fp-foot .path { font-size: 13px; min-width: 200px; }
 @media (max-width: 640px) { .fp-body { flex-direction: column; } .fp-places { flex: none; flex-direction: row; flex-wrap: wrap; } }
 .row.tight { gap: 6px; }
+.job-bar .bar { height: 8px; border-radius: 4px; background: var(--soft); overflow: hidden; display: block; }
+.job-bar .bar > span { display: block; height: 100%; background: var(--acc); transition: width 0.3s; }
+/* 首次启动向导 */
+.setup { gap: 16px; }
+.setup-title { margin: 0; font-size: 24px; font-weight: 700; }
+.setup-steps { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.setup-steps button { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px 0 8px; border: 0; border-radius: 12px; background: var(--soft2); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.setup-steps button:disabled { cursor: default; }
+.setup-steps button:disabled:not([aria-current]) { color: var(--muted); }
+.setup-steps button[aria-current] { background: var(--acc-t); color: var(--acc); }
+.setup-dot { width: 22px; height: 22px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; background: var(--chip); color: var(--muted); font-size: 12px; }
+.setup-steps button[aria-current] .setup-dot { background: var(--acc); color: #fff; }
+.setup-steps button.done .setup-dot { background: var(--inv); color: var(--on-inv); }
+.setup-body { gap: 12px; max-width: 980px; }
+.setup-path { display: flex; align-items: center; font-size: 13px; }
+.setup-sources .tpl-card[aria-pressed="true"] { border-color: var(--inv); }
+.setup-format ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.setup-format code { font-size: 12px; padding: 0 4px; border-radius: 5px; background: var(--chip); }
+.setup-check { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; border-radius: 12px; }
+.setup-check.ok { background: var(--green-t); }
+.setup-check.warn { background: var(--warn-t); }
+.setup-mark { width: 18px; font-weight: 700; flex: none; text-align: center; }
+.setup-check.ok .setup-mark { color: var(--green); }
+.setup-check.warn .setup-mark { color: var(--warn); }
+.setup-h2 { margin: 0; font-size: 20px; }
+.setup-format > .col { gap: 8px; margin-top: 8px; }

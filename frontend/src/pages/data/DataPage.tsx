@@ -119,6 +119,7 @@ export function DataPage({ route }: { route: DataRoute }) {
         <DelistingsSection />
       </details>
       <Location
+        first={calendar.data?.first ?? null}
         calendar={
           calendar.data && (
             <span className="small muted">

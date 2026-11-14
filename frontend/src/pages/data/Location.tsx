@@ -11,7 +11,9 @@ import type { JobInfo, Relocated } from "../../api/types.gen";
 import { FolderPicker } from "../../components/FolderPicker";
 import { join } from "../../components/paths";
 import { Problem } from "../../components/Problem";
+import { fillYears, JobBar } from "../../components/JobBar";
 import { useLabels } from "../../labels";
+import { href } from "../../router";
 
 type Mode = "move" | "copy" | "use";
 const MODES: { mode: Mode; label: string; desc: string; go: string }[] = [
@@ -22,7 +24,7 @@ const MODES: { mode: Mode; label: string; desc: string; go: string }[] = [
 /** The folder made for the data when the chosen folder already has other folders in it. */
 const SUB = "wequant-data";
 
-export function Location({ calendar }: { calendar?: React.ReactNode }) {
+export function Location({ calendar, first }: { calendar?: React.ReactNode; first?: string | null }) {
   const L = useLabels();
   const client = useQueryClient();
   const status = useCall("data_status", {});
@@ -123,7 +125,13 @@ export function Location({ calendar }: { calendar?: React.ReactNode }) {
           </ul>
         </div>
       )}
-      {calendar && <div className="loc-foot">{calendar}</div>}
+      <History first={first ?? null} />
+      <div className="loc-foot">
+        {calendar}
+        <a className="small b push" href={href.setup()}>
+          重新运行首次启动向导 ›
+        </a>
+      </div>
       {picking && home && (
         <FolderPicker
           title="选择数据存放的文件夹"
@@ -254,4 +262,53 @@ function JobLine({ job, moved, home }: { job: JobInfo; moved: Relocated | null; 
       </div>
     );
   return null;
+}
+
+/** The earlier history (back to 2000) filling in behind: its progress and pause, or a button to start or carry on. */
+function History({ first }: { first: string | null }) {
+  const jobs = useCall("jobs_list", {}, { staleTime: 0 });
+  const running = jobs.data?.jobs.find((j) => j.kind === "data_backfill" && !finished(j)) ?? null;
+  const [jobId, setJobId] = useState<number | null>(null);
+  const job = useJob(jobId ?? running?.id ?? null);
+  const begin = useCallMutation("jobs_start", ["jobs_list"]);
+  const active = !!job && !finished(job);
+  const missing = !!first && first.slice(0, 4) > "2000";
+  // Each segment is a new data version: when the job ends, every page reads the newest.
+  const client = useQueryClient();
+  const done = job?.state === "succeeded" || job?.state === "cancelled";
+  useEffect(() => {
+    if (done) void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "jobs_result" });
+  }, [done, client]);
+  if (!active && !missing && job?.state !== "succeeded") return null;
+  return (
+    <div className="col tight">
+      {job && active ? (
+        <JobBar job={job} label={`后台补齐更早的历史（到 2000 年）${fillYears(job) ? ` · 正在补 ${fillYears(job)}` : ""}`}>
+          <button type="button" className="btn sm soft" onClick={() => void cancelJob(job.id)}>
+            暂停
+          </button>
+        </JobBar>
+      ) : (
+        <div className="row">
+          <span className="small sub">
+            {job?.state === "succeeded" ? "更早的历史已经补齐。" : `数据从 ${first} 开始。${job?.state === "cancelled" ? "补齐已暂停，已经补上的部分保留。" : ""}`}
+          </span>
+          {missing && (
+            <button
+              type="button"
+              className="btn sm soft"
+              disabled={begin.isPending}
+              onClick={async () => {
+                const j = await begin.mutateAsync({ kind: "data_backfill", request: {} });
+                setJobId(j.id);
+              }}
+            >
+              {job?.state === "cancelled" ? "继续补齐" : "补齐更早的历史（到 2000 年）"}
+            </button>
+          )}
+        </div>
+      )}
+      {begin.isError && <Problem error={begin.error} />}
+    </div>
+  );
 }

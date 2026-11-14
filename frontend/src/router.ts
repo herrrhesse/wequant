@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 
 /** Hash routes keep every page's state in the URL, so the built files work from any path and back/forward restore it:
- * #/ (today), #/data[?code&date], #/stock/CODE[?date&run&from], #/strategy[?id&view=list],
+ * #/ (today), #/setup, #/data[?code&date], #/stock/CODE[?date&run&from], #/strategy[?id&view=list],
  * #/picks[?id&n&draft&date], #/backtest[?use&run&cmp=A,B&day]. */
 export type Route =
   | { page: "today" }
+  | { page: "setup" }
   | { page: "data"; code: string | null; date: string | null }
   | { page: "stock"; code: string; date: string | null; run: string | null; from: string | null }
   | { page: "strategy"; id: string | null; list: boolean; fresh: boolean; pick: boolean }
@@ -25,6 +26,7 @@ export function parse(hash: string): Route {
   const stock = path.match(/^\/stock\/([^/]+)$/);
   if (stock?.[1]) return { page: "stock", code: decodeURIComponent(stock[1]).toUpperCase(), date: q.get("date"), run: q.get("run"), from: q.get("from") };
   if (path === "/data") return { page: "data", code: q.get("code"), date: q.get("date") };
+  if (path === "/setup") return { page: "setup" };
   return { page: "today" };
 }
 
@@ -37,6 +39,8 @@ const qs = (params: Record<string, string | number | null | undefined | false>) 
 
 export const href = {
   today: () => "#/",
+  /** The first-run setup (also run again from the data page). */
+  setup: () => "#/setup",
   strategy: (id?: string | null, list = false) => `#/strategy${qs({ id, view: list ? "list" : null })}`,
   /** Choose how to start: a blank strategy or a template. */
   newStrategy: () => "#/strategy?new=pick",
