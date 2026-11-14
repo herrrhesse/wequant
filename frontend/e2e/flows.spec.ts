@@ -1381,3 +1381,10 @@ test("周线: a weekly condition is marked in the funnel and its rejects, a stoc
   const friday = await (await request.post("api/screen", { data: { saved: { id: saved.id }, date: week } })).json();
   expect(friday.warnings.map((w: { code: string }) => w.code)).not.toContain("week_open");
 });
+
+// TEMPORARY (branch ci/windows-e2e-logs, never merged): fails on purpose, last, so the Windows job uploads its
+// e2e-logs and test-results to check that the serve logs have content.
+test("CI check: fails on purpose so the Windows artifact is uploaded", async ({ page }) => {
+  await page.goto("#/data");
+  await expect(page.getByText("这句话不存在，故意失败")).toBeVisible({ timeout: 2_000 });
+});
