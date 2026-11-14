@@ -34,8 +34,8 @@ PERIOD_VIEW = {
 
 def daily_view(daily: pl.DataFrame, positions: pl.DataFrame) -> pl.DataFrame:
     """DAILY_VIEW, one row per day of a run's daily frame (the base day first): its columns, the holdings at the close,
-    nav, the benchmark's level relative to the base day, the excess over it, the drawdown and the exposure; null
-    where the benchmark has no close."""
+    nav, the benchmark scaled to nav on its first day with a close, the excess over it, the drawdown and the exposure;
+    null where the benchmark has no close and before its first."""
     held = positions.group_by("date").agg(positions=pl.len(), invested=pl.col("value").sum())
     frame = daily.join(held, on="date", how="left", maintain_order="left").with_columns(
         pl.col("positions").fill_null(0), pl.col("invested").fill_null(0.0)
@@ -43,7 +43,7 @@ def daily_view(daily: pl.DataFrame, positions: pl.DataFrame) -> pl.DataFrame:
     if "benchmark" not in frame.columns:
         frame = frame.with_columns(benchmark=pl.lit(None, dtype=pl.Float64))
     nav = run_series(daily, daily["date"]).nav
-    relative = relative_levels(frame["benchmark"].to_numpy())
+    relative = relative_levels(frame["benchmark"].to_numpy(), nav)
     columns = {
         "nav": nav,
         "benchmark_nav": relative,
