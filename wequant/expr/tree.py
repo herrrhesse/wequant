@@ -13,12 +13,15 @@ import numpy as np
 from wequant.data.codes import is_code
 from wequant.expr.vocab import (
     BOOL,
+    CROSS_SECTIONAL,
     DESCRIPTIVE,
     FAMILIES,
     FIELDS,
     FUTURE,
     NUM,
     OPERATORS,
+    PERIOD_FIELDS,
+    PERIODS,
     PLANNED,
     SAME,
     Signature,
@@ -148,7 +151,8 @@ class Field(Expr):
 
 
 class Op(Expr):
-    """A wequant.ops operator applied to arguments, checked against its Signature when built."""
+    """A wequant.ops operator applied to arguments, checked against its Signature when built; WEEK and MONTH put
+    their argument on weekly or monthly bars (S4.8)."""
 
     name: str
     args: tuple[Expr | float | int | None, ...]
@@ -159,6 +163,8 @@ class Op(Expr):
         for i, (role, value) in enumerate(zip(signature.roles, args)):
             checked.append(_argument(name, i, role, value, checked))
         size, depth = _measure(name, [a for a in checked if isinstance(a, Expr)])
+        if name in PERIODS:
+            _period(name, checked[0])
         kind = _kind(signature, checked)
         vars(self).update(name=name, args=tuple(checked), kind=kind, size=size, depth=depth)
 
@@ -245,12 +251,15 @@ def _future(name: str) -> LookAheadError:
     return LookAheadError("future_function", f"{name} is a future function: it reads bars after day t")
 
 
+_PERIOD_SIGNATURE = Signature(None, ("s",), SAME)
+
+
 def _signature(name: str, arity: int) -> Signature:
     if name in FUTURE:
         raise _future(name)
-    if name not in OPERATORS:
+    if name not in OPERATORS and name not in PERIODS:
         raise ExprError("unknown_operator", f"unknown operator {name!r}")
-    signature = OPERATORS[name]
+    signature = _PERIOD_SIGNATURE if name in PERIODS else OPERATORS[name]
     if arity != len(signature.roles):
         raise ExprError("bad_arity", f"{name} takes {len(signature.roles)} arguments, not {arity}")
     return signature
@@ -325,6 +334,34 @@ def _float(value: object) -> float | None:
         return float(value)
     except OverflowError:
         return math.inf
+
+
+def _period(op: str, expr: Expr) -> None:
+    """ExprError unless the subtree of a WEEK or MONTH reads only what bars have, holds no period of its own and no
+    cross-sectional operator (it ranks within a day's pool, which bars have not); located at the first such node."""
+    error = _period_fault(op, expr)
+    if error is not None:
+        error.arg, error.path = 0, (1, *error.path)
+        raise error
+
+
+def _period_fault(op: str, expr: Expr) -> ExprError | None:
+    """The error of the first node in expr that op refuses, depth first, located inside expr; None without one."""
+    bars = f"inside {op}: its bars have only prices, volume and amount"
+    if isinstance(expr, Field):
+        return None if expr.name in PERIOD_FIELDS else ExprError("period_field", f"{expr.name} cannot be read {bars}")
+    if isinstance(expr, Codes):
+        return ExprError("period_field", f"CODES cannot be read {bars}")
+    if expr.name in PERIODS:
+        return ExprError("period_nested", f"{expr.name} cannot be nested inside {op}")
+    if expr.name in CROSS_SECTIONAL:
+        message = f"the cross-sectional {expr.name} cannot be used inside {op}: it ranks within a day's pool"
+        return ExprError("period_cross_section", message)
+    for i, arg in enumerate(expr.args, 1):
+        if isinstance(arg, Expr) and (error := _period_fault(op, arg)):
+            error.path = (i, *error.path)
+            return error
+    return None
 
 
 def _measure(op: str, children: list[Expr]) -> tuple[int, int]:

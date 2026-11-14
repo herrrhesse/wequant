@@ -1348,3 +1348,28 @@ test("the storage card says it is counting until the usage comes back, then the 
   await expect(card.locator(".card-head")).toContainText(/共 [\d.]+ (KB|MB|GB)/);
   await expect(card.locator(".card-head")).not.toContainText("正在统计");
 });
+
+test("周线: a weekly condition is marked in the funnel and its rejects, a stock's chain says which week; on the data's last day the week not ended yet is said", async ({ page, request }) => {
+  const name = "周线站上 4 周均线";
+  const strategy = { ...spec, pool: { index: null, exclude_st: true }, filters: [{ name, expr: ["WEEK", ["GT", "adj_close", ["MA", "adj_close", 4]]] }] };
+  const saved = await (await request.post("api/strategy_save", { data: { strategy, name: `e2e-weekly-${STAMP}` } })).json();
+  // What the backend says for the latest day: the week this condition read, and its warning.
+  const screen = await (await request.post("api/screen", { data: { saved: { id: saved.id } } })).json();
+  const week = screen.periods[name][0].end as string;
+  expect(screen.warnings.map((w: { code: string }) => w.code)).toContain("week_open");
+  await page.goto(`#/picks?id=${saved.id}`);
+  const funnel = page.getByRole("region", { name: "漏斗" });
+  const step = funnel.getByRole("button", { name: new RegExp(name) });
+  await expect(step.locator(".period-tag")).toHaveText("周线");
+  await expect(page.locator(".notes-line")).toContainText(`截至 ${week}`);
+  await step.click();
+  const out = page.getByRole("table", { name: "被剔除的股票" });
+  await expect(out.getByRole("row").nth(1).locator(".period-tag")).toHaveText("周线");
+  const first = out.getByRole("row").nth(1);
+  const code = (await first.locator(".stock-ref .muted").first().textContent())?.trim() ?? "";
+  await first.click();
+  await expect(page.getByRole("complementary", { name: code })).toContainText(/周线（截至 \d{4}-\d{2}-\d{2} 那周）/);
+  // A day whose week has ended (its last trading day): no warning.
+  const friday = await (await request.post("api/screen", { data: { saved: { id: saved.id }, date: week } })).json();
+  expect(friday.warnings.map((w: { code: string }) => w.code)).not.toContain("week_open");
+});

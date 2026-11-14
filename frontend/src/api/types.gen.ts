@@ -136,6 +136,7 @@ export interface ServiceModels {
   ParseRequest?: ParseRequest;
   ParsedStocks?: ParsedStocks;
   PeriodRow?: PeriodRow;
+  PeriodValue?: PeriodValue;
   Periods?: Periods;
   PinRunRequest?: PinRunRequest;
   PinVersionRequest?: PinVersionRequest;
@@ -1948,6 +1949,11 @@ export interface StepCheck {
   text: string;
   mode: ("all" | "any") | null;
   members: MemberResult[] | null;
+  /**
+   * The week or month each weekly or monthly part of the condition read for this stock (labels.periods has the
+   * page's words); empty for a daily condition and a group.
+   */
+  periods?: PeriodValue[];
 }
 /**
  * One condition of a group.
@@ -1961,6 +1967,19 @@ export interface MemberResult {
    * null: no value, which fails too.
    */
   passed: boolean | null;
+}
+/**
+ * Which week or month a weekly or monthly value came from.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PeriodValue".
+ */
+export interface PeriodValue {
+  period: "week" | "month";
+  /**
+   * The last trading day of that week or month; null: no ended one yet (for a stock: none it traded in).
+   */
+  end: string | null;
 }
 /**
  * The stock's score among the scored stocks.
@@ -3049,6 +3068,11 @@ export interface Labels {
    * What a first build or a backfill segment did (BuildResult.status).
    */
   build_statuses: Label[];
+  /**
+   * day, week, month: a name, and the words a step, a funnel row or a reject shows for a weekly or monthly value
+   * (param end: PeriodValue.end) (S4.8).
+   */
+  periods: TemplateLabel[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -4283,6 +4307,13 @@ export interface ScreenResult {
    */
   anomalies: DataAnomaly | null;
   warnings: Warning[];
+  /**
+   * By condition, factor or formula name: the week or month its weekly or monthly parts read on the day (labels.periods
+   * has the page's words); only the ones that read any.
+   */
+  periods?: {
+    [k: string]: PeriodValue[];
+  };
 }
 /**
  * A scored stock, by rank.

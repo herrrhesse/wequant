@@ -12,7 +12,6 @@ import { href } from "../../router";
 import { counts, cutAlone } from "../../strategy/model";
 import { tx } from "../../text";
 import { POOL_STEP_NAMES, st } from "./text";
-import { screenPeriods } from "../../api/r4";
 import { PeriodTag } from "../../components/PeriodTag";
 
 const OPS: Record<string, string> = { gt: ">", ge: "≥", lt: "<", le: "≤", eq: "=", between: "介于" };
@@ -91,7 +90,6 @@ function Status({ updating, errors, blocked, screen }: Props) {
 function Funnel(props: Props & { fading: string }) {
   const { screen, blocked, noFactors, hl, setHl, fading } = props;
   const L = useLabels();
-  const periods = screenPeriods(screen);
   const steps = (screen?.funnel ?? []).filter((s) => !noFactors || (s.kind !== "scored" && s.kind !== "targets" && s.kind !== "backups"));
   const top = steps[0]?.left || 1;
   const c = counts(screen?.funnel);
@@ -119,10 +117,14 @@ function Funnel(props: Props & { fading: string }) {
                   onClick={() => locate(s.step)}
                 >
                   <span className="funnel-name">
-                    {s.chain ? "" : "└ "}
-                    {stepName(s.step, s.kind, L.of)}
-                    <PeriodTag value={periods[s.step]} />
-                    {s.left === null ? "（命中）" : ""}
+                    <span className="funnel-line">
+                      <span className="funnel-text">
+                        {s.chain ? "" : "└ "}
+                        {stepName(s.step, s.kind, L.of)}
+                        {s.left === null ? "（命中）" : ""}
+                      </span>
+                      <PeriodTag value={screen.periods?.[s.step]} />
+                    </span>
                     {alone !== null && s.left !== null && <span className="tiny muted funnel-alone">{st.filters.cut(alone)}</span>}
                   </span>
                   <span className="funnel-bar">

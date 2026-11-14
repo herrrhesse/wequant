@@ -105,6 +105,18 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
         None,
     ),
     "meta_rebuilt": ("策略索引已重建", "meta.json 和 {versions} 个版本文件不一致，已按版本文件读取", {}, None),
+    "week_open": (
+        "本周的周线还没算进去",
+        "{day} 是数据的最后一天，还不知道下一个交易日是不是在下周，周线条件用的是截至 {end} 的上一周的值",
+        {},
+        None,
+    ),
+    "month_open": (
+        "本月的月线还没算进去",
+        "{day} 是数据的最后一天，还不知道下一个交易日是不是在下个月，月线条件用的是截至 {end} 的上个月的值",
+        {},
+        None,
+    ),
 }
 
 ISSUE_KIND_TEXT = {
@@ -350,6 +362,9 @@ ERROR_CODES = {
     "not_available": ("暂不可用", "这个指标暂时还没有数据"),
     "not_json": ("不是 JSON", "内容不是合法的 JSON"),
     "out_of_range": ("超出范围", "数值超出允许的范围"),
+    "period_cross_section": ("周期里不能排名", "周线、月线里不能用横截面排名，排名要在决策日的股票池里排"),
+    "period_field": ("周期里不能用这个字段", "周线、月线里只能用开高低收、昨收、成交量和成交额"),
+    "period_nested": ("周期不能嵌套", "周线、月线里不能再套周线或月线"),
     "outside_data_root": (
         "数据目录指向外部",
         "数据目录里有文件夹指向数据目录之外，为避免改动其他位置的数据，拒绝写入和清理；只读操作照常可用",
@@ -411,6 +426,12 @@ ORDER_CAUSES = {  # code -> (name, template over the order's cause_params)
     "exit_slots": ("名额已满", "持有名额已满，被排名更前的股票替换卖出（排第 {rank} 名，名额 {limit} 个）"),
     "delisting": ("退市处理", "按退市规则处理"),
     "unrecorded": ("未记录", "这笔订单没有可对应的决策记录，原因未记录"),
+}
+
+PERIOD_TEXT = {  # code -> (name, the page's words for a value of that period; {end} is PeriodValue.end)
+    "day": ("日线", "日线"),
+    "week": ("周线", "周线（截至 {end} 那周）"),
+    "month": ("月线", "月线（截至 {end} 那月）"),
 }
 
 DAY_SOURCES = {
@@ -643,6 +664,9 @@ class Labels(Model):
     """The rules the user's own files are checked against (OwnProblem.rule)."""
     build_statuses: list[Label]
     """What a first build or a backfill segment did (BuildResult.status)."""
+    periods: list[TemplateLabel]
+    """day, week, month: a name, and the words a step, a funnel row or a reject shows for a weekly or monthly value
+    (param end: PeriodValue.end) (S4.8)."""
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -678,6 +702,7 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         indicator_categories=_labels(INDICATOR_CATEGORIES),
         own_rules=_labels(OWN_RULES),
         build_statuses=_labels(BUILD_STATUSES),
+        periods=[_template(code, name, text) for code, (name, text) in PERIOD_TEXT.items()],
     )
 
 

@@ -3,7 +3,6 @@
 // useCall once main carries round 4. No formula is parsed or evaluated here.
 import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { fill } from "../labels/fill";
 import { useCall } from "./client";
 import { call } from "./http";
 import type { Operation } from "./operations.gen";
@@ -119,12 +118,6 @@ export interface FormulaVocab {
   examples?: { title: string; description?: string; text: string; period: FormulaPeriod; role?: FormulaRole }[];
 }
 
-/** Which week (month) a weekly (monthly) condition's value came from: its last trading day; null: none complete yet. */
-export interface PeriodValue {
-  period: "week" | "month";
-  end: string | null;
-}
-
 interface R4Operations {
   formula_check: { request: FormulaCheckRequest; result: FormulaCheck };
   formula_trial: { request: FormulaTrialRequest; result: FormulaTrial };
@@ -153,21 +146,17 @@ export function useR4<O extends R4>(
 
 
 interface R4Labels {
-  periods?: { code: string; label: string; template: string; params: string[] }[];
   formula_categories?: { code: string; label: string }[];
   sell_modes?: { code: string; label: string; help?: string }[];
   sell_rules?: { code: string; label: string; help?: string }[];
 }
 
-/** Round 4's labels: a period's name ("周线"), which week a value came from ("周线（截至 2026-11-06 那周）"), and a
- * formula category's name ("均线"). Empty strings while the labels load or before the backend has them. */
+/** Round 4's labels not in the generated types yet: a formula category's name ("均线") and the sell modes and rules. Empty strings while the labels load or before the backend has them. */
 export function useR4Labels() {
   const q = useCall("labels", {});
   return useMemo(() => {
     const raw = q.data as unknown as R4Labels | undefined;
-    const periods = new Map((raw?.periods ?? []).map((p) => [p.code, p]));
     const cats = new Map((raw?.formula_categories ?? []).map((c) => [c.code, c.label]));
-    const periodName = (p: string) => periods.get(p)?.label ?? "";
     const modes = new Map((raw?.sell_modes ?? []).map((m) => [m.code, m]));
     const rules = new Map((raw?.sell_rules ?? []).map((m) => [m.code, m]));
     return {
@@ -175,21 +164,10 @@ export function useR4Labels() {
       sellMode: (code: string) => ({ label: modes.get(code)?.label ?? "", help: modes.get(code)?.help ?? "" }),
       /** labels.sell_rules: name and sentence of a sell rule. */
       sellRule: (code: string) => ({ label: rules.get(code)?.label ?? "", help: rules.get(code)?.help ?? "" }),
-      periodName,
-      periodValue: (v: PeriodValue) => {
-        const t = periods.get(v.period);
-        return t && v.end ? fill(t, { end: v.end }) : periodName(v.period);
-      },
       category: (c: string) => cats.get(c) ?? c,
     };
   }, [q.data]);
 }
-
-/** screen's periods (S4.8): by condition, factor or formula name, the week or month each weekly or monthly part read. */
-export const screenPeriods = (screen: unknown): Record<string, PeriodValue[]> => (screen as { periods?: Record<string, PeriodValue[]> } | null | undefined)?.periods ?? {};
-
-/** explain StepCheck's periods (S4.8): empty for a daily condition. */
-export const stepPeriods = (step: unknown): PeriodValue[] => (step as { periods?: PeriodValue[] } | null | undefined)?.periods ?? [];
 
 /** S4.2 explain / holdings: one sell rule's state for a stock held that day. */
 export interface RuleCheck {

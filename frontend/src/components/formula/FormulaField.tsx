@@ -3,6 +3,7 @@
 // loses focus, the large editor closes, or the period changes; the backend compiles it.
 import { useRef, useState } from "react";
 import { useR4, useR4Labels, type FormulaPeriod, type FormulaRole } from "../../api/r4";
+import { useLabels } from "../../labels";
 import { Problem } from "../Problem";
 import { StockPick } from "../StockPick";
 import { FormulaBox, type Period } from "./FormulaBox";
@@ -103,14 +104,14 @@ function Large({ label, draft, setDraft, status, period, onPeriod, onClose }: { 
 
 /** The formula on one stock, bar by bar, to check against 通达信 line by line. */
 function Trial({ text, period }: { text: string; period: FormulaPeriod }) {
-  const R = useR4Labels();
+  const L = useLabels();
   const [stock, setStock] = useState<{ code: string; name: string | null } | null>(null);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [asked, setAsked] = useState<{ text: string; period: FormulaPeriod; code: string; start: string | null; end: string | null } | null>(null);
   const trial = useR4("formula_trial", asked ? { ...asked, max_bars: 1000 } : null);
   const r = trial.data;
-  const bar = period === "day" ? "日" : R.periodName(period) || (period === "week" ? "周线" : "月线");
+  const bar = L.periodName(period) || "";
   const columns: TrialColumn[] = [
     { key: "$close", label: "C（后复权）" },
     ...(r?.rows.some((x) => x.tdx) ? [{ key: "$tdx", label: "收盘（前复权，对通达信）" }] : []),

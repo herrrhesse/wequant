@@ -17,7 +17,7 @@ import { href, type Route } from "../../router";
 import { tx } from "../../text";
 import { useUi } from "../../ui";
 import { stepName } from "../strategy/Preview";
-import { screenHoldings, screenPeriods } from "../../api/r4";
+import { screenHoldings } from "../../api/r4";
 import { sellIsDefault, sellOf } from "../../strategy/formula";
 import { Holdings } from "./Holdings";
 import { PeriodTag } from "../../components/PeriodTag";
@@ -256,9 +256,13 @@ function Funnel({ r, step, setStep }: { r: ScreenResult; step: string | null; se
             <li key={`${s.step}/${i}`} className={s.chain ? "" : "off-chain"}>
               <button type="button" aria-pressed={step === s.step} disabled={out === 0} onClick={() => setStep(s.step)}>
                 <span className="funnel-name">
-                  {s.chain ? "" : "└ "}
-                  {stepName(s.step, s.kind, L.of)}
-                  <PeriodTag value={screenPeriods(r)[s.step]} />
+                  <span className="funnel-line">
+                    <span className="funnel-text">
+                      {s.chain ? "" : "└ "}
+                      {stepName(s.step, s.kind, L.of)}
+                    </span>
+                    <PeriodTag value={r.periods?.[s.step]} />
+                  </span>
                 </span>
                 <span className="funnel-bar">
                   <span style={{ width: `${Math.max(1, (n / top) * 100)}%` }} />
@@ -362,7 +366,7 @@ function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string
       <div className="card-head">
         <h2>
           被“{stepName(step, kind, L.of)}”剔除 {rows.length} 只
-          <PeriodTag value={screenPeriods(r)[step]} />
+          <PeriodTag value={r.periods?.[step]} />
         </h2>
         <button type="button" className="btn sm soft push" onClick={back}>
           ← 回到有分股票
@@ -383,7 +387,7 @@ function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string
                 <td><Stock code={x.code} name={x.name} /></td>
                 <td>
                   {stepName(x.step, x.kind, L.of)}
-                  <PeriodTag value={screenPeriods(r)[x.step]} />
+                  <PeriodTag value={r.periods?.[x.step]} />
                 </td>
                 <td className="sub num">{why(x, units)}</td>
               </tr>

@@ -199,7 +199,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .funnel button { width: 100%; display: grid; grid-template-columns: minmax(110px, 1.3fr) 1fr 44px 44px; align-items: center; gap: 8px; padding: 5px 6px; border: 0; border-radius: 10px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; font-size: 13px; }
 .funnel button:hover, .funnel button[aria-pressed="true"] { background: var(--acc-t); }
 .funnel .off-chain button { padding-left: 18px; color: var(--sub); }
-.funnel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.funnel-name { min-width: 0; overflow: hidden; white-space: nowrap; }
+/* A long name gives way; its period tag stays visible. */
+.funnel-line { display: flex; align-items: center; min-width: 0; }
+.funnel-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.funnel-line > .period-tag { flex: none; }
 .funnel-bar { height: 8px; border-radius: 4px; background: var(--soft); overflow: hidden; }
 .funnel-bar span { display: block; height: 100%; background: var(--inv); border-radius: 4px; }
 .off-chain .funnel-bar span { background: var(--track); }
@@ -486,7 +490,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .stock-pick { max-width: 240px; }
 .fx-trial-box { padding-top: 10px; border-top: 1px solid var(--line); }
 .cond-formula { grid-column: span 2; min-width: 0; }
-.period-tag { margin-left: 6px; font-size: 10px; font-weight: 500; vertical-align: 1px; }
 .fx-help > .input { flex-shrink: 0; }
 .fx-modal-back { color: var(--ink); font-family: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; font-size: 14px; }
 /* Sell rules: one rule per row, a switch, its number, the backend's sentence under it. */
