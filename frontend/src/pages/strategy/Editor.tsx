@@ -233,7 +233,7 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
                           {i.category && <span className="tag ind-cat">{ind.catName(i.category)}</span>}
                         </span>
                         <span className="tiny muted">{i.help}</span>
-                        {!i.available && <span className="tiny warn-text">{i.needsMerge ? st.filters.needsMergeOff : st.filters.unavailable}</span>}
+                        {!i.available && <span className="tiny warn-text">{i.reason || st.filters.unavailable}</span>}
                         {i.available && i.needsMerge && <span className="tiny muted">{st.filters.needsMerge}</span>}
                       </button>
                     ))}

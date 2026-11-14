@@ -91,7 +91,6 @@ export const st = {
     customItem: "自定义表达式",
     customItemDesc: "直接写表达式，例如 GT(close, 5)",
     unavailable: "这份数据里没有，暂不可用",
-    needsMergeOff: "要先合并 BaoStock 数据才有，现在还不能用",
     needsMerge: "来自合并的 BaoStock 数据",
     addGroup: "＋ 添加条件组",
     note: "排名在股票池内计算，条件的顺序不影响选出的股票。组与组之间是“并且”。",
