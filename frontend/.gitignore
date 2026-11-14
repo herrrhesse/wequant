@@ -2,5 +2,6 @@ node_modules/
 dist/
 *.tsbuildinfo
 test-results/
+e2e-logs/
 playwright-report/
 .env*.local
