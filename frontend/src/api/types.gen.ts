@@ -99,6 +99,8 @@ export interface ServiceModels {
   FormulaVariable?: FormulaVariable;
   FunnelStep?: FunnelStep;
   GroupSpec?: GroupSpec;
+  HoldingRow?: HoldingRow;
+  Holdings?: Holdings;
   HomeSwitched?: HomeSwitched;
   ImportRequest?: ImportRequest;
   IndexBar?: IndexBar;
@@ -179,6 +181,7 @@ export interface ServiceModels {
   ResolveListRequest?: ResolveListRequest;
   ResolvePage?: ResolvePage;
   Row?: Row;
+  RuleCheck?: RuleCheck;
   RunComparison?: RunComparison;
   RunDay?: RunDay;
   RunDayRequest?: RunDayRequest;
@@ -212,6 +215,7 @@ export interface ServiceModels {
   SecuritiesRequest?: SecuritiesRequest;
   SecurityRow?: SecurityRow;
   SellReason?: SellReason;
+  SellSpec?: SellSpec1;
   ServiceSchema?: ServiceSchema;
   SettingsOut?: SettingsOut;
   SettingsRequest?: SettingsRequest;
@@ -221,6 +225,7 @@ export interface ServiceModels {
   SetupStatus?: SetupStatus;
   SetupStatusRequest?: SetupStatusRequest;
   ShowRequest?: ShowRequest;
+  SimulateSpec?: SimulateSpec;
   SourceRef?: SourceRef;
   Stage?: Stage;
   StatusCount?: StatusCount;
@@ -516,6 +521,7 @@ export interface StrategySpec {
    */
   max_weight?: number | null;
   pool?: PoolSpec;
+  sell?: SellSpec;
 }
 /**
  * A TDX-style formula (S4.1): the text the user wrote, kept as written, and the period its bars are; the backend
@@ -633,6 +639,52 @@ export interface StocksSpec {
    * That pool's name when copied; shown only.
    */
   pool_name?: string | null;
+}
+/**
+ * When holdings are sold (S4.2); all defaults sell at rebalances, as before.
+ */
+export interface SellSpec {
+  /**
+   * rebalance: a rebalance sells what is no longer chosen; rules: being chosen only decides buys, holdings are sold
+   * by the rules alone and free slots are filled at rebalances by rank (needs top_n and a rule that sells).
+   */
+  mode?: "rebalance" | "rules";
+  /**
+   * Sell when the close falls this share below the holding's cost (its average fill price, back-adjusted).
+   */
+  stop_loss?: number | null;
+  /**
+   * Sell when the close rises this share above the holding's cost.
+   */
+  take_profit?: number | null;
+  /**
+   * Sell when the close falls this share below its highest close since bought.
+   */
+  trailing_stop?: number | null;
+  /**
+   * Sell once held this many trading days, the first fill's day counted as 1.
+   */
+  max_hold_days?: number | null;
+  /**
+   * Sell when this condition holds (a formula may have its period); its name is the sale's cause.
+   */
+  sell_when?: ConditionSpec | null;
+  /**
+   * Do not sell while this holds: neither by the sell formula nor at a rebalance.
+   */
+  keep_when?: ConditionSpec | null;
+  /**
+   * keep_when also holds back the stop loss, take profit, trailing stop and holding period.
+   */
+  keep_over_stops?: boolean;
+  /**
+   * A rebalance does not sell a holding held fewer trading days; the rules still do.
+   */
+  min_hold_days?: number | null;
+  /**
+   * A stock sold is not bought again for this many trading days after its sale.
+   */
+  cooldown_days?: number;
 }
 /**
  * A saved strategy version.
@@ -1962,6 +2014,11 @@ export interface Explain {
   execution: OrderRow[] | null;
   anomalies: AnomalyUse[];
   warnings: Warning[];
+  /**
+   * With a run of a strategy with sell rules, the stock held at the day's close: each rule's state then (S4.2);
+   * null otherwise.
+   */
+  rules?: RuleCheck[] | null;
 }
 /**
  * One pool step: bar, universe, then the set pool items.
@@ -2173,6 +2230,11 @@ export interface OrderRow {
     | "exit_rank"
     | "exit_slots"
     | "delisting"
+    | "stop_loss"
+    | "take_profit"
+    | "trailing_stop"
+    | "max_hold"
+    | "sell_formula"
     | "unrecorded";
   /**
    * The params the cause's sentence reads: rank, limit, step, weight or drift.
@@ -2180,6 +2242,31 @@ export interface OrderRow {
   cause_params: {
     [k: string]: number | string | null;
   };
+}
+/**
+ * One sell rule on a holding at a close.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "RuleCheck".
+ */
+export interface RuleCheck {
+  rule: "stop_loss" | "take_profit" | "trailing_stop" | "max_hold" | "sell_formula" | "keep_formula" | "min_hold";
+  /**
+   * Sells at this close (keep_formula and min_hold: holds a sale back); null: no value that day.
+   */
+  triggered: boolean | null;
+  /**
+   * stop_loss and trailing_stop: the drop; take_profit: the gain; max_hold and min_hold: days held; a formula: 1/0.
+   */
+  value: number | null;
+  /**
+   * The rule's setting; null for a formula.
+   */
+  threshold: number | null;
+  /**
+   * The keep formula holds this rule back today.
+   */
+  blocked_by: "keep" | null;
 }
 /**
  * A stock and a day, for a strategy (inline or saved) or an archived run: exactly one of the three.
@@ -2728,6 +2815,56 @@ export interface FunnelStep {
    * Groups only: member condition names.
    */
   members: string[] | null;
+}
+/**
+ * A simulated holding at the screen day's close.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "HoldingRow".
+ */
+export interface HoldingRow {
+  code: string;
+  name: string | null;
+  shares: number;
+  /**
+   * Its value's share of equity at the close.
+   */
+  weight: number;
+  /**
+   * Its average fill price, in that day's unadjusted yuan.
+   */
+  cost: number;
+  close: number | null;
+  /**
+   * Back-adjusted close over cost, less 1.
+   */
+  change: number | null;
+  hold_days: number;
+  /**
+   * Highest close since bought, in that day's unadjusted yuan.
+   */
+  peak_close: number | null;
+  /**
+   * sell: a rule marked it at this close, or the next rebalance leaves it out.
+   */
+  action: "sell" | "keep";
+  /**
+   * A rule (labels.sell_rules) or rebalance; null when kept.
+   */
+  cause: string | null;
+  rules: RuleCheck[];
+}
+/**
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Holdings".
+ */
+export interface Holdings {
+  simulated_from: string;
+  /**
+   * The page's sentence: these holdings are simulated, from when.
+   */
+  note: string;
+  rows: HoldingRow[];
 }
 /**
  * The data root now in use, and the one before.
@@ -3396,6 +3533,15 @@ export interface Labels {
    * formula vocab's categories (FormulaFunction.category, FormulaField.category) (S4.1).
    */
   formula_categories: Label[];
+  /**
+   * strategy sell.mode (S4.2).
+   */
+  sell_modes: Label[];
+  /**
+   * The sell rules (S4.2): stop_loss, take_profit, trailing_stop, max_hold, sell_formula (also the order causes
+   * of their sales), keep_formula, min_hold, cooldown.
+   */
+  sell_rules: Label[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -4595,6 +4741,11 @@ export interface ScreenRequest {
    */
   date?: string | null;
   data?: DataSpec2;
+  /**
+   * Screen with the holdings of the strategy's backtest played to the day (S4.2): targets and backups then count
+   * them, and holdings says what each rule makes of them; null: without holdings, as a backtest's first day.
+   */
+  simulate?: SimulateSpec | null;
 }
 /**
  * How a run treats anomalous data; outside the strategy, part of the run's inputs.
@@ -4610,6 +4761,46 @@ export interface DataSpec2 {
    * Also exclude suspicious-level days (exclude_day only).
    */
   exclude_suspicious?: boolean;
+}
+/**
+ * Play the strategy's backtest up to the screen's day and screen with what it holds.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SimulateSpec".
+ */
+export interface SimulateSpec {
+  /**
+   * The backtest's first day; null: about a year (242 trading days) before the screen's day.
+   */
+  start?: string | null;
+  cash?: number;
+  execution?: ExecutionSpec3;
+}
+/**
+ * How orders fill and what a run pays; outside the strategy, part of the run's inputs.
+ */
+export interface ExecutionSpec3 {
+  /**
+   * The fill day's raw open (or close).
+   */
+  price?: "open" | "close";
+  commission_rate?: number;
+  /**
+   * Yuan per order, a whole number of fen.
+   */
+  min_commission?: number;
+  /**
+   * Per side, a cost on the trade value; never moves the fill price or the limit checks.
+   */
+  slippage_bps?: number;
+  /**
+   * auto: write down forced delistings, cash mergers at the last close, hold long suspensions; hold: as before.
+   */
+  delisting?: "auto" | "write_down" | "sell_at_last_close" | "hold";
+  /**
+   * Share of its last close a written-down holding returns as cash, for sensitivity checks.
+   */
+  failure_recovery?: number;
 }
 /**
  * One day's funnel, scored stocks and rejects; every listed stock appears once.
@@ -4653,6 +4844,10 @@ export interface ScreenResult {
   formula_lines?: {
     [k: string]: FormulaLine[];
   };
+  /**
+   * The simulated holdings at the day's close and what the rules make of them, when simulate was given (S4.2).
+   */
+  holdings?: Holdings | null;
   /**
    * By condition, factor or formula name: the week or month its weekly or monthly parts read on the day (labels.periods
    * has the page's words); only the ones that read any.
@@ -4748,6 +4943,56 @@ export interface SecuritiesRequest {
    */
   query?: string;
   limit?: number;
+}
+/**
+ * When holdings are sold (S4.2). Every rule is checked at each close on the back-adjusted close; a holding a rule
+ * marks is sold the next day, tried again until it is. All defaults: sold at rebalances when no longer chosen.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SellSpec".
+ */
+export interface SellSpec1 {
+  /**
+   * rebalance: a rebalance sells what is no longer chosen; rules: being chosen only decides buys, holdings are sold
+   * by the rules alone and free slots are filled at rebalances by rank (needs top_n and a rule that sells).
+   */
+  mode?: "rebalance" | "rules";
+  /**
+   * Sell when the close falls this share below the holding's cost (its average fill price, back-adjusted).
+   */
+  stop_loss?: number | null;
+  /**
+   * Sell when the close rises this share above the holding's cost.
+   */
+  take_profit?: number | null;
+  /**
+   * Sell when the close falls this share below its highest close since bought.
+   */
+  trailing_stop?: number | null;
+  /**
+   * Sell once held this many trading days, the first fill's day counted as 1.
+   */
+  max_hold_days?: number | null;
+  /**
+   * Sell when this condition holds (a formula may have its period); its name is the sale's cause.
+   */
+  sell_when?: ConditionSpec | null;
+  /**
+   * Do not sell while this holds: neither by the sell formula nor at a rebalance.
+   */
+  keep_when?: ConditionSpec | null;
+  /**
+   * keep_when also holds back the stop loss, take profit, trailing stop and holding period.
+   */
+  keep_over_stops?: boolean;
+  /**
+   * A rebalance does not sell a holding held fewer trading days; the rules still do.
+   */
+  min_hold_days?: number | null;
+  /**
+   * A stock sold is not bought again for this many trading days after its sale.
+   */
+  cooldown_days?: number;
 }
 /**
  * A JSON Schema document: $defs holds every service model by name, in alphabetical order.
@@ -5027,6 +5272,7 @@ export interface StrategySpec1 {
    */
   max_weight?: number | null;
   pool?: PoolSpec;
+  sell?: SellSpec;
 }
 /**
  * The strategy the file became.
@@ -5249,6 +5495,7 @@ export interface StrategySpec2 {
    */
   max_weight?: number | null;
   pool?: PoolSpec;
+  sell?: SellSpec;
 }
 /**
  * The strategy templates, in the order to show.
