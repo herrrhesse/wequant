@@ -98,8 +98,11 @@ class Archive:
         remove_tree(self._directory(run_id))
 
     def size(self, run_id: str) -> int:
-        """Bytes the archived run takes on disk."""
-        return sum(path.stat().st_size for path in self._directory(run_id).iterdir())
+        """Bytes the archived run takes on disk; 0 once a cleanup removed it meanwhile."""
+        try:
+            return sum(_size(path) for path in list(self._directory(run_id).iterdir()))
+        except FileNotFoundError:
+            return 0
 
     def notes(self, run_id: str) -> dict:
         """The run's provenance.json: code and library versions, creation time and the notes it was saved with."""
@@ -204,3 +207,11 @@ def _row(directory: Path) -> tuple:
         )
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValueError(f"{directory} is not a readable run: {error!r}") from error
+
+
+def _size(path: Path) -> int:
+    """A file's size; 0 when it went between the listing and the look."""
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return 0

@@ -37,7 +37,7 @@ def usage(store: Store, archive: Archive, cache: Path, settings: Settings) -> Us
         current=_bytes(store.home / path for path in current),
         versions=_bytes(store.home / path for path in kept - current),
         cache=sum(_tree(p) for p in panels),
-        runs=sum(archive.size(run) for run in archive.index()["id"]),
+        runs=sum(_tree(archive.path(run)) for run in archive.index()["id"]),
         free_versions=_bytes(clean_versions(store, archive, settings, dry_run=True)),
         free_cache=sum(_tree(p) for p in panels if p.name != key),
         free_runs=sum(size for _, size in runs_over(archive, settings)),
@@ -45,8 +45,22 @@ def usage(store: Store, archive: Archive, cache: Path, settings: Settings) -> Us
 
 
 def _bytes(paths) -> int:
-    return sum(path.stat().st_size for path in paths if path.is_file())
+    """The sizes of the files among paths."""
+    return sum(size(path) for path in paths)
 
 
 def _tree(directory: Path) -> int:
-    return _bytes(directory.rglob("*"))
+    """The sizes of the files under directory; 0 when it goes while walked (a cleanup of old panels)."""
+    try:
+        return _bytes(list(directory.rglob("*")))
+    except FileNotFoundError:
+        return 0
+
+
+def size(path: Path) -> int:
+    """A file's size; 0 for a directory, or a file gone between the listing and the look (a panel array's temporary
+    file renamed into place while another request builds it, which answered storage_usage with a 500)."""
+    try:
+        return path.stat().st_size if path.is_file() else 0
+    except FileNotFoundError:
+        return 0

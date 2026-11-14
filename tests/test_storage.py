@@ -2,6 +2,7 @@
 files. Each test names its rule; synthetic data only."""
 
 import json
+from pathlib import Path
 
 from tests.service.conftest import market_home  # noqa: F401  a market with strategy m saved
 from wequant import service
@@ -19,6 +20,7 @@ from wequant.storage.files import (
 )
 from wequant.storage.retention import clean_versions, prune_panels, prune_runs
 from wequant.storage.settings import Settings, change, load
+from wequant.storage.usage import _tree as usage_tree
 
 META = {"last_trade_date": "2024-01-05"}
 
@@ -126,3 +128,22 @@ def test_a_strategy_imported_where_its_name_and_id_are_taken_gets_new_ones(marke
     export_strategy(library, "m", tmp_path / "m.wqstrategy")
     entry = import_strategy(library, tmp_path / "m.wqstrategy")
     assert (entry.id != "m", entry.name, library.load(entry.id)[2].form) == (True, "m (2)", library.load("m")[2].form)
+
+
+def test_a_file_or_folder_gone_while_usage_walks_the_cache_counts_nothing(tmp_path, monkeypatch):
+    """A panel array's temporary file is renamed into place while another request builds it, and an old panel goes
+    with a cleanup: usage counts what is left (storage_usage answered 500 in the end-to-end runs)."""
+    panel = tmp_path / "panel" / "f2-v2-682326a22bcd"
+    panel.mkdir(parents=True)
+    (panel / "close.npy").write_bytes(b"x" * 10)
+    (panel / ".dates.npy.372643.7476599b.tmp").write_bytes(b"y" * 5)
+    real, looks = Path.stat, {}
+
+    def stat(self, *args, **kwargs):  # the temporary file is there for is_file, gone for the size
+        looks[self.name] = looks.get(self.name, 0) + 1
+        if self.name.endswith(".tmp") and looks[self.name] > 1:
+            raise FileNotFoundError(self)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    assert usage_tree(panel) == 10 and usage_tree(tmp_path / "panel" / "f2-v1-pruned") == 0
