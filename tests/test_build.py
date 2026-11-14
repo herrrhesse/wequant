@@ -9,6 +9,7 @@ import pytest
 from tests.baostock_raw_fake import C1, C2, CALENDAR, D1, D2, D3, day_row
 from tests.update_fake import AFTER_CLOSE, D4, D5, NAMES, Market
 from wequant.data.build import backfill, build, extend, join
+from wequant.data.indexes import MEMBERS_SINCE
 from wequant.data.scope import ALL, Layer, Scope, layers
 from wequant.data.sources.baostock import BaoStock
 from wequant.data.store import Store, version_reason
@@ -216,3 +217,12 @@ def test_an_update_brings_in_a_new_member_with_its_history_from_the_layer_s_firs
     bars = store.read_table("bars")
     assert joined == 1 and bars.filter(pl.col("code") == "600003.SH")["date"].to_list() == [D1, D2, D3, D4, D5]
     assert sorted(set(bars["code"])) == ["600000.SH", "600001.SH", "600003.SH"]
+
+
+def test_a_backfill_by_index_stops_at_the_index_s_first_member_list(tmp_path, monkeypatch):
+    """Earlier history than the first member list has no scope: the backfill stops there and says why (S2.11)."""
+    monkeypatch.setitem(MEMBERS_SINCE, "000300.SH", C2)
+    store = scoped(tmp_path / "home")
+    added = backfill(store, BaoStock(client=scoped_market()), NOW, oldest=2023)
+    stopped = backfill(store, BaoStock(client=scoped_market()), NOW, oldest=2023)
+    assert (added.first, stopped.status, stopped.floor) == (C2, "complete", ("000300.SH", C2))

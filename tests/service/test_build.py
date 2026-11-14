@@ -168,3 +168,11 @@ def test_an_extension_s_estimate_counts_the_stocks_it_adds_and_nothing_once_cove
     after = service.data_extend_estimate(service.ExtendEstimateRequest(**every), context(home))
     assert (before.covered, before.stocks, extended.status, extended.added) == (False, 1, "built", 1)
     assert (after.covered, after.stocks, [layer.label for layer in extended.layers]) == (True, 0, ["沪深全部"])
+
+
+def test_a_build_of_a_list_holds_its_stocks_and_saves_the_list_as_a_stock_pool(tmp_path, fake):
+    home = tmp_path / "home"
+    request = service.BuildRequest(years=1, scope={"stocks": ["600001.SH"]}, pool_name="我的名单")
+    built = service.data_build(request, context(home))
+    pool = service.pools_show(service.PoolRequest(id=built.pool_id), context(home))
+    assert (built.stocks, pool.name, [s.code for s in pool.stocks]) == (1, "我的名单", ["600001.SH"])

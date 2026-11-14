@@ -1,12 +1,12 @@
 """A synthetic data root for trying WeQuant and for end-to-end tests: 60 made-up stocks over three years.
 
-python -m tools.demo_home --out DIR [--seed 7] [--scope layered]
+python -m tools.demo_home --out DIR [--seed 7] [--scope layered | csi300]
 
 Every number comes from the seed, none from a real market; the same seed writes the same bytes. The market has every
 board, ST stocks, a suspension, a delisting, a new listing, limit-up and limit-down streaks, a bonus issue and a
 dividend, an index (000300.SH, synthetic members) and a few data issues, one of them error level. The store's price
 limits are checked and two strategies are saved. With --scope layered (S2.11) the data holds every stock from LAYERED
-on and only the index's members before, in two layers.
+on and only the index's members before, in two layers; with --scope csi300 only the index's members, in one layer.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ STRATEGIES = {
 
 def build(out: Path, seed: int = SEED, scope: str = "all") -> dict:
     """Write the demo data root at out (which must not exist yet); counts of what it holds. scope layered: every
-    stock from LAYERED on, the index's members before."""
+    stock from LAYERED on, the index's members before; csi300: the index's members alone."""
     if out.exists():
         raise FileExistsError(f"{out} exists; the demo home goes into a new directory")
     rng = np.random.default_rng(seed)
@@ -76,11 +76,14 @@ def build(out: Path, seed: int = SEED, scope: str = "all") -> dict:
         bars[code], events = _bars(rng, code, days)
         factors += events
     meta = {"source": "demo", "seed": seed, "last_trade_date": days[-1].isoformat()}
+    members, index = set(_index_members(days)), Layer(Scope(indexes=(INDEX,)), days[0])
     if scope == "layered":
-        members = set(_index_members(days))
         bars = {c: [r for r in rows if c in members or r["date"] >= days[LAYERED]] for c, rows in bars.items()}
-        meta |= as_meta([Layer(ALL, days[LAYERED]), Layer(Scope(indexes=(INDEX,)), days[0])])
-    tables = _tables(days, bars, factors)
+        meta |= as_meta([Layer(ALL, days[LAYERED]), index])
+    if scope == "csi300":
+        bars = {c: rows for c, rows in bars.items() if c in members}
+        meta |= as_meta([index])
+    tables = _tables(days, bars, [f for f in factors if f["code"] in bars])
     Store(out, clock=_stamp).commit(meta, replace=tables, reason="demo")
     with tempfile.TemporaryDirectory() as cache:  # panel caches stay out of the demo home
         context = service.Context(out, Path(cache), clock=_stamp)
@@ -176,7 +179,7 @@ def _tables(days: list[dt.date], bars: dict[str, list[dict]], factors: list[dict
     kept = [r for r in rows if (r["code"], r["date"]) != dropped]
     frames = {
         "calendar": pl.DataFrame({"date": days}),
-        "securities": pl.DataFrame([_security(i, code, bars[code]) for i, code in enumerate(CODES)]),
+        "securities": pl.DataFrame([_security(i, code, bars[code]) for i, code in enumerate(CODES) if code in bars]),
         "bars": pl.DataFrame(kept).with_columns(preclose_derived=False, tradestatus=1, source=pl.lit("demo")),
         "daily_status": _status(days, bars),
         "adj_factor": pl.DataFrame(factors),
@@ -255,6 +258,7 @@ def _issues(days: list[dt.date], bars: dict[str, list[dict]]) -> pl.DataFrame:
         ("bars", "600090.SH", days[200], "volume_mismatch", "value_replaced", {"volume": 1200, "store_volume": 1000}),
         ("bars", LISTED[0], days[LISTED[1]], "bar_added", "row_added", {"position": "new_code"}),
     ]
+    rows = [row for row in rows if row[1] in bars and bars[row[1]][0]["date"] <= row[2]]  # the scope's stocks
     found = [
         {
             "table": t,
@@ -286,7 +290,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tools.demo_home", description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, required=True, help="a new directory for the demo data root")
     parser.add_argument("--seed", type=int, default=SEED)
-    parser.add_argument("--scope", choices=("all", "layered"), default="all", help="layered: two data scope layers")
+    parser.add_argument(
+        "--scope", choices=("all", "layered", "csi300"), default="all", help="layered: two scope layers; csi300: one"
+    )
     args = parser.parse_args(argv)
     counts = build(args.out, args.seed, args.scope)
     print(f"demo home at {args.out}: " + ", ".join(f"{n} {name}" for name, n in counts.items()))

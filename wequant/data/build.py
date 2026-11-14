@@ -135,8 +135,9 @@ def extend(
         say(Step(STAGES[0], 0.0, {}))
         basic = fetch(source, raw, raw.stock_basic, "query_stock_basic", {}, force=True)
         spans = store.read_table("index_members", manifest=found)
-        have = set(store.scan("bars", columns=["code"], start=start, end=end, manifest=found).collect()["code"])
-        stocks = [code for code in needed(scope, start, end, basic, spans) if from_baostock(code) not in have]
+        whole = next(layer for layer in held if layer.since <= days[0])  # its stocks have every bar of the segment
+        have = set(needed(whole.scope, start, end, basic, spans))
+        stocks = [code for code in needed(scope, start, end, basic, spans) if code not in have]
         paths = _histories(source, raw, stocks, start, end, say, cancel)
         daily = read_history(paths, days) if paths else None
         params = {"name": name, "first_year": start.year, "last_year": end.year}

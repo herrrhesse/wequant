@@ -40,3 +40,11 @@ def test_the_layered_demo_home_holds_only_the_index_s_members_before_every_stock
     bars, members = store.read_table("bars"), set(store.read_table("index_members")["code"])
     early = set(bars.filter(pl.col("date") < status.scope.layers[0].since)["code"])
     assert [layer.label for layer in status.scope.layers] == ["沪深全部", "沪深300"] and early == members
+
+
+def test_the_csi300_demo_home_holds_the_index_s_members_alone_in_one_layer(tmp_path):
+    build(tmp_path / "csi300", scope="csi300")
+    status = service.data_status(service.StatusRequest(), Context(tmp_path / "csi300"))
+    store = Store(tmp_path / "csi300")
+    held, members = set(store.read_table("securities")["code"]), set(store.read_table("index_members")["code"])
+    assert [layer.label for layer in status.scope.layers] == ["沪深300"] and held == members
