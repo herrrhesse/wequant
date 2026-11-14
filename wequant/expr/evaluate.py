@@ -10,7 +10,7 @@ import numpy as np
 
 from wequant.expr.cache import Cache, panel_key
 from wequant.expr.tree import Codes, Expr, Field, Op
-from wequant.expr.vocab import FAMILIES, FIELDS, OPERATORS
+from wequant.expr.vocab import FAMILIES, FIELDS, OPERATORS, PERIODS
 
 if TYPE_CHECKING:
     from wequant.panel import Panel
@@ -63,11 +63,25 @@ def _value(node: Expr | float | int | None, panel: Panel, memo: dict, keep: set[
         return np.nan if node is None else node
     grid = memo.get(node.key)
     if grid is None:
-        grid = _leaf(node, panel) if isinstance(node, Field | Codes) else _call(node, panel, memo, keep)
+        if isinstance(node, Field | Codes):
+            grid = _leaf(node, panel)
+        elif node.name in PERIODS:
+            grid = _period(node, panel)
+        else:
+            grid = _call(node, panel, memo, keep)
         grid.flags.writeable = False
         if node.key in keep:
             memo[node.key] = grid
     return grid
+
+
+def _period(node: Op, panel: Panel) -> np.ndarray:
+    """A WEEK or MONTH: its argument evaluated on the panel's weekly or monthly bars, placed back on the days; the
+    root that holds it is what a cache keeps."""
+    view = panel.periods(PERIODS[node.name])
+    if not len(view.dates):
+        return view.to_days(np.empty((0, len(panel.codes))))
+    return view.to_days(evaluate(node.args[0], view))
 
 
 def _call(node: Op, panel: Panel, memo: dict, keep: set[str]) -> np.ndarray:

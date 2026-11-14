@@ -29,6 +29,7 @@ from wequant.service.jobs import KINDS as JOB_KINDS
 from wequant.service.jobs import JobKind, JobState
 from wequant.service.labels import fill, job_text, update_params
 from wequant.service.own import Rule
+from wequant.service.periods import PERIOD_TEXTS, Period
 from wequant.service.pools import SCOPE_TEXTS
 from wequant.service.queue import STAGES as QUEUE_STAGES
 from wequant.service.queue import STATES
@@ -67,7 +68,7 @@ def metric_names(market_home, cache) -> set[str]:
 
 
 FAMILIES = {  # labels field -> the codes the code base defines for it
-    "warnings": lambda: set(TEXTS) | set(READ_TEXTS) | set(SCOPE_TEXTS) | set(DATA_SCOPE_TEXTS),
+    "warnings": lambda: set(TEXTS) | set(READ_TEXTS) | set(SCOPE_TEXTS) | set(DATA_SCOPE_TEXTS) | set(PERIOD_TEXTS),
     "issue_kinds": lambda: set(ISSUE_KINDS),
     "issue_actions": lambda: {a for kind in ISSUE_KINDS.values() for a in kind.actions},
     "metric_reasons": lambda: set(REASONS),
@@ -95,6 +96,7 @@ FAMILIES = {  # labels field -> the codes the code base defines for it
     "indicator_categories": lambda: set(get_args(Category)),
     "own_rules": lambda: set(get_args(Rule)),
     "build_statuses": lambda: set(get_args(BuildResult.model_fields["status"].annotation)),
+    "periods": lambda: {"day", *get_args(Period)},
 }
 STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's and JobInfo's own
     "queued": ["position"],
@@ -137,7 +139,7 @@ class Reads(dict):
 def test_a_warning_template_uses_exactly_the_params_its_english_text_reads(label):
     """The English text names every number and date of a warning: its params; the Chinese uses the same keys."""
     params = Reads(label.params)
-    ({**TEXTS, **READ_TEXTS, **SCOPE_TEXTS, **DATA_SCOPE_TEXTS}[label.code])(params)
+    ({**TEXTS, **READ_TEXTS, **SCOPE_TEXTS, **DATA_SCOPE_TEXTS, **PERIOD_TEXTS}[label.code])(params)
     assert params.read == set(label.params)
 
 

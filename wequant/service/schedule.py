@@ -12,6 +12,7 @@ import polars as pl
 from pydantic import Field
 
 from wequant.data.raw import BaoStockRaw
+from wequant.data.store import Store
 from wequant.service.base import Context, DataRequest, Model, manifest, named, read_version
 from wequant.service.strategies import StrategyInput, resolve
 from wequant.strategy.schedule import upcoming
@@ -53,17 +54,32 @@ def strategy_schedule(request: ScheduleRequest, context: Context = Context()) ->
     strategy, _ = resolve(request, context.library())
     store = context.store()
     found = manifest(store, read_version(context, request.data_version))
-    stored = store.read_table("calendar", columns=["date"], manifest=found)["date"].sort()
-    published, until = _published(BaoStockRaw.at(store.home).trade_dates, stored[-1])
-    estimated = _weekdays(max([stored[-1], *published, *([until] if until else [])]))
-    known = pl.concat([_days(stored, "stored"), _days(published, "calendar"), _days(estimated, "estimated")])
+    known, last, until = known_days(store, found)
     if strategy.anchor is not None:
         known = known.filter(pl.col("date") >= strategy.anchor)
-    dates, first = known["date"].to_numpy().astype("datetime64[D]"), known["date"].search_sorted(stored[-1])
+    dates, first = known["date"].to_numpy().astype("datetime64[D]"), known["date"].search_sorted(last)
     rows = upcoming(dates, 0, strategy.period, strategy.every, first, request.count)
     picked = [ScheduledDay(**known.row(row, named=True)) for row in rows.tolist()]
     fields = {"period": strategy.period, "every": strategy.every, "calendar_until": until}
     return Schedule(**named(found), **fields, days=picked)
+
+
+def known_days(store: Store, found: dict) -> tuple[pl.DataFrame, dt.date, dt.date | None]:
+    """(the store's trading days, then BaoStock's published ones after them, then estimated weekdays, with their
+    sources; the store's last trading day; the last day BaoStock's published calendar covers, None without it)."""
+    stored = store.read_table("calendar", columns=["date"], manifest=found)["date"].sort()
+    published, until = _published(BaoStockRaw.at(store.home).trade_dates, stored[-1])
+    estimated = _weekdays(max([stored[-1], *published, *([until] if until else [])]))
+    known = pl.concat([_days(stored, "stored"), _days(published, "calendar"), _days(estimated, "estimated")])
+    return known, stored[-1], until
+
+
+def following(store: Store, found: dict) -> tuple[dt.date, Source]:
+    """The trading day after the store's last, as strategy_schedule counts it, and its source: BaoStock's published
+    calendar, else an estimate (the weekday after the last day that calendar covers)."""
+    known, last, _ = known_days(store, found)
+    day = known.filter(pl.col("date") > last).row(0, named=True)
+    return day["date"], day["source"]
 
 
 def _days(dates, source: Source) -> pl.DataFrame:

@@ -4,12 +4,17 @@ On the last day 000002.SZ has no bar, 830799.BJ is outside the universe, 300001.
 fell; 600004.SH ranks first on both factors, 000001.SZ and 600006.SH tie at 0.5 and the lower column ranks first.
 """
 
+import datetime as dt
+
+import polars as pl
 import pytest
 
 from tests.frames import table_frame
 from tests.service.conftest import DAYS, MARKET, SCREENED
+from wequant.data.raw import BaoStockRaw, raw_frame
 from wequant.data.store import Store
 from wequant.service import Context, Exit, ServiceError
+from wequant.service.periods import PeriodValue
 from wequant.service.screen import ScreenRequest, screen
 
 LAST = DAYS[-1]
@@ -119,3 +124,30 @@ def test_a_saved_strategy_screens_as_its_content(market_home):
     assert (
         saved == screened(market_home).model_copy(update={"saved_as": saved.saved_as}) and saved.saved_as[0].id == "m"
     )
+
+
+WEEKLY = {"filters": [{"name": "weekly", "expr": ["WEEK", ["GT", "close", 0.0]]}]}  # every stock with a weekly bar
+
+
+def published(home, days):
+    """BaoStock's published calendar in home's raw layer: these days, trading ("1") or not ("0")."""
+    frame = pl.DataFrame({"calendar_date": list(days), "is_trading_day": list(days.values())})
+    raw, fetched = BaoStockRaw.at(home), dt.datetime(2024, 1, 11, tzinfo=dt.UTC)
+    raw.write(raw.trade_dates, raw_frame(frame, "query_trade_dates()", "0.9.4", fetched))
+
+
+def test_the_last_day_waits_for_its_week_when_only_an_estimate_follows_it(market_home):
+    """The store ends on a Thursday and no calendar knows Friday: the weekly condition reads the week ended on
+    Friday 2024-01-05, and week_open says so (S4.8)."""
+    result = screened(market_home, strategy=WEEKLY)
+    assert [(w.code, w.params) for w in result.warnings if w.code == "week_open"] == [
+        ("week_open", {"day": LAST, "end": DAYS[3]})
+    ]
+    assert result.periods == {"weekly": [PeriodValue(period="week", end=DAYS[3])]}
+
+
+def test_the_last_day_ends_its_week_when_the_published_calendar_says_friday_is_a_holiday(market_home):
+    published(market_home, {"2024-01-11": "1", "2024-01-12": "0", "2024-01-15": "1"})
+    result = screened(market_home, strategy=WEEKLY)
+    assert "week_open" not in [w.code for w in result.warnings]
+    assert result.periods == {"weekly": [PeriodValue(period="week", end=LAST)]}

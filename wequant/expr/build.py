@@ -72,3 +72,13 @@ LN = _builder("LN")
 ADD = _builder("ADD")
 SUB = _builder("SUB")
 MUL = _builder("MUL")
+
+
+def WEEK(x) -> Op:  # noqa: N802
+    """x computed on weekly bars, each day reading the last week ended on or before it (S4.8)."""
+    return Op("WEEK", x)
+
+
+def MONTH(x) -> Op:  # noqa: N802
+    """x computed on monthly bars, each day reading the last month ended on or before it (S4.8)."""
+    return Op("MONTH", x)

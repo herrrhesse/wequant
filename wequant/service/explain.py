@@ -15,7 +15,17 @@ from wequant.backtest.anomalies import screen_uses
 from wequant.panel import Panel
 from wequant.runs.causes import with_causes
 from wequant.runs.run import Run
-from wequant.service.base import Code, Context, ErrorDetail, Model, named, names_of, not_found, read_version
+from wequant.service.base import (
+    Code,
+    Context,
+    ErrorDetail,
+    Model,
+    manifest,
+    named,
+    names_of,
+    not_found,
+    read_version,
+)
 from wequant.service.details import to_data, usage
 from wequant.service.notes import delisting_day, pool_note
 from wequant.service.outputs import (
@@ -30,6 +40,7 @@ from wequant.service.outputs import (
     order_row,
     warnings_out,
 )
+from wequant.service.periods import PeriodValue, open_periods, period_after, period_values
 from wequant.service.runs import load_run
 from wequant.service.screen import (
     FactorCell,
@@ -99,6 +110,9 @@ class StepCheck(Model):
     """The expression's canonical form as written."""
     mode: Literal["all", "any"] | None
     members: list[MemberResult] | None
+    periods: list[PeriodValue] = []
+    """The week or month each weekly or monthly part of the condition read for this stock (labels.periods has the
+    page's words); empty for a daily condition and a group."""
 
 
 class FactorScore(FactorCell):
@@ -157,7 +171,9 @@ def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
     where = ("strategy",) if request.strategy is not None else ("saved",)
     strategy, warnings = resolve(request, context.library())
     data = to_data(request.data or DataSpec())
-    panel = strategy_panel(strategy, read_version(context, request.data_version), data, context, where)
+    version = read_version(context, request.data_version)
+    after = period_after(strategy, context, manifest(context.store(), version))
+    panel = strategy_panel(strategy, version, data, context, where, after and after[0])
     col = _column(panel, request.code)
     with on_panel(where):
         shot = core_screen(strategy, panel, request.date, context.expr_cache, context.mark)
@@ -182,7 +198,9 @@ def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
         sell_reason=None,
         execution=None,
         anomalies=[anomaly_use(use) for use in uses.filter(pl.col("code") == request.code).iter_rows(named=True)],
-        warnings=warnings + warnings_out(screen_warnings(strategy, panel, shot.section, shot.choice, uses)),
+        warnings=warnings
+        + warnings_out(screen_warnings(strategy, panel, shot.section, shot.choice, uses))
+        + open_periods(strategy, panel, row, after),
     )
 
 
@@ -245,7 +263,7 @@ def _checks(strategy: Strategy, panel: Panel, shot: Screen, col: int) -> dict:
     missing = shot.rejects.filter((pl.col("code") == panel.codes[col]) & (pl.col("step") == "scored"))["missing"]
     return {
         "pool": _pool(strategy, panel, section, row, col),
-        "steps": [_step(step, section, col) for step in strategy.steps()],
+        "steps": [_step(step, section, col, panel, row) for step in strategy.steps()],
         "score": _score(strategy, section, col) if scored else None,
         "missing": missing.item() if missing.len() else None,
     }
@@ -273,7 +291,7 @@ def _pool(strategy: Strategy, panel: Panel, section: Section, row: int, col: int
     return checks
 
 
-def _step(step: Step, section: Section, col: int) -> StepCheck:
+def _step(step: Step, section: Section, col: int, panel: Panel, row: int) -> StepCheck:
     """One filter step: its verdict, a simple comparison's value and constants, or a group's member verdicts."""
     group = step.expr is None
     compared = None if group else comparison(step.expr)
@@ -290,6 +308,7 @@ def _step(step: Step, section: Section, col: int) -> StepCheck:
         text=f"{step.mode} of {', '.join(step.members)}" if group else step.expr.key,
         mode=step.mode if group else None,
         members=members,
+        periods=[] if group else period_values(step.expr, panel, row, col),
     )
 
 

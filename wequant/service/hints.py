@@ -10,6 +10,16 @@ from collections.abc import Mapping
 ANY = None  # a rule at any field
 NO_DAYS = "所选日期范围内没有交易日：请调整开始或结束日期"
 NOT_KEPT = "这次回测用的数据版本已经被清理，不能{}；如果导出过那个数据版本，导入后可以再试"
+PERIOD_FIELDS = (  # (field name pattern, what it is) of the fields WEEK and MONTH refuse (S4.8)
+    (r"st(_known)?", " ST 标记"),
+    (r"limit_\w+", "涨跌停"),
+    ("list_days", "上市天数"),
+    ("delisting", "退市整理期"),
+    (r"member@\S+", "指数成分"),
+    (r"(board|exchange)@\w+", "板块和交易所"),
+    ("factor", "复权因子"),
+    ("CODES", "自定义名单"),
+)
 
 # (code, field, English message pattern) -> hint. The field is the last name in the error's loc ("" for none), the
 # pattern a re.search on its message ("" for any); the first rule that fits wins, so a field's patterns come first.
@@ -75,6 +85,18 @@ HINTS: dict[tuple[str, str | None, str], str] = {
     ("version_not_kept", "id", ""): NOT_KEPT.format("重跑"),
     ("version_not_kept", "run", ""): NOT_KEPT.format("按它解释"),
     ("bad_file", "name", ""): "文件名要保持导出时的名字：请不要改名后再导入",
+    **{
+        (
+            "period_field",
+            ANY,
+            rf"^{pattern} cannot be read inside {op}",
+        ): f"{unit}里不能用{what}，请把这个条件写在{unit}外面"
+        for op, unit in (("WEEK", "周线"), ("MONTH", "月线"))
+        for pattern, what in PERIOD_FIELDS
+    },
+    ("period_nested", ANY, ""): "周线和月线不能嵌套：周线里不能再套周线或月线，月线里也一样",
+    ("period_cross_section", ANY, "inside WEEK"): "周线里不能用横截面排名，请写在周线外面，例如 CS_RANK(WEEK(…))",
+    ("period_cross_section", ANY, "inside MONTH"): "月线里不能用横截面排名，请写在月线外面，例如 CS_RANK(MONTH(…))",
 }
 
 

@@ -61,7 +61,10 @@ class Cache:
 
 
 def panel_key(panel: Panel) -> str:
-    """What an expression's values depend on besides the expression: data, rule book, first and last date, codes."""
+    """What an expression's values depend on besides the expression: data, rule book, first and last date, codes, and
+    the trading day after the store's last when the panel was told it (it can end the last week or month, S4.8)."""
     codes = hashlib.sha256("\n".join(panel.codes.tolist()).encode()).hexdigest()[:12]
     first, last = (np.datetime_as_string(day, unit="D") for day in (panel.dates[0], panel.dates[-1]))
-    return f"{panel.key}-{panel.rules_key}-{first}-{last}-{codes}"
+    following = getattr(panel, "following", None)
+    after = "" if following is None else f"-a{np.datetime_as_string(following, unit='D')}"
+    return f"{panel.key}-{panel.rules_key}-{first}-{last}-{codes}{after}"
