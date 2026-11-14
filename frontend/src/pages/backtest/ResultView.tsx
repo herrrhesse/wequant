@@ -37,8 +37,9 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
   const changed = !!now.data && now.data.strategy_hash !== run.strategy_hash;
   const pick = (d: string) => (location.hash = href.backtest({ run: id, day: d }));
   const warned = run.warnings.length > 0 || (run.anomalies?.cells ?? 0) > 0;
-  const noBenchLine = !!run.benchmark && run.daily.every((d) => d.benchmark_nav === null);
-  const uncovered = run.warnings.find((w) => w.code === "index_uncovered" && w.params.index === run.benchmark);
+  // The benchmark line starts on the benchmark's first close, at the strategy's nav that day: the first day with a
+  // benchmark value. Later than the run's first day, the note says from when; with none at all, that there is no line.
+  const benchFrom = run.benchmark ? (run.daily.find((d) => d.benchmark_nav !== null)?.date ?? null) : undefined;
   const tabs: [Tab, string, boolean][] = [
     ["periods", "年度月度", false],
     ["holdings", "持仓", false],
@@ -61,12 +62,14 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
           )}
         </div>
         {changed && <span className="warnbox">这次回测之后策略改过，结果按回测时的策略。</span>}
-        {/* The benchmark is measured from the run's first day: an index without a close that day leaves no line at all. */}
-        {noBenchLine && (
+        {benchFrom === null && run.daily.length > 0 && (
           <span className="warnbox" role="note" aria-label="基准线">
-            {scopeName(run.benchmark!)}在回测的第一天（{run.start}）没有数据
-            {uncovered?.params.first ? `，这份数据里从 ${uncovered.params.first} 起才有` : ""}，所以画不出基准线和超额。
-            {uncovered?.params.first ? `把开始日改到 ${uncovered.params.first} 或以后就能看到。` : ""}
+            {scopeName(run.benchmark!)}在回测期间没有数据，所以画不出基准线和超额。
+          </span>
+        )}
+        {!!benchFrom && benchFrom > (run.daily[0]?.date ?? "") && (
+          <span className="warnbox" role="note" aria-label="基准线">
+            {scopeName(run.benchmark!)}从 {benchFrom} 起才有数据，基准线和超额从这天画起，起点对齐到当天的策略净值。
           </span>
         )}
         {/* The scope went beyond the stocks the data holds: said where the result is read, with a way to widen it. */}

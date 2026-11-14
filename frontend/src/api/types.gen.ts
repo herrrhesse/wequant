@@ -1296,7 +1296,8 @@ export interface DailyRow {
    */
   nav: number;
   /**
-   * benchmark / its base-day close; null: no benchmark or no close.
+   * The benchmark scaled to nav on its first day with a close (nav that day, so 1 when that is the base day); null:
+   * no benchmark, no close that day, or a day before its first close.
    */
   benchmark_nav: number | null;
   /**

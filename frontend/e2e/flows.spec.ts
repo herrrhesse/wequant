@@ -1283,15 +1283,44 @@ test("剔除退市整理期: a stock in its last trading days is left out by its
   expect(before.rejects.some((x: { code: string; step: string }) => x.code === "600070.SH" && x.step === "exclude_delisting")).toBe(false);
 });
 
-test("a backtest whose benchmark has no close on its first day says why there is no benchmark line, and names the index", async ({ page }) => {
-  // Answered in the browser with the backend's shape for a run from before the index's first day (the demo's indexes
-  // start on its first day).
+test("a backtest whose benchmark starts later than the run says from which day its line is drawn; one starting on day one says nothing", async ({ page }) => {
+  await page.goto("#/backtest");
+  await page.getByLabel("策略", { exact: true }).selectOption(preset);
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await expect(page).toHaveURL(/#\/backtest\?.*run=[0-9a-f]+/, { timeout: 90_000 });
+  const result = page.getByRole("region", { name: "回测结果" });
+  await expect(result.getByRole("img", { name: "净值曲线" })).toBeVisible();
+  // The demo's indexes start on its first day: the line starts with the run.
+  await expect(result).not.toContainText("基准 无");
+  await expect(result.getByRole("note", { name: "基准线" })).toHaveCount(0);
+  // Answered in the browser with the backend's shape for a run from before the benchmark's first close: no value
+  // before that day, the strategy's nav on it, excess 0.
+  let first = "";
+  await page.route("**/api/runs_show", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    const daily = body.daily as { date: string; nav: number; benchmark_nav: number | null; excess: number | null }[];
+    const k = Math.floor(daily.length / 3);
+    const scale = daily[k].nav / (daily[k].benchmark_nav as number);
+    first = daily[k].date;
+    body.benchmark = "000300.SH";
+    body.daily = daily.map((d, i) => ({ ...d, benchmark_nav: i < k ? null : (d.benchmark_nav as number) * scale, excess: i < k ? null : i === k ? 0 : d.excess }));
+    return r.fulfill({ response: res, json: body });
+  });
+  await page.reload();
+  await expect(result).toContainText("基准 沪深300");
+  expect(first).not.toBe("");
+  await expect(result.getByRole("note", { name: "基准线" })).toHaveText(`沪深300从 ${first} 起才有数据，基准线和超额从这天画起，起点对齐到当天的策略净值。`);
+});
+
+test("a backtest whose benchmark has no value on any day says there is no benchmark line, and names the index", async ({ page }) => {
+  // Kept for a run the backend should not give (a benchmark with no close in the whole run is no_data): answered
+  // in the browser.
   await page.route("**/api/runs_show", async (r) => {
     const res = await r.fetch();
     const body = await res.json();
     body.benchmark = "000300.SH";
     body.daily = body.daily.map((d: Record<string, unknown>) => ({ ...d, benchmark_nav: null, excess: null }));
-    body.warnings = [...body.warnings, { code: "index_uncovered", text: "", params: { index: "000300.SH", first: "2005-04-08", days: 1261 } }];
     return r.fulfill({ response: res, json: body });
   });
   await page.goto("#/backtest");
@@ -1300,5 +1329,5 @@ test("a backtest whose benchmark has no close on its first day says why there is
   await expect(page).toHaveURL(/#\/backtest\?.*run=[0-9a-f]+/, { timeout: 90_000 });
   const result = page.getByRole("region", { name: "回测结果" });
   await expect(result).toContainText("基准 沪深300");
-  await expect(result.getByRole("note", { name: "基准线" })).toContainText("这份数据里从 2005-04-08 起才有，所以画不出基准线和超额。把开始日改到 2005-04-08 或以后就能看到。");
+  await expect(result.getByRole("note", { name: "基准线" })).toHaveText("沪深300在回测期间没有数据，所以画不出基准线和超额。");
 });
