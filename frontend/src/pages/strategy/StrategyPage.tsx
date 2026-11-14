@@ -117,6 +117,8 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const errors: Err[] = (apiErr?.status === 422 ? (apiErr.body.detail ?? []) : []).map((d) => ({
     loc: strategyLoc(d.loc ?? []),
     text: L.detail(d),
+    // A place in a formula's text: the formula editor underlines it and says it, the row need not repeat it.
+    inFormula: !!d.position,
   }));
   const screen = useCall("screen", check.isSuccess ? { strategy: asked } : null, { placeholderData: keepPreviousData });
   const schedule = useCall("strategy_schedule", check.isSuccess ? { strategy: asked, count: 3 } : null, { placeholderData: keepPreviousData });

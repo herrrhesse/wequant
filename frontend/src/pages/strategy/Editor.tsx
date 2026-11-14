@@ -35,6 +35,8 @@ import { ExprFormula, useExample } from "./ExprFormula";
 export interface Err {
   loc: Loc;
   text: string;
+  /** At a place in a formula's text (ErrorDetail.position): shown by the formula editor itself. */
+  inFormula?: boolean;
 }
 
 export interface EditorProps {
@@ -57,7 +59,9 @@ const isAuto = (name: string, auto: string) => name === auto || new RegExp(`^${a
 const errsAt = (errors: Err[], at: Loc) => errors.filter((e) => concerns(e.loc, at));
 
 function ErrText({ errors }: { errors: Err[] }) {
-  return errors.length ? <span className="err-text">{errors.map((e) => e.text).join(" ")}</span> : null;
+  // A problem at a place in a formula's text is said by the formula editor, underlined there.
+  const shown = errors.filter((e) => !e.inFormula);
+  return shown.length ? <span className="err-text">{shown.map((e) => e.text).join(" ")}</span> : null;
 }
 
 /* ---------- 1 · scope ---------- */

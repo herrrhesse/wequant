@@ -57,9 +57,11 @@ test.describe("an invalid strategy on purpose", () => {
     const formula = page.getByLabel("公式", { exact: true });
     await formula.fill("MA(AMOUT,5)>MA(AMOUNT,20)");
     await blur(page);
-    // The backend's error points at that condition; the row is marked and says what is wrong in Chinese.
+    // The backend's error points at that condition; the row is marked and its formula editor says what is wrong, in
+    // Chinese, at the place (said once: not again under the row).
     await expect(page.locator(".cond.has-err")).toHaveCount(1);
-    await expect(page.locator(".cond.has-err .err-text")).not.toBeEmpty();
+    await expect(page.locator(".cond.has-err").getByRole("alert", { name: "公式有问题" })).toContainText(/第 1 行第 4 列：不认识 AMOUT/);
+    await expect(page.locator(".cond.has-err .err-text")).toHaveCount(0);
     await expect(page.locator(".state.errors")).toBeVisible();
     await formula.fill("MA(AMOUNT,5)>MA(AMOUNT,20)");
     await blur(page);
