@@ -1282,3 +1282,23 @@ test("剔除退市整理期: a stock in its last trading days is left out by its
   const before = await (await request.post("api/screen", { data: { strategy, date: "2024-12-09" } })).json();
   expect(before.rejects.some((x: { code: string; step: string }) => x.code === "600070.SH" && x.step === "exclude_delisting")).toBe(false);
 });
+
+test("a backtest whose benchmark has no close on its first day says why there is no benchmark line, and names the index", async ({ page }) => {
+  // Answered in the browser with the backend's shape for a run from before the index's first day (the demo's indexes
+  // start on its first day).
+  await page.route("**/api/runs_show", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    body.benchmark = "000300.SH";
+    body.daily = body.daily.map((d: Record<string, unknown>) => ({ ...d, benchmark_nav: null, excess: null }));
+    body.warnings = [...body.warnings, { code: "index_uncovered", text: "", params: { index: "000300.SH", first: "2005-04-08", days: 1261 } }];
+    return r.fulfill({ response: res, json: body });
+  });
+  await page.goto("#/backtest");
+  await page.getByLabel("策略", { exact: true }).selectOption(preset);
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await expect(page).toHaveURL(/#\/backtest\?.*run=[0-9a-f]+/, { timeout: 90_000 });
+  const result = page.getByRole("region", { name: "回测结果" });
+  await expect(result).toContainText("基准 沪深300");
+  await expect(result.getByRole("note", { name: "基准线" })).toContainText("这份数据里从 2005-04-08 起才有，所以画不出基准线和超额。把开始日改到 2005-04-08 或以后就能看到。");
+});

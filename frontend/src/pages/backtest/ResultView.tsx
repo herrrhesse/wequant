@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { commandOf, useCall } from "../../api/client";
 import type { RunDetail } from "../../api/types.gen";
 import { cssVar, EChart } from "../../components/EChart";
+import { useScopes } from "../../components/IndexSeg";
 import { Problem } from "../../components/Problem";
 import { SCOPE_WARNINGS, WarningText } from "../../components/WarningText";
 import { localTime } from "../../format";
@@ -25,6 +26,7 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
   const saved = run?.saved_as[0];
   const now = useCall("strategy_show", saved ? { id: saved.id } : null);
   const [tab, setTab] = useState<Tab>("periods");
+  const { name: scopeName } = useScopes();
   if (show.isError) return <Problem error={show.error} />;
   if (!run)
     return (
@@ -35,6 +37,8 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
   const changed = !!now.data && now.data.strategy_hash !== run.strategy_hash;
   const pick = (d: string) => (location.hash = href.backtest({ run: id, day: d }));
   const warned = run.warnings.length > 0 || (run.anomalies?.cells ?? 0) > 0;
+  const noBenchLine = !!run.benchmark && run.daily.every((d) => d.benchmark_nav === null);
+  const uncovered = run.warnings.find((w) => w.code === "index_uncovered" && w.params.index === run.benchmark);
   const tabs: [Tab, string, boolean][] = [
     ["periods", "年度月度", false],
     ["holdings", "持仓", false],
@@ -48,7 +52,7 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
         <div className="card-head">
           <h2>{nameOf(run)}</h2>
           <span className="small muted">
-            {run.start} 至 {run.end} · 基准 {run.benchmark ?? "无"} · 数据版本 {run.data_version_name ?? "已清理"} · {localTime(run.created_at)}
+            {run.start} 至 {run.end} · 基准 {run.benchmark ? scopeName(run.benchmark) : "无"} · 数据版本 {run.data_version_name ?? "已清理"} · {localTime(run.created_at)}
           </span>
           {saved && (
             <a className="link small push" href={href.strategy(saved.id)}>
@@ -57,6 +61,14 @@ export function ResultView({ id, day, nameOf }: { id: string; day: string | null
           )}
         </div>
         {changed && <span className="warnbox">这次回测之后策略改过，结果按回测时的策略。</span>}
+        {/* The benchmark is measured from the run's first day: an index without a close that day leaves no line at all. */}
+        {noBenchLine && (
+          <span className="warnbox" role="note" aria-label="基准线">
+            {scopeName(run.benchmark!)}在回测的第一天（{run.start}）没有数据
+            {uncovered?.params.first ? `，这份数据里从 ${uncovered.params.first} 起才有` : ""}，所以画不出基准线和超额。
+            {uncovered?.params.first ? `把开始日改到 ${uncovered.params.first} 或以后就能看到。` : ""}
+          </span>
+        )}
         {/* The scope went beyond the stocks the data holds: said where the result is read, with a way to widen it. */}
         {run.warnings
           .filter((w) => SCOPE_WARNINGS.has(w.code))
