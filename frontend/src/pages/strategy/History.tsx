@@ -23,7 +23,6 @@ export function History({ id, spec, onClose, onRestore }: { id: string; spec: St
     <section className="card history" aria-label={st.history.title}>
       <div className="card-head">
         <h2>{st.history.title}</h2>
-        <span className="small muted">{st.history.lead}</span>
         <button type="button" className="btn sm soft push" onClick={onClose}>
           {st.history.close}
         </button>

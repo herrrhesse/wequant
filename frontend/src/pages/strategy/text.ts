@@ -1,5 +1,4 @@
 export const st = {
-  what: "这是什么",
   help: {
     scope: "先圈定从哪些股票里挑：沪深全部，或者某个指数的成分股；再去掉 ST 股和刚上市不久的股票。后面的筛选和排名都只在这个范围里进行。",
     filters: "给股票设门槛，比如成交额要够大、波动不能太大，没过门槛的不参与排名。同一组里的条件，可以要求全部满足，也可以满足其中一条就行。",
@@ -34,7 +33,6 @@ export const st = {
   dev: { hash: (h: string) => `内容哈希 ${h}`, json: "查看 JSON", jsonHide: "收起 JSON", copy: "复制命令" },
   scope: {
     title: "1 · 范围",
-    lead: "每一项剔除多少只，看右边的实时预览",
     index: "股票范围",
     all: "沪深全部",
     boards: "板块",
@@ -55,7 +53,6 @@ export const st = {
   },
   filters: {
     title: "2 · 筛选条件",
-    lead: "把鼠标放在一条条件上，右边对应的那一级会高亮",
     and: "并且",
     before: "以下条件",
     after: "满足",
@@ -98,7 +95,6 @@ export const st = {
   },
   factors: {
     title: "3 · 排名打分",
-    lead: "各因子在池内排名后按权重加总",
     on: "启用",
     name: "名称",
     metric: "指标",
@@ -187,7 +183,6 @@ export const st = {
   runs: { ann: "年化", mdd: "最大回撤", sharpe: "夏普", running: "回测中", cancel: "取消", done: "回测完成" },
   history: {
     title: "修改历史",
-    lead: "按保存时间列出。选一条看和现在的差别，可以恢复。",
     current: "当前保存的",
     compare: (at: string) => `${at} 的快照和现在相比`,
     same: "和现在一样。",

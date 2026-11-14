@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useCall } from "../../api/client";
 import { call } from "../../api/http";
 import type { PoolDrift, PoolOut, PoolSpec } from "../../api/types.gen";
+import { Help } from "../../components/Help";
 import { PoolEditor } from "../../components/PoolEditor";
 import { st } from "./text";
 
@@ -15,7 +16,6 @@ export function fromPool(pool: PoolSpec | null | undefined, p: PoolOut): PoolSpe
 export function PoolPicker({ pool, drift, apply, editable = true }: { pool: PoolSpec | null | undefined; drift?: PoolDrift | null; apply: (p: PoolOut) => void; editable?: boolean }) {
   const pools = useCall("pools_list", {});
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
-  const [what, setWhat] = useState(false);
   const stocks = pool?.stocks;
   const pick = async (id: string) => apply(await call("pools_show", { id }));
   return (
@@ -41,9 +41,7 @@ export function PoolPicker({ pool, drift, apply, editable = true }: { pool: Pool
             </button>
           </>
         )}
-        <button type="button" className="what-btn" aria-expanded={what} onClick={() => setWhat(!what)}>
-          {st.what} {what ? "▾" : "▸"}
-        </button>
+        <Help text={st.scope.poolHelp} />
       </div>
       {stocks && <span className="small sub">{st.scope.fromPool(stocks.pool_name ?? "", stocks.codes.length)}</span>}
       {drift && stocks?.pool_id && (
@@ -54,7 +52,6 @@ export function PoolPicker({ pool, drift, apply, editable = true }: { pool: Pool
           </button>
         </span>
       )}
-      {what && <p className="what-text">{st.scope.poolHelp}</p>}
       {editing !== undefined && (
         <PoolEditor
           id={editing}
