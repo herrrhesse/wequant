@@ -84,6 +84,19 @@ export interface ServiceModels {
   FeeRule?: FeeRule;
   FolderOut?: FolderOut;
   FolderRequest?: FolderRequest;
+  FormatRequest?: FormatRequest;
+  Formatted?: Formatted;
+  FormattedFormula?: FormattedFormula;
+  FormulaCheck?: FormulaCheck;
+  FormulaExample?: FormulaExample;
+  FormulaField?: FormulaField;
+  FormulaFunction?: FormulaFunction;
+  FormulaIssue?: FormulaIssue;
+  FormulaLine?: FormulaLine;
+  FormulaRequest?: FormulaRequest;
+  FormulaSpec?: FormulaSpec;
+  FormulaValue?: FormulaValue;
+  FormulaVariable?: FormulaVariable;
   FunnelStep?: FunnelStep;
   GroupSpec?: GroupSpec;
   HomeSwitched?: HomeSwitched;
@@ -158,6 +171,7 @@ export interface ServiceModels {
   PoolsListRequest?: PoolsListRequest;
   PositionRow?: PositionRow;
   ProfileReport?: ProfileReport;
+  RefusedName?: RefusedName;
   Reject?: Reject;
   RelocateRequest?: RelocateRequest;
   Relocated?: Relocated;
@@ -228,10 +242,16 @@ export interface ServiceModels {
   StrategyVersions?: StrategyVersions;
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
+  TdxPrices?: TdxPrices;
   Template?: Template;
   TemplateLabel?: TemplateLabel;
   Templates?: Templates;
   TemplatesRequest?: TemplatesRequest;
+  TextPosition?: TextPosition;
+  Trial?: Trial;
+  TrialColumn?: TrialColumn;
+  TrialRequest?: TrialRequest;
+  TrialRow?: TrialRow;
   UnparsedItem?: UnparsedItem;
   UpdateRequest?: UpdateRequest;
   UpdateResult?: UpdateResult;
@@ -248,6 +268,8 @@ export interface ServiceModels {
   VerifySubmitResult?: VerifySubmitResult;
   VersionImported?: VersionImported;
   VersionsRequest?: VersionsRequest;
+  Vocab?: Vocab;
+  VocabRequest?: VocabRequest;
   Warning?: Warning;
   WarningLabel?: WarningLabel;
   wequant__service__status__VersionInfo?: VersionInfo;
@@ -459,7 +481,7 @@ export interface StrategySpec {
   /**
    * A condition expression: the scope, before the pool items.
    */
-  universe?: string | JsonValue[];
+  universe?: string | JsonValue[] | FormulaSpec;
   filters?: (ConditionSpec | GroupSpec)[];
   factors?: FactorSpec[];
   /**
@@ -476,7 +498,7 @@ export interface StrategySpec {
   /**
    * The weight formula, with formula weighting only.
    */
-  formula?: string | JsonValue[] | null;
+  formula?: string | JsonValue[] | FormulaSpec | null;
   /**
    * Resize a kept target only when its weight is off by more than this share of its target; null: never.
    */
@@ -496,6 +518,23 @@ export interface StrategySpec {
   pool?: PoolSpec;
 }
 /**
+ * A TDX-style formula (S4.1): the text the user wrote, kept as written, and the period its bars are; the backend
+ * compiles the text, so a hash and a run's identity follow the compiled tree, never comments or variable names.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaSpec".
+ */
+export interface FormulaSpec {
+  text: string;
+  period?: "day" | "week" | "month";
+  /**
+   * The compiled tree, given back with a saved strategy; ignored in requests (the text is compiled anew).
+   */
+  tree?: {
+    [k: string]: unknown;
+  };
+}
+/**
  * A condition every stock must pass at the decision day's close.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -506,7 +545,7 @@ export interface ConditionSpec {
   /**
    * A condition (bool) expression; cross-sectional operators rank within the pool.
    */
-  expr: string | JsonValue[];
+  expr: string | JsonValue[] | FormulaSpec;
   enabled?: boolean;
 }
 /**
@@ -532,7 +571,7 @@ export interface GroupSpec {
  */
 export interface FactorSpec {
   name: string;
-  expr: string | JsonValue[];
+  expr: string | JsonValue[] | FormulaSpec;
   prefer?: "high" | "low";
   /**
    * Relative weight; weights are normalised over the enabled factors.
@@ -1777,10 +1816,30 @@ export interface ErrorDetail {
    */
   path?: number[];
   /**
+   * Where inside a formula's text, when loc names a formula (S4.1); null otherwise.
+   */
+  position?: TextPosition | null;
+  /**
    * The broken rule in one Chinese sentence: what is missing and how to fix it; null: the general sentence of the
    * code in labels.error_codes says it.
    */
   hint?: string | null;
+}
+/**
+ * Where in a formula's text (S4.1): lines and columns from 1, end_col just after the last character.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TextPosition".
+ */
+export interface TextPosition {
+  line: number;
+  col: number;
+  end_line: number;
+  end_col: number;
+  /**
+   * The word at fault, as the formula has it (names upper-cased); null at the end of the text.
+   */
+  token: string | null;
 }
 /**
  * A form evaluated for a few codes over a date range.
@@ -1954,6 +2013,11 @@ export interface StepCheck {
    * page's words); empty for a daily condition and a group.
    */
   periods?: PeriodValue[];
+  /**
+   * A condition written as a formula: the variables its output line uses, then its numbers, on the bar it read
+   * (S4.1); empty for a condition written as a tree and a group.
+   */
+  formula_values?: FormulaValue[];
 }
 /**
  * One condition of a group.
@@ -1980,6 +2044,24 @@ export interface PeriodValue {
    * The last trading day of that week or month; null: no ended one yet (for a stock: none it traded in).
    */
   end: string | null;
+}
+/**
+ * One line of a formula condition on the day, for one stock.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaValue".
+ */
+export interface FormulaValue {
+  name: string;
+  kind: "num" | "bool";
+  /**
+   * The output line uses it: XG: A AND B gives A and B.
+   */
+  direct: boolean;
+  /**
+   * A condition's is 1 or 0; null: no value on that bar.
+   */
+  value: number | null;
 }
 /**
  * The stock's score among the scored stocks.
@@ -2380,6 +2462,239 @@ export interface FolderOut {
  */
 export interface FolderRequest {
   path: string;
+}
+/**
+ * Expression trees to write as formula text.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormatRequest".
+ */
+export interface FormatRequest {
+  /**
+   * Canonical forms, as JSON values (a field name or [operator, arguments...]).
+   *
+   * @minItems 1
+   * @maxItems 500
+   */
+  forms: [JsonValue, ...JsonValue[]];
+}
+/**
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Formatted".
+ */
+export interface Formatted {
+  /**
+   * One per form, in order.
+   */
+  formulas: FormattedFormula[];
+}
+/**
+ * One tree as text: parsing it with its period gives the same tree back.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormattedFormula".
+ */
+export interface FormattedFormula {
+  text: string | null;
+  period: ("day" | "week" | "month") | null;
+  /**
+   * Why the tree has no text: it is not a valid tree, or it holds an empty argument; null otherwise.
+   */
+  error: ErrorDetail | null;
+}
+/**
+ * A checked formula: its tree when it compiles, its lines, and what is wrong or doubtful.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaCheck".
+ */
+export interface FormulaCheck {
+  ok: boolean;
+  /**
+   * The compiled tree (under WEEK or MONTH for those periods); null when it does not compile.
+   */
+  tree: {
+    [k: string]: unknown;
+  };
+  /**
+   * The tree's canonical JSON: what a strategy's hash is made of.
+   */
+  key: string | null;
+  kind: ("num" | "bool") | null;
+  /**
+   * The output line's name; null for an unnamed one or when it does not compile.
+   */
+  output: string | null;
+  variables: FormulaVariable[];
+  /**
+   * At most one: the first place the text breaks a rule.
+   */
+  errors: FormulaIssue[];
+  /**
+   * adjusted_level (a back-adjusted price compared with a constant), formula_shadows (a line named like a built-in
+   * name).
+   */
+  warnings: FormulaIssue[];
+}
+/**
+ * A line of the formula: a named one, or an unnamed output (NONAME0, NONAME1, ... as TDX names them).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaVariable".
+ */
+export interface FormulaVariable {
+  name: string;
+  line: number;
+  kind: "num" | "bool" | "const";
+  /**
+   * A constant's value; null otherwise.
+   */
+  value: number | null;
+  /**
+   * An output line (NAME: or unnamed); the last is the formula's output.
+   */
+  output: boolean;
+  /**
+   * Read by a later line, or the formula's output.
+   */
+  used: boolean;
+}
+/**
+ * An error or a warning about a formula, at its place in the text (lines and columns from 1).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaIssue".
+ */
+export interface FormulaIssue {
+  code: string;
+  /**
+   * English.
+   */
+  message: string;
+  /**
+   * The rule in one Chinese sentence, naming the words at fault.
+   */
+  hint: string | null;
+  line: number | null;
+  col: number | null;
+  end_line: number | null;
+  /**
+   * Just after the last character at fault.
+   */
+  end_col: number | null;
+  token: string | null;
+}
+/**
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaExample".
+ */
+export interface FormulaExample {
+  title: string;
+  description: string;
+  text: string;
+  period: "day" | "week" | "month";
+  /**
+   * What it is an example of; a role's first example that is not complete is the default text for it.
+   */
+  role: "condition" | "factor" | "universe" | "formula" | "sell" | "keep";
+  /**
+   * A whole formula to show in the help, not a default.
+   */
+  complete: boolean;
+}
+/**
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaField".
+ */
+export interface FormulaField {
+  name: string;
+  aliases: string[];
+  /**
+   * The tree it reads.
+   */
+  form: {
+    [k: string]: unknown;
+  };
+  unit: "yuan" | "lots" | "shares" | "ratio" | "bool" | "trading_days";
+  category:
+    | "price"
+    | "volume"
+    | "status"
+    | "membership"
+    | "reference"
+    | "average"
+    | "statistics"
+    | "logic"
+    | "math"
+    | "cross_section"
+    | "period";
+  description: string;
+}
+/**
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaFunction".
+ */
+export interface FormulaFunction {
+  name: string;
+  aliases: string[];
+  /**
+   * The arguments as written, e.g. "X, N".
+   */
+  args: string;
+  /**
+   * num, bool, or same: the kind of its value argument.
+   */
+  returns: "num" | "bool" | "same";
+  /**
+   * labels.formula_categories.
+   */
+  category:
+    | "price"
+    | "volume"
+    | "status"
+    | "membership"
+    | "reference"
+    | "average"
+    | "statistics"
+    | "logic"
+    | "math"
+    | "cross_section"
+    | "period";
+  description: string;
+  example: string;
+  /**
+   * TDX has it under this name.
+   */
+  tdx: boolean;
+}
+/**
+ * One line shown for a formula condition.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaLine".
+ */
+export interface FormulaLine {
+  name: string;
+  kind: "num" | "bool";
+  /**
+   * The output line uses it: XG: A AND B gives A and B.
+   */
+  direct: boolean;
+}
+/**
+ * A formula's text, its period and, optionally, what it is for.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FormulaRequest".
+ */
+export interface FormulaRequest {
+  text: string;
+  period?: "day" | "week" | "month";
+  /**
+   * condition, universe, sell and keep need a condition as output; factor and formula a number (a condition
+   * counts 1/0); null: either.
+   */
+  role?: ("condition" | "factor" | "universe" | "formula" | "sell" | "keep") | null;
 }
 /**
  * One level of the funnel, in order: listed, bar, universe, pool items, filters, scored, targets, backups.
@@ -3073,6 +3388,14 @@ export interface Labels {
    * (param end: PeriodValue.end) (S4.8).
    */
   periods: TemplateLabel[];
+  /**
+   * formula check's warnings (FormulaIssue.code); each issue also carries its own Chinese hint (S4.1).
+   */
+  formula_warnings: Label[];
+  /**
+   * formula vocab's categories (FormulaFunction.category, FormulaField.category) (S4.1).
+   */
+  formula_categories: Label[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -3711,6 +4034,17 @@ export interface Stage {
   calls: number;
 }
 /**
+ * A TDX name a formula cannot use, and the error code it gets.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "RefusedName".
+ */
+export interface RefusedName {
+  name: string;
+  code: "future_function" | "formula_no_data" | "formula_unsupported";
+  reason: string;
+}
+/**
  * A listed stock without a score, at the first chain level it fails.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -3750,6 +4084,11 @@ export interface Reject {
    * by a lower bound; null otherwise (S2.10a).
    */
   note?: string | null;
+  /**
+   * At a condition written as a formula: the values of its lines (ScreenResult.formula_lines of the step, in that
+   * order) on the bar it read (S4.1); empty otherwise (a group's members, too).
+   */
+  formula_values?: (number | null)[];
   /**
    * At scored: the first factor without a value, or formula.
    */
@@ -4308,6 +4647,13 @@ export interface ScreenResult {
   anomalies: DataAnomaly | null;
   warnings: Warning[];
   /**
+   * By condition name, for a condition written as a formula that turned stocks away: the lines each such reject's
+   * formula_values give, the variables its output line uses first, then its numbers (S4.1).
+   */
+  formula_lines?: {
+    [k: string]: FormulaLine[];
+  };
+  /**
    * By condition, factor or formula name: the week or month its weekly or monthly parts read on the day (labels.periods
    * has the page's words); only the ones that read any.
    */
@@ -4646,7 +4992,7 @@ export interface StrategySpec1 {
   /**
    * A condition expression: the scope, before the pool items.
    */
-  universe?: string | JsonValue[];
+  universe?: string | JsonValue[] | FormulaSpec;
   filters?: (ConditionSpec | GroupSpec)[];
   factors?: FactorSpec[];
   /**
@@ -4663,7 +5009,7 @@ export interface StrategySpec1 {
   /**
    * The weight formula, with formula weighting only.
    */
-  formula?: string | JsonValue[] | null;
+  formula?: string | JsonValue[] | FormulaSpec | null;
   /**
    * Resize a kept target only when its weight is off by more than this share of its target; null: never.
    */
@@ -4824,6 +5170,19 @@ export interface VersionInfo1 {
   current: boolean;
 }
 /**
+ * Forward-adjusted prices to the store's last day (raw × factor ÷ that day's factor): only for comparing price
+ * levels with TDX's 前复权 charts; the formula's C is back-adjusted, and ratios such as K, D, J are the same in both.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TdxPrices".
+ */
+export interface TdxPrices {
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+}
+/**
  * A starting point for a new strategy.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -4855,7 +5214,7 @@ export interface StrategySpec2 {
   /**
    * A condition expression: the scope, before the pool items.
    */
-  universe?: string | JsonValue[];
+  universe?: string | JsonValue[] | FormulaSpec;
   filters?: (ConditionSpec | GroupSpec)[];
   factors?: FactorSpec[];
   /**
@@ -4872,7 +5231,7 @@ export interface StrategySpec2 {
   /**
    * The weight formula, with formula weighting only.
    */
-  formula?: string | JsonValue[] | null;
+  formula?: string | JsonValue[] | FormulaSpec | null;
   /**
    * Resize a kept target only when its weight is off by more than this share of its target; null: never.
    */
@@ -4907,6 +5266,105 @@ export interface Templates {
  * via the `definition` "TemplatesRequest".
  */
 export interface TemplatesRequest {}
+/**
+ * The formula's lines on one stock's bars.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Trial".
+ */
+export interface Trial {
+  data_version: number;
+  data_version_name: string;
+  code: string;
+  name: string | null;
+  period: "day" | "week" | "month";
+  columns: TrialColumn[];
+  rows: TrialRow[];
+  /**
+   * The store's last day when its week or month has not ended, so its bar is not shown; null otherwise.
+   */
+  open_period: string | null;
+}
+/**
+ * A variable or output shown, in the formula's order; constants are not.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TrialColumn".
+ */
+export interface TrialColumn {
+  name: string;
+  kind: "num" | "bool";
+  output: boolean;
+}
+/**
+ * One bar: a day, or a week or month ending on date.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TrialRow".
+ */
+export interface TrialRow {
+  /**
+   * The bar's last trading day.
+   */
+  date: string;
+  /**
+   * The bar's first trading day (the period's, for a weekly or monthly bar).
+   */
+  start: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  /**
+   * Back-adjusted, as the formula's O, H, L, C read them.
+   */
+  close: number | null;
+  /**
+   * In lots, as the formula's VOL reads it.
+   */
+  volume: number | null;
+  /**
+   * Unadjusted close.
+   */
+  raw_close: number | null;
+  tdx: TdxPrices;
+  /**
+   * Each column's value; a condition's is 1 or 0; null: none (too few bars, or a division by 0).
+   */
+  values: {
+    [k: string]: number | null;
+  };
+}
+/**
+ * A formula computed for one stock, to compare with TDX bar by bar.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TrialRequest".
+ */
+export interface TrialRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  text: string;
+  period?: "day" | "week" | "month";
+  code: string;
+  /**
+   * First bar shown (default: as many as max_bars allows).
+   */
+  start?: string | null;
+  /**
+   * Last bar shown (default: the store's last).
+   */
+  end?: string | null;
+  /**
+   * The trading day the formula counts from, as a strategy's anchor; null: the store's first day.
+   */
+  anchor?: string | null;
+  /**
+   * At most this many bars, the latest ones.
+   */
+  max_bars?: number;
+}
 /**
  * Fetch BaoStock's trading days after the store's last one and merge them as one version.
  *
@@ -5148,3 +5606,20 @@ export interface VersionImported {
 export interface VersionsRequest {
   id: string;
 }
+/**
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Vocab".
+ */
+export interface Vocab {
+  functions: FormulaFunction[];
+  fields: FormulaField[];
+  unsupported: RefusedName[];
+  examples: FormulaExample[];
+}
+/**
+ * No parameters.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "VocabRequest".
+ */
+export interface VocabRequest {}

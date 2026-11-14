@@ -40,6 +40,10 @@ export interface Operations {
   expr_check: { request: M.ExprRequest; result: M.ExprCheck };
   expr_eval: { request: M.EvalRequest; result: M.EvalResult };
   expr_indicators: { request: M.IndicatorsRequest; result: M.Indicators };
+  formula_check: { request: M.FormulaRequest; result: M.FormulaCheck };
+  formula_trial: { request: M.TrialRequest; result: M.Trial };
+  formula_format: { request: M.FormatRequest; result: M.Formatted };
+  formula_vocab: { request: M.VocabRequest; result: M.Vocab };
   strategy_validate: { request: M.StrategyRequest; result: M.StrategyCheck };
   strategy_summary: { request: M.StrategyRequest; result: M.StrategySummary };
   strategy_schema: { request: M.StrategySchemaRequest; result: M.StrategySchema };
@@ -129,6 +133,10 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   expr_check: { method: "POST", path: "/api/expr_check" },
   expr_eval: { method: "POST", path: "/api/expr_eval" },
   expr_indicators: { method: "POST", path: "/api/expr_indicators" },
+  formula_check: { method: "POST", path: "/api/formula_check" },
+  formula_trial: { method: "POST", path: "/api/formula_trial" },
+  formula_format: { method: "POST", path: "/api/formula_format" },
+  formula_vocab: { method: "POST", path: "/api/formula_vocab" },
   strategy_validate: { method: "POST", path: "/api/strategy_validate" },
   strategy_summary: { method: "POST", path: "/api/strategy_summary" },
   strategy_schema: { method: "POST", path: "/api/strategy_schema" },
