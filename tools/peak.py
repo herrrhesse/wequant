@@ -42,8 +42,10 @@ def _windows_peak() -> float:
 
     counters = Counters()
     counters.cb = ctypes.sizeof(counters)
-    process = ctypes.windll.kernel32.GetCurrentProcess()
-    if not ctypes.windll.psapi.GetProcessMemoryInfo(process, ctypes.byref(counters), counters.cb):
+    current, info = ctypes.windll.kernel32.GetCurrentProcess, ctypes.windll.psapi.GetProcessMemoryInfo
+    current.restype = wintypes.HANDLE  # a pointer-sized pseudo handle: the default int would cut it on 64 bits
+    info.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+    if not info(current(), ctypes.byref(counters), counters.cb):
         return math.nan
     return counters.PeakWorkingSetSize / 2**20
 
