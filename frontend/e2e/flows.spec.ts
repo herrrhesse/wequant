@@ -1048,7 +1048,7 @@ test("data scope: the data page says which stocks and from when; widening picks 
   await expect(page.locator(".statusbar")).not.toContainText(/扩大数据范围|继续扩大/);
   await page.getByRole("link", { name: "数据", exact: true }).click();
   await expect(card).toContainText("扩大数据范围已暂停，已经补上的部分保留。");
-  await card.getByRole("button", { name: "继续扩大" }).click();
+  await card.getByRole("button", { name: /^继续扩大/ }).click();
   expect(starts.at(-1)).toEqual(starts.at(-2));
   await expect(bar).toBeVisible();
   Object.assign([...jobs.values()].at(-1)!, { state: "succeeded", fraction: 1 });
@@ -1092,4 +1092,26 @@ test("data scope: a scope beyond the data stays choosable, marked; a template's 
   await notes.getByRole("link", { name: "去扩大数据范围 ›" }).click();
   await expect(page).toHaveURL(/#\/data\?extend=1$/);
   await expect(page.getByRole("region", { name: "数据范围" }).getByRole("group", { name: "要补进来的股票" })).toBeVisible();
+});
+
+test("data scope: a widening not finished is carried on from the data's own layers, with no job of it left in the list", async ({ page }) => {
+  // The queue keeps only the newest jobs and a restart forgets them: the layers alone say what is left.
+  await scopeReplay(page, {
+    ...INDEXES_ONLY,
+    layers: [{ all: true, indexes: [], stocks: [], since: "2025-01-02", label: "沪深全部" }, ...INDEXES_ONLY.layers],
+    covers: [{ code: "all", since: "2025-01-02" }, ...INDEXES_ONLY.covers],
+    stock_count: 5321,
+  });
+  // No data_extend job anywhere: the replay has started none, the demo serve has never run one.
+  const { starts } = await replayBuilds(page);
+  await page.goto("#/data");
+  expect(((await (await page.request.post("api/jobs_list", { data: {} })).json()).jobs as { kind: string }[]).some((j) => j.kind === "data_extend")).toBe(false);
+  const card = page.getByRole("region", { name: "数据范围" });
+  await expect(card.getByLabel("各部分的起始日")).toContainText("沪深全部2025-01-02 起");
+  await expect(card).toContainText("沪深全部已补到 2025-01-02，更早的部分还没补。");
+  await card.getByRole("button", { name: "继续扩大（补到 2023-01-02）" }).click();
+  expect(starts.at(-1)).toEqual({ kind: "data_extend", request: { scope: { all: true, indexes: [], stocks: [] }, pool_name: null } });
+  await expect(page.getByRole("status", { name: "扩大数据范围", exact: true })).toBeVisible();
+  // The status bar never carries the offer, only running work.
+  await expect(page.locator(".statusbar")).not.toContainText("继续扩大");
 });

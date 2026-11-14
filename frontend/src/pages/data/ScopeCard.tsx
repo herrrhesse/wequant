@@ -56,12 +56,14 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
   useEffect(() => {
     if (open) ref.current?.scrollIntoView({ block: "start" });
   }, [open]);
-  // An extension to carry on: the one paused here (its own request), or a wider layer that does not reach back to the
-  // first day yet (paused earlier, or stopped).
+  // An extension to carry on, as the data says: the widest layer does not reach back to the data's first day (the
+  // narrowest layer's since). The backend carries on from where it stopped, whatever happened to the job (the queue
+  // keeps only the newest jobs, a restart forgets them). A paused job is a fallback only when nothing was committed.
   const layers = scope?.layers ?? [];
+  const firstDay = layers.at(-1)?.since ?? null;
+  const wider = layers.length > 1 && firstDay && layers[0]!.since > firstDay ? layers[0]! : null;
   const paused = job?.state === "cancelled" ? (job.request.scope as DataScope | undefined) : undefined;
-  const wider = layers.length > 1 ? layers[0]! : null;
-  const resume: DataScope | null = active ? null : (paused ?? (wider ? { all: !!wider.all, indexes: wider.indexes ?? [], stocks: wider.stocks ?? [] } : null));
+  const resume: DataScope | null = active ? null : wider ? { all: !!wider.all, indexes: wider.indexes ?? [], stocks: wider.stocks ?? [] } : (paused ?? null);
   const start = async (s: DataScope, poolName: string | null) => {
     const j = await begin.mutateAsync({ kind: "data_extend" as JobInfo["kind"], request: { scope: s, pool_name: poolName } } as never);
     setChoosing(false);
@@ -108,8 +110,8 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
             {paused ? "扩大数据范围已暂停，已经补上的部分保留。" : ""}
             {wider ? `${wider.label}已补到 ${wider.since}，更早的部分还没补。` : ""}
           </span>
-          <button type="button" className="btn sm soft" disabled={begin.isPending} onClick={() => void start(resume, (job?.request.pool_name as string | null | undefined) ?? null).catch(() => undefined)}>
-            继续扩大
+          <button type="button" className="btn sm soft" disabled={begin.isPending} onClick={() => void start(resume, wider ? null : ((job?.request.pool_name as string | null | undefined) ?? null)).catch(() => undefined)}>
+            继续扩大{firstDay ? `（补到 ${firstDay}）` : ""}
           </button>
         </div>
       )}
