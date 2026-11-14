@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from wequant.data.files import atomic_write
+from wequant.data.files import atomic_write, read_text
 from wequant.data.store import exclusive
 from wequant.runs.archive import ID
 
@@ -52,7 +52,7 @@ def load(home: Path) -> tuple[Settings, list[str]]:
     if not path.exists():
         return Settings(), []
     try:
-        data = json.loads(path.read_text("utf-8"))
+        data = json.loads(read_text(path))
     except ValueError as error:
         return Settings(), [f"{FILE} is not JSON ({error}); every setting reads as its default"]
     if not isinstance(data, dict):

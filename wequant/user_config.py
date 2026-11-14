@@ -9,6 +9,7 @@ import secrets
 from pathlib import Path
 
 from wequant import paths
+from wequant.data.files import read_text
 
 FILE = "config.json"
 
@@ -20,7 +21,7 @@ def path() -> Path:
 def load() -> dict:
     """The settings; {} when there are none (or the file is unreadable: they are only remembered choices)."""
     try:
-        found = json.loads(path().read_text(encoding="utf-8"))
+        found = json.loads(read_text(path()))
     except (OSError, ValueError):
         return {}
     return found if isinstance(found, dict) else {}

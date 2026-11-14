@@ -25,7 +25,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from wequant.data.files import atomic_write, utc_now
+from wequant.data.files import atomic_write, read_text, utc_now
 from wequant.service.base import Context, error_body
 from wequant.service.errors import Exit, ServiceError
 from wequant.service.running import imported, outcome, progress_message
@@ -135,7 +135,7 @@ class Jobs:
 
     def result(self, id: int) -> str:
         """The result's JSON of a succeeded job."""
-        return self._result(id).read_text("utf-8")
+        return read_text(self._result(id))
 
     def cancel(self, id: int) -> Job | None:
         """Stop job id: a queued one never starts; a running one is asked to stop, and a worker process still running
@@ -301,7 +301,7 @@ class Jobs:
 
     def _load(self) -> list[Job]:
         paths = self.root.glob("*.json") if self.root.is_dir() else []
-        return [Job(**json.loads(p.read_text("utf-8"))) for p in paths if p.stem.isdigit()]
+        return [job for p in paths if p.stem.isdigit() and (job := _job(p)) is not None]
 
     def _save(self, job: Job) -> None:
         atomic_write(self._record(job.id), json.dumps(dataclasses.asdict(job), ensure_ascii=False).encode("utf-8"))
@@ -315,6 +315,14 @@ class Jobs:
 
 def _error(exit: Exit, message: str) -> dict:
     return error_body(ServiceError(exit, message)).model_dump(mode="json")
+
+
+def _job(path: Path) -> Job | None:
+    """The job a record holds; None when the record went meanwhile (a cleanup between the listing and the read)."""
+    try:
+        return Job(**json.loads(read_text(path)))
+    except FileNotFoundError:
+        return None
 
 
 def worker_command() -> list[str]:
