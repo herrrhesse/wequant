@@ -439,6 +439,10 @@ JOB_STAGES = {  # code -> (name, template over the stage's params)
     "build_indexes": ("下载指数", "正在下载沪深300和中证500的行情和成分"),
     "build_merge": ("检查合并", "正在检查数据、整理成表"),
     "build_commit": ("写入版本", "正在写入数据版本"),
+    "build_reconnect": (
+        "等待重连",
+        "BaoStock 连接中断，{seconds} 秒后重新连接（第 {attempt}/{of} 次），已下载的部分不会重下",
+    ),
     "own_read": ("读取并检查文件", "正在读取并检查自备数据"),
     "own_commit": ("写入版本", "正在把自备数据写成数据版本"),
     "relocate_check": ("检查目标位置", "正在检查目标文件夹和可用空间"),
