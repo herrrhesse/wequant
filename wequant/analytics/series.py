@@ -50,10 +50,14 @@ def annualize(growth: float, periods: int, periods_per_year: int) -> float:
     return float(growth ** (periods_per_year / periods) - 1)
 
 
-def relative_levels(levels: np.ndarray) -> np.ndarray:
-    """levels / levels[0]: 1 on the first day; NaN where a level, or the first, is NaN."""
+def relative_levels(levels: np.ndarray, nav: np.ndarray) -> np.ndarray:
+    """levels scaled to nav on the first day with a level: nav that day, NaN before it and where a level is NaN."""
     levels = np.asarray(levels, dtype=np.float64)
-    return levels / levels[0]
+    found = np.flatnonzero(~np.isnan(levels))
+    if not found.size:
+        return levels
+    base = found[0]
+    return levels / levels[base] * np.asarray(nav, dtype=np.float64)[base]
 
 
 def excess(growth: np.ndarray, benchmark_growth: np.ndarray) -> np.ndarray:

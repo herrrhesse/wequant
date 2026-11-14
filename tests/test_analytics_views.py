@@ -48,3 +48,14 @@ def test_periods_compound_their_days_and_measure_drawdown_from_the_previous_peri
     year = period_view(DAILY, "year").row(0, named=True)
     assert (year["period"], year["benchmark_return"]) == ("2024", None)
     assert (year["return"], year["max_drawdown"]) == pytest.approx((0.089, 0.1))
+
+
+def test_a_benchmark_starting_after_the_base_day_is_drawn_from_its_first_close_at_the_navs_level():
+    """S2.10b: no level before the benchmark's first close, the strategy's nav on that day (no excess), then the
+    index's own moves from there."""
+    late = DAILY.with_columns(benchmark=pl.Series([None, 20.0, None, 22.0]))
+    view = daily_view(late, POSITIONS)
+    line, gap = view["benchmark_nav"].to_list(), view["excess"].to_list()
+    assert line[0] is None and gap[0] is None and line[2] is None and gap[2] is None
+    assert (line[1], gap[1]) == (pytest.approx(1.1), pytest.approx(0.0))
+    assert line[3] / line[1] == pytest.approx(22.0 / 20.0) and gap[3] == pytest.approx(1.089 / (1.1 * 1.1) - 1)
