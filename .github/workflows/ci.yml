@@ -36,6 +36,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+          enable-cache: false
       - run: uv sync --frozen
       - name: First start (numba compiles every kernel into an empty cache)
         run: uv run --frozen python -m tools.compile_time
@@ -53,3 +54,7 @@ jobs:
         working-directory: frontend
         env:
           WQ_DEMO_HOME: ${{ runner.temp }}\demo-home
+      - name: Stop what the end-to-end run left running
+        if: always()
+        shell: pwsh
+        run: Get-Process python, node -ErrorAction SilentlyContinue | Stop-Process -Force
