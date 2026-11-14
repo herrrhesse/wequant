@@ -18,6 +18,13 @@ export interface Operations {
   data_pin_version: { request: M.PinVersionRequest; result: M.SettingsOut };
   data_export: { request: M.ExportVersionRequest; result: M.Exported };
   data_import: { request: M.ImportRequest; result: M.VersionImported };
+  data_use_home: { request: M.UseHomeRequest; result: M.HomeSwitched };
+  data_relocate: { request: M.RelocateRequest; result: M.Relocated };
+  fs_places: { request: M.PlacesRequest; result: M.Places };
+  fs_list: { request: M.FolderRequest; result: M.Listing };
+  fs_mkdir: { request: M.MkdirRequest; result: M.Made };
+  setup_status: { request: M.SetupStatusRequest; result: M.SetupStatus };
+  setup_save: { request: M.SetupSaveRequest; result: M.SetupStatus };
   data_verify_submit: { request: M.VerifySubmitRequest; result: M.VerifySubmitResult };
   data_verify_list: { request: M.VerifyListRequest; result: M.VerifyPage };
   data_resolve_list: { request: M.ResolveListRequest; result: M.ResolvePage };
@@ -93,6 +100,13 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_pin_version: { method: "POST", path: "/api/data_pin_version" },
   data_export: { method: "POST", path: "/api/data_export" },
   data_import: { method: "POST", path: "/api/data_import" },
+  data_use_home: { method: "POST", path: "/api/data_use_home" },
+  data_relocate: { method: "POST", path: "/api/data_relocate" },
+  fs_places: { method: "POST", path: "/api/fs_places" },
+  fs_list: { method: "POST", path: "/api/fs_list" },
+  fs_mkdir: { method: "POST", path: "/api/fs_mkdir" },
+  setup_status: { method: "POST", path: "/api/setup_status" },
+  setup_save: { method: "POST", path: "/api/setup_save" },
   data_verify_submit: { method: "POST", path: "/api/data_verify_submit" },
   data_verify_list: { method: "POST", path: "/api/data_verify_list" },
   data_resolve_list: { method: "POST", path: "/api/data_resolve_list" },
