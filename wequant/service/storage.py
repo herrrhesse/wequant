@@ -143,8 +143,7 @@ def settings_update(request: SettingsUpdate, context: Context = Context()) -> Se
 def data_use_version(request: UseVersionRequest, context: Context = Context()) -> SettingsOut:
     """Read a kept version when requests name none (null: the current one again); its panels stay, others go."""
     store = context.store()
-    if request.version is not None:
-        manifest(store, request.version)  # NOT_FOUND unless kept
+    manifest(store, request.version)  # NOT_FOUND unless kept (no_store on a folder without data)
     change(store.home, lambda settings: {"version_in_use": request.version})
     tidy(context)
     return settings_show(SettingsRequest(), context)

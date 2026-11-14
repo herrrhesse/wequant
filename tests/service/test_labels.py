@@ -38,6 +38,7 @@ from wequant.strategy import SELL_KINDS
 from wequant.strategy.library import READ_TEXTS
 
 ERRORS = {"SpecError", "ExprError", "LookAheadError", "NotSaved", "NotInPanel", "not_found", "PydanticCustomError"}
+ERRORS |= {"Refused"}  # wequant.storage.relocate: the folder refusals the data root operations report by their code
 LABELS = service.labels(service.LabelsRequest())
 
 
@@ -95,6 +96,7 @@ STAGE_PARAMS = {  # the params each job stage reports: the queue's, the worker's
     "crashed": ["exit_code"],
     "update_snapshot": ["day", "done", "total"],
     "update_factors": ["done", "total"],
+    "relocate_copy": ["done_mb", "total_mb"],
 }
 
 

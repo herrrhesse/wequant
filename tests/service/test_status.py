@@ -45,6 +45,7 @@ def test_the_seed_store(home, context):
             {"name": "securities", "files": 1, "rows": 4},
         ],
         "meta": {"source": "test"},
+        "home": str(home),
     }
 
 

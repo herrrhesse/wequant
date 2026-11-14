@@ -12,9 +12,10 @@ from wequant.data.update import STAGES as UPDATE_STAGES
 from wequant.data.update import Step
 from wequant.service.base import Context, error_body, failure
 from wequant.service.errors import Exit, ServiceError
+from wequant.service.homes import STAGES as RELOCATE_STAGES
 
 log = logging.getLogger("wequant")
-STAGES = ("load", "backtest", *UPDATE_STAGES)  # the stages a running operation reports; the queue has its own
+STAGES = ("load", "backtest", *UPDATE_STAGES, *RELOCATE_STAGES)  # the stages an operation reports; the queue's own
 
 
 def imported(path: str) -> Callable:

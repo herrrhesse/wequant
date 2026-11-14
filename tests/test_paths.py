@@ -7,6 +7,8 @@ import pytest
 
 from wequant import paths
 
+CONFIG_DIR = paths.config_dir  # the real one: conftest gives each test a folder of its own
+
 
 @pytest.mark.parametrize("windows", [False, True], ids=["linux", "windows"])
 def test_each_system_keeps_data_settings_and_caches_in_its_own_places(monkeypatch, tmp_path, windows):
@@ -17,6 +19,7 @@ def test_each_system_keeps_data_settings_and_caches_in_its_own_places(monkeypatc
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "conf"))
     monkeypatch.setenv("XDG_CACHE_HOME", str(home / "caches"))
     monkeypatch.setattr(paths, "WINDOWS", windows)
+    monkeypatch.setattr(paths, "config_dir", CONFIG_DIR)
     found = (paths.default_home(), paths.config_dir(), paths.cache_dir())
     if windows:
         assert found == (local / "WeQuant" / "data", roaming / "WeQuant", local / "WeQuant" / "cache")

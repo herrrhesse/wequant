@@ -23,6 +23,12 @@ class Cache:
         self._nbytes = 0
         self._lock = threading.Lock()
 
+    def clear(self) -> None:
+        """Forget every result (round 3: the server switched to another data root)."""
+        with self._lock:
+            self._grids.clear()
+            self._nbytes = 0
+
     @property
     def nbytes(self) -> int:
         """Bytes of the grids held."""
