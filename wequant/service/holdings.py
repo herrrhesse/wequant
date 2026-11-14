@@ -9,7 +9,7 @@ from typing import Literal
 import numpy as np
 
 from wequant.backtest import Backtest
-from wequant.backtest.holding import Simulation, simulate
+from wequant.backtest.holding import Simulation, at_or_above, at_or_below, simulate
 from wequant.panel import Panel
 from wequant.service.base import Model, Names
 from wequant.service.outputs import Warning
@@ -132,21 +132,15 @@ def rule_checks(strategy: Strategy, panel: Panel, found: Simulation, col: int) -
                                     threshold=threshold, blocked_by=blocked))  # fmt: skip
 
     drop, gain, fall = _finite(1 - close / cost), _finite(close / cost - 1), _finite(1 - close / peak)
-    add("stop_loss", sell.stop_loss, drop, sell.stop_loss, drop is not None and drop >= (sell.stop_loss or 0), stopped)
-    add(
-        "take_profit",
-        sell.take_profit,
-        gain,
-        sell.take_profit,
-        gain is not None and gain >= (sell.take_profit or 0),
-        stopped,
-    )
+    stop, take, trail = sell.stop_loss or 0, sell.take_profit or 0, sell.trailing_stop or 0  # as the engine judges:
+    add("stop_loss", sell.stop_loss, drop, sell.stop_loss, bool(at_or_below(close, cost * (1 - stop))), stopped)
+    add("take_profit", sell.take_profit, gain, sell.take_profit, bool(at_or_above(close, cost * (1 + take))), stopped)
     add(
         "trailing_stop",
         sell.trailing_stop,
         fall,
         sell.trailing_stop,
-        fall is not None and fall >= (sell.trailing_stop or 0),
+        bool(at_or_below(close, peak * (1 - trail))),
         stopped,
     )
     add("max_hold", sell.max_hold_days, float(days), sell.max_hold_days, days >= (sell.max_hold_days or 0), stopped)

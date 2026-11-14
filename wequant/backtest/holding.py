@@ -35,6 +35,8 @@ if TYPE_CHECKING:
 ENGINE = "holding"
 HOLDING_VERSION = 1  # bump when how the rules decide sales changes meaning
 RULES = ("stop_loss", "take_profit", "trailing_stop", "max_hold", "sell_formula")  # in the order a day checks them
+EPSILON = 1e-9  # relative: a close exactly at a price rule's level (a -10% limit down on a 10% stop) sets it off,
+# whichever way the back-adjusted prices' rounding leans
 EXITS = {  # the exits frame: one row per day a holding is marked to sell, its order the next day
     "date": pl.Date,
     "code": pl.String,
@@ -197,9 +199,11 @@ def _marks(strategy: Strategy, panel: Panel, book: Book, formulas: dict, t: int)
     keep = formulas["keep"][t] == 1 if "keep" in formulas else np.zeros_like(free)
     days, stops = book.days(t), free & ~keep if sell.keep_over_stops else free
     hits = {
-        "stop_loss": stops & (close <= book.cost * (1 - sell.stop_loss)) if sell.stop_loss else None,
-        "take_profit": stops & (close >= book.cost * (1 + sell.take_profit)) if sell.take_profit else None,
-        "trailing_stop": stops & (close <= book.peak * (1 - sell.trailing_stop)) if sell.trailing_stop else None,
+        "stop_loss": stops & at_or_below(close, book.cost * (1 - sell.stop_loss)) if sell.stop_loss else None,
+        "take_profit": stops & at_or_above(close, book.cost * (1 + sell.take_profit)) if sell.take_profit else None,
+        "trailing_stop": stops & at_or_below(close, book.peak * (1 - sell.trailing_stop))
+        if sell.trailing_stop
+        else None,
         "max_hold": stops & (days >= sell.max_hold_days) if sell.max_hold_days else None,
         "sell_formula": free & ~keep & (formulas["sell"][t] == 1) if "sell" in formulas else None,
     }
@@ -208,6 +212,16 @@ def _marks(strategy: Strategy, panel: Panel, book: Book, formulas: dict, t: int)
             book.marked.setdefault(col, _row(rule, strategy, panel, book, col, t))
     day = panel.dates[t].item()
     return [(day, *row[1:]) for _, row in sorted(book.marked.items())]
+
+
+def at_or_below(close: np.ndarray | float, level: np.ndarray | float) -> np.ndarray | bool:
+    """close at or below level, within EPSILON of it counting as at it; False where either is NaN."""
+    return close <= level * (1 + EPSILON)
+
+
+def at_or_above(close: np.ndarray | float, level: np.ndarray | float) -> np.ndarray | bool:
+    """close at or above level, within EPSILON of it counting as at it; False where either is NaN."""
+    return close >= level * (1 - EPSILON)
 
 
 def _row(rule: str, strategy: Strategy, panel: Panel, book: Book, col: int, t: int) -> tuple:

@@ -484,7 +484,8 @@ file, `exits.parquet`.
 - **Rules,** each checked at every close and selling the whole holding at the next day's fill: `stop_loss`,
   `take_profit` (against the holding's cost), `trailing_stop` (against its highest close since bought),
   `max_hold_days`, and the sell formula `sell_when` (a condition, a formula with its period allowed). Prices are
-  back-adjusted, so an ex-date never sets off a stop. A sale that cannot fill (limit down, suspended) is tried again
+  back-adjusted, so an ex-date never sets off a stop; a close exactly at a rule's level sets it off (within a relative
+  1e-9, so a -10% limit down meets a 10% stop whichever way rounding leans). A sale that cannot fill (limit down, suspended) is tried again
   each day until it fills.
 - **Holding back:** `keep_when` holds back the sell formula and rebalance sales, and the stops too with
   `keep_over_stops` (by default the stops win). `min_hold_days` holds back rebalance sales only. A holding a rule marks

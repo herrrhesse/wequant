@@ -59,6 +59,23 @@ def test_a_stop_loss_sells_the_day_after_the_close_falls_that_far_below_cost(tmp
     )
 
 
+EDGES = [  # a close exactly at the rule's level; the factor makes the back-adjusted prices' rounding lean away from it
+    ("stop_loss", 0.1, 1.615, [(10.0, 10.0), (10.0, 9.0)]),  # bought at 10.00, closes at 9.00 the same day: -10%
+    ("take_profit", 0.1, 1.007, [(10.0, 10.0), (10.0, 11.0)]),  # bought at 10.00, closes at 11.00: +10%
+    ("trailing_stop", 0.1, 1.615, [(10.0, 10.0), (10.0, 10.0), (10.0, 9.0)]),  # its highest close 10.00, then 9.00
+]
+
+
+@pytest.mark.parametrize(("rule", "level", "factor", "head"), EDGES, ids=[edge[0] for edge in EDGES])
+def test_a_close_exactly_at_a_rules_level_sets_it_off(tmp_path, rule, level, factor, head):
+    """The coordinator's case: an A-share limit down is exactly -10%, so a 10% stop meets it at the level itself."""
+    bars = head + [head[-1][1:] * 2] * (10 - len(head))
+    found = run(tmp_path, bars, factors=[(A, DAYS[0], factor)], mode="rules", **{rule: level})
+    assert [(r["rule"], DAYS.index(str(r["date"]))) for r in found.exits.iter_rows(named=True)][:1] == [
+        (rule, len(head) - 1)
+    ]
+
+
 def test_a_take_profit_sells_the_day_after_the_close_rises_that_far_above_cost(tmp_path):
     found = run(tmp_path, path(21.0, 22.2), mode="rules", take_profit=0.1)  # +11% on day 3
     assert (4, A, "sell", "take_profit") in trades(found)
