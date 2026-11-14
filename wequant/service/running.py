@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import get_type_hints
 
 from wequant.backtest import Progress
+from wequant.data.build import STAGES as BUILD_STAGES
 from wequant.data.update import STAGES as UPDATE_STAGES
 from wequant.data.update import Step
 from wequant.service.base import Context, error_body, failure
@@ -15,7 +16,13 @@ from wequant.service.errors import Exit, ServiceError
 from wequant.service.homes import STAGES as RELOCATE_STAGES
 
 log = logging.getLogger("wequant")
-STAGES = ("load", "backtest", *UPDATE_STAGES, *RELOCATE_STAGES)  # the stages an operation reports; the queue's own
+STAGES = (
+    "load",
+    "backtest",
+    *UPDATE_STAGES,
+    *RELOCATE_STAGES,
+    *BUILD_STAGES,
+)  # the stages an operation reports; the queue's own
 
 
 def imported(path: str) -> Callable:

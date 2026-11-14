@@ -41,3 +41,21 @@ def member_rows(
         schema=TABLES["index_members"].schema,
     )
     return pl.concat([grown.select(started.columns).cast(started.schema), started])
+
+
+def spans_from_lists(index_code: str, lists: dict[dt.date, set[str]], days: Sequence[dt.date]) -> pl.DataFrame:
+    """index_members spans of index_code over the trading days from member lists by their dates: on each day the
+    members are the list with the latest date on or before it (days before the first list have none)."""
+    dated = sorted(lists)
+    rows, open_spans = [], {}  # code -> (start, last day seen)
+    for day in days:
+        at = max((d for d in dated if d <= day), default=None)
+        members = lists[at] if at is not None else set()
+        for code in [c for c in open_spans if c not in members]:
+            rows.append((index_code, code, *open_spans.pop(code)))
+        for code in members:
+            start = open_spans.get(code, (day,))[0]
+            open_spans[code] = (start, day)
+    rows += [(index_code, code, start, end) for code, (start, end) in open_spans.items()]
+    frame = pl.DataFrame(rows, schema=TABLES["index_members"].schema, orient="row")
+    return frame.sort("index_code", "code", "start_date")
