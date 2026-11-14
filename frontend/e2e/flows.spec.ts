@@ -1154,3 +1154,32 @@ test("a blank draft (no factor yet) is not sent from picks or backtest: they say
   await expect(page.getByRole("button", { name: "开始回测" })).toBeEnabled();
   expect(refused).toEqual([]);
 });
+
+// S2.10a 剔除退市整理期: on by default for a new strategy; a strategy saved without it opens with it off and screens
+// as before.
+test("剔除退市整理期: a new strategy has it on, with its funnel step; off takes the step away; a strategy saved without it opens off and screens the same", async ({ page, request }) => {
+  await page.goto("#/data");
+  await page.evaluate(() => localStorage.clear());
+  await page.goto("#/strategy?new=1");
+  const box = page.getByRole("checkbox", { name: /退市前最后一段交易日/ });
+  await expect(box).toBeChecked();
+  const steps = page.locator(".strat-aside .funnel button");
+  await expect(steps.filter({ hasText: "剔除退市整理期" })).toHaveCount(1);
+  const withIt = await steps.count();
+  await box.uncheck();
+  await expect(steps.filter({ hasText: "剔除退市整理期" })).toHaveCount(0);
+  await expect(steps).toHaveCount(withIt - 1);
+  // `spec` (saved at the start) has no exclude_delisting: it opens off, and screens as with it off.
+  await page.goto(`#/strategy?id=${preset}`);
+  await expect(page.getByRole("checkbox", { name: /退市前最后一段交易日/ })).not.toBeChecked();
+  await expect(page.locator(".strat-aside .funnel button").filter({ hasText: "剔除退市整理期" })).toHaveCount(0);
+  const saved = await (await request.post("api/screen", { data: { saved: { id: preset } } })).json();
+  const off = await (await request.post("api/screen", { data: { strategy: { ...spec, pool: { ...spec.pool, exclude_delisting: false } } } })).json();
+  expect(saved.rows.map((r: { code: string }) => r.code)).toEqual(off.rows.map((r: { code: string }) => r.code));
+  // 选股's temporary changes can turn it on.
+  await page.goto(`#/picks?id=${preset}`);
+  await page.getByRole("button", { name: "临时调整" }).click();
+  await page.getByRole("checkbox", { name: /剔除退市整理期/ }).check();
+  await expect(page.getByText("未保存的变体")).toBeVisible();
+  await expect(page.locator(".funnel, .picks-layout").getByText("剔除退市整理期").first()).toBeVisible();
+});

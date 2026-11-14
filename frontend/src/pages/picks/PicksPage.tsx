@@ -162,6 +162,14 @@ export function PicksPage({ route }: { route: PicksRoute }) {
               }}
             />
             {(custom || !!spec.pool?.stocks) && <PoolPicker pool={spec.pool} editable={false} apply={(p) => edit((s) => void (s.pool = fromPool(s.pool, p)))} />}
+            <label className="row small">
+              <input
+                type="checkbox"
+                checked={spec.pool?.exclude_delisting ?? false}
+                onChange={(e) => edit((s) => void (s.pool = { ...(s.pool ?? {}), exclude_delisting: e.target.checked }))}
+              />
+              {L.of("pool_items", "exclude_delisting") || "剔除退市整理期"}：{L.help("pool_items", "exclude_delisting") || "退市前最后一段交易日（简称里带“退”）的股票不参与"}
+            </label>
             <span className="small b">因子权重</span>
             {(spec.factors ?? []).map((f, i) => (
               <label key={f.name} className="row small">
