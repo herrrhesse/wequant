@@ -78,7 +78,7 @@ class PoolCheck(Model):
     """bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days.
     universe passes on the strategy's fixed list only, when it has one."""
     note: str | None
-    """e.g. listing days counted from the data's first day before S2.3."""
+    """A Chinese sentence for the page, e.g. that listing days count from the data's first day; null: none."""
 
 
 class StepCheck(Model):
@@ -146,7 +146,7 @@ class Explain(Model):
     warnings: list[Warning]
 
 
-LIST_DAYS_NOTE = "counted from securities.first_date, the first day of the source's data, not the listing date"
+LIST_DAYS_NOTE = "上市天数从数据里这只股票的第一天算起，不一定是真正的上市日期"  # shown on the page (F-31)
 
 
 def explain(request: ExplainRequest, context: Context = Context()) -> Explain:
