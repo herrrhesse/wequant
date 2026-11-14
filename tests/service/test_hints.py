@@ -86,6 +86,10 @@ RULES = {  # rule -> a request that breaks it and nothing else
     "out_of_range a window too long": factor(["MA", "close", 2**62 + 1]),
     "out_of_range a weight above the window": factor(["SMA", "close", 5, 6]),
     "not_available turnover": factor("turn"),
+    "period_field st in a week": factor(["WEEK", ["IF", "st", "close", "open"]]),
+    "period_field members in a month": factor(["MONTH", ["IF", "member@000300.SH", "close", "open"]]),
+    "period_nested": factor(["WEEK", ["MONTH", "close"]]),
+    "period_cross_section": factor(["WEEK", ["CS_RANK", "close"]]),
     "wrong_type date": lambda: validated(BarsRequest, {"codes": [CODE], "start": "2024/01/02"}),
     "wrong_type code": lambda: validated(BarsRequest, {"codes": ["000001"]}),
 }

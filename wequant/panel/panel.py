@@ -17,6 +17,7 @@ from wequant.panel.anomalies import anomaly_cells, exclusion
 from wequant.panel.build import PRICE_FIELDS, PRICE_SCALE, RAW_FIELDS, limits, members
 from wequant.panel.cache import PanelCache
 from wequant.panel.grid import day_rows, find_sorted
+from wequant.panel.periods import PeriodView, starts
 from wequant.panel.status import MISSING, NO_ROW, NOT_LISTED, SUSPENDED, TRADED
 from wequant.rules.book import default_book
 from wequant.rules.limits import LIMITS_FORMAT
@@ -42,18 +43,21 @@ def load_panel(
     store: Store | None = None,
     cache_dir: Path | None = None,
     exclude: tuple[str, ...] = (),
+    after: Day | None = None,
 ) -> Panel:
     """Date × stock matrices of one store version over [start, end] inclusive.
 
     Current version unless pinned; all stocks unless codes are given (kept in that order); the anomalous days of the
-    levels in exclude read as missing data (Panel.anomalies).
+    levels in exclude read as missing data (Panel.anomalies); after is the trading day after the store's last, when a
+    published calendar knows it (Panel.after).
     """
     store = store if store is not None else Store()
     manifest = store.manifest(version)
     if manifest is None:
         raise LookupError(f"{store.home} has no manifest" + ("" if version is None else f" for version {version}"))
     src = PanelCache(store, manifest, Path(cache_dir) if cache_dir is not None else store.home / "cache")
-    return Panel(src, _row_range(src.array("dates"), start, end), _columns(src.array("codes"), codes), exclude)
+    rows, columns = _row_range(src.array("dates"), start, end), _columns(src.array("codes"), codes)
+    return Panel(src, rows, columns, exclude, after)
 
 
 class Panel:
@@ -67,9 +71,18 @@ class Panel:
     next day's exchange preclose, so excluding day d uses what was known on d + 1.
     """
 
-    def __init__(self, src: PanelCache, rows: slice, columns: np.ndarray | None, exclude: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        src: PanelCache,
+        rows: slice,
+        columns: np.ndarray | None,
+        exclude: tuple[str, ...] = (),
+        after: Day | None = None,
+    ) -> None:
         self._src, self._rows, self._columns = src, rows, columns
         self._memo: dict[str, np.ndarray] = {}
+        self._views: dict[str, PeriodView] = {}
+        self.following = None if after is None else np.datetime64(after, "D")
         self._overrides = overrides_text(src.store.home)
         self.version, self.manifest, self.excluded = src.version, src.manifest, exclusion(exclude)
         suffix = f"-x{ANOMALY_VERSION}-{'-'.join(self.excluded)}" if self.excluded else ""
@@ -179,6 +192,25 @@ class Panel:
     def calendar_offset(self) -> int:
         """Rows of the store's calendar before the panel's first day."""
         return self._rows.start
+
+    @property
+    def after(self) -> np.datetime64 | None:
+        """The trading day after the panel's last: the store's next one, else following (given by whoever knows a
+        published calendar); None when neither knows it."""
+        calendar = self._src.array("dates")
+        return calendar[self._rows.stop] if self._rows.stop < len(calendar) else self.following
+
+    def periods(self, period: str) -> PeriodView:
+        """The panel's ended weeks or months as bars (wequant.panel.periods)."""
+        if period not in self._views:
+            self._views[period] = PeriodView(self, period)
+        return self._views[period]
+
+    def full_periods(self, period: str, name: str, build) -> tuple[np.ndarray, np.ndarray]:
+        """A bar field of every period of the store's calendar, cached as <period>-<name> and built by build, in
+        the panel's columns; and the first calendar row of each of those periods."""
+        grid = self._src.array(f"{period}-{name}", build)
+        return (grid if self._columns is None else grid[:, self._columns]), starts(self._src.array("dates"), period)
 
     def member(self, index: str) -> np.ndarray:
         """(T, N) int8 membership of an index_members index: 1 a member, 0 not, -1 outside the index's stored span."""

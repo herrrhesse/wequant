@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from wequant.analytics.series import period_keys
+from wequant.panel.periods import period_ends
 
 
 def decision_rows(dates: np.ndarray, base: int, last: int, period: str, every: int) -> np.ndarray:
-    """(D,) int64: base, then every k-th trading day, week end or month end after it, all before last."""
+    """(D,) int64: base, then every k-th trading day, week end or month end after it, all before last; a week or month
+    ends as WEEK and MONTH bars end (wequant.panel.periods), the next trading date being published in advance."""
     rows = np.arange(base + 1, last)
     if period != "day":
-        keys = period_keys(dates, period)
-        rows = rows[keys[rows] != keys[rows + 1]]  # the next trading date is published in advance
+        rows = rows[period_ends(dates, period)[rows]]
     return np.concatenate(([base], rows[every - 1 :: every])).astype(np.int64)
 
 

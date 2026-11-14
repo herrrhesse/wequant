@@ -14,7 +14,7 @@ from wequant.data.indexes import INDEXES, STORED_AS
 if TYPE_CHECKING:
     from wequant.panel import Panel
 
-EXPR_VERSION = 1  # bump when an operator, a field or the canonical form changes meaning
+EXPR_VERSION = 1  # bump when an operator, a field or the canonical form changes meaning (not when one is added)
 NUM, BOOL, SAME = "num", "bool", "same"
 
 
@@ -95,6 +95,14 @@ FUTURE: frozenset[str] = frozenset(
     "BACKSET BARSNEXT CONST CURRBARSCOUNT DRAWLINE FILTERX ISLASTBAR PEAK PEAKBARS REFX REFXV TOTALBARSCOUNT TROUGH "
     "TROUGHBARS XMA ZIG".split()
 )
+
+
+PERIODS: dict[str, str] = {"WEEK": "week", "MONTH": "month"}  # operator -> period of its subtree's bars (S4.8)
+PERIOD_FIELDS: frozenset[str] = frozenset(  # what a period's bars have: prices, volume and amount
+    ("open", "high", "low", "close", "preclose", "volume", "amount")
+    + tuple(f"adj_{name}" for name in ("open", "high", "low", "close", "preclose"))
+)
+CROSS_SECTIONAL: frozenset[str] = frozenset(("CS_RANK", "CS_PCT", "CS_ZSCORE", "CS_DEMEAN"))
 
 
 def _op(function: Callable[..., np.ndarray], roles: str, result: str = NUM) -> Signature:
