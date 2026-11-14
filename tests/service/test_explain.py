@@ -89,3 +89,23 @@ def test_a_weekly_condition_names_the_week_its_value_came_from(market_home):
     weekly = {"filters": [{"name": "weekly", "expr": ["WEEK", ["GT", "close", 0.0]]}]}
     found = explained(market_home, "600004.SH", strategy=weekly, date=DAYS[6])
     assert [(p.period, p.end) for p in found.steps[0].periods] == [("week", dt.date(2024, 1, 5))]
+
+
+def formula(text, period="day"):
+    return {"filters": [{"name": "f", "expr": {"text": text, "period": period}}]}
+
+
+def test_a_formula_condition_shows_its_output_lines_variables_then_its_numbers(market_home):
+    """S4.1: 600004.SH closes at 9.80 then 10.10 on the last two days: R is their ratio, UP true, BIG (C > 30) false."""
+    found = explained(market_home, "600004.SH", strategy=formula("R:=C/REF(C,1); UP:=R>1; BIG:=C>30; XG: UP AND BIG;"))
+    assert [(v.name, v.kind, v.direct, v.value) for v in found.steps[0].formula_values] == [
+        ("UP", "bool", True, 1.0),
+        ("BIG", "bool", True, 0.0),
+        ("R", "num", False, pytest.approx(10.1 / 9.8)),
+    ]
+
+
+def test_a_weekly_formula_shows_the_week_it_read(market_home):
+    """On Wednesday 2024-01-10 the weekly M is the close of the week ended Friday 2024-01-05 (8.90), not the day's."""
+    found = explained(market_home, "600004.SH", strategy=formula("M:=MA(C,1); XG: C>=M;", "week"), date=DAYS[6])
+    assert [(v.name, v.value) for v in found.steps[0].formula_values] == [("M", pytest.approx(8.9))]

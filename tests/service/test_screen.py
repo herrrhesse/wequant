@@ -14,6 +14,7 @@ from tests.service.conftest import DAYS, MARKET, SCREENED
 from wequant.data.raw import BaoStockRaw, raw_frame
 from wequant.data.store import Store
 from wequant.service import Context, Exit, ServiceError
+from wequant.service.formula_values import FormulaLine
 from wequant.service.periods import PeriodValue
 from wequant.service.screen import ScreenRequest, screen
 
@@ -151,3 +152,12 @@ def test_the_last_day_ends_its_week_when_the_published_calendar_says_friday_is_a
     result = screened(market_home, strategy=WEEKLY)
     assert "week_open" not in [w.code for w in result.warnings]
     assert result.periods == {"weekly": [PeriodValue(period="week", end=LAST)]}
+
+
+def test_a_stock_a_formula_condition_turned_away_shows_why(market_home):
+    """S4.1: 600000.SH fell on the last day (23.00 to 22.00), so its UP line is false."""
+    rising = {"filters": [{"name": "rising", "expr": {"text": "UP:=C>REF(C,1); XG: UP;"}}]}
+    result = screened(market_home, strategy=rising)
+    reject = next(r for r in result.rejects if r.code == "600000.SH")
+    assert result.formula_lines == {"rising": [FormulaLine(name="UP", kind="bool", direct=True)]}
+    assert (reject.step, reject.formula_values) == ("rising", [0.0])

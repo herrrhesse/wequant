@@ -12,9 +12,11 @@ import polars as pl
 
 from wequant.backtest import DataOptions, screen_warnings
 from wequant.backtest.anomalies import screen_uses
+from wequant.expr import Cache
 from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.base import Context, DataRequest, Model, Names, manifest, named, names_of, not_found, read_version
 from wequant.service.details import Loc, spec_details, to_data, usage
+from wequant.service.formula_values import FormulaLine, header, lines, numbers_at
 from wequant.service.notes import pool_note
 from wequant.service.outputs import DataAnomaly, Op, Role, SavedRef, Warning, data_anomaly, warnings_out
 from wequant.service.periods import PeriodValue, open_periods, period_after, period_values
@@ -130,6 +132,9 @@ class Reject(Model):
     note: str | None = None
     """The page's sentence for a pool level, as the decision chain gives it: 处于退市整理期（第 k/N 天）, list days counted
     by a lower bound; null otherwise (S2.10a)."""
+    formula_values: list[float | None] = []
+    """At a condition written as a formula: the values of its lines (ScreenResult.formula_lines of the step, in that
+    order) on the bar it read (S4.1); empty otherwise (a group's members, too)."""
     missing: str | None
     """At scored: the first factor without a value, or formula."""
 
@@ -155,6 +160,9 @@ class ScreenResult(Model):
     anomalies: DataAnomaly | None
     """Anomalous data the scored stocks' signals read; null: none."""
     warnings: list[Warning]
+    formula_lines: dict[str, list[FormulaLine]] = {}
+    """By condition name, for a condition written as a formula that turned stocks away: the lines each such reject's
+    formula_values give, the variables its output line uses first, then its numbers (S4.1)."""
     periods: dict[str, list[PeriodValue]] = {}
     """By condition, factor or formula name: the week or month its weekly or monthly parts read on the day (labels.periods
     has the page's words); only the ones that read any."""
@@ -173,6 +181,7 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
         shot = core_screen(strategy, panel, request.date, context.expr_cache, context.mark)
     section, choice, row = shot.section, shot.choice, int(shot.section.rows[0])
     uses = screen_uses(strategy, panel, section, choice)
+    formulas = formula_rejects(strategy, shot.rejects, panel, row, context.expr_cache)
     found, names = strategy_hash(strategy), names_of(context, panel.codes.tolist())
     result = ScreenResult(
         **named(panel.manifest),
@@ -184,7 +193,8 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
         cap_cash=float(choice.cash[0]),
         funnel=funnel_steps(strategy, shot.funnel),
         rows=screen_rows(strategy, section, choice, panel, names),
-        rejects=reject_rows(strategy, shot.rejects, section, panel, names),
+        rejects=reject_rows(strategy, shot.rejects, section, panel, names, formulas),
+        formula_lines={name: header(found) for name, found in formulas.items()},
         anomalies=data_anomaly(uses, panel.excluded, sample=None),
         warnings=warnings
         + warnings_out(screen_warnings(strategy, panel, section, choice, uses))
@@ -243,6 +253,13 @@ def screen_periods(strategy: Strategy, panel: Panel, row: int) -> dict[str, list
     roots |= {"formula": strategy.formula} if strategy.formula is not None else {}
     found = {name: period_values(expr, panel, row) for name, expr in roots.items()}
     return {name: values for name, values in found.items() if values}
+
+
+def formula_rejects(strategy: Strategy, rejects: pl.DataFrame, panel: Panel, row: int, cache: Cache | None) -> dict:
+    """The lines of each condition written as a formula that turned a stock away, on decision row row."""
+    turned = set(rejects.filter(pl.col("kind") == "condition")["step"].to_list())
+    steps = [step for step in strategy.steps() if step.name in turned and step.expr is not None]
+    return {step.name: lines(step.expr, panel, row, cache) for step in steps if step.expr.source is not None}
 
 
 def funnel_steps(strategy: Strategy, funnel: pl.DataFrame) -> list[FunnelStep]:
@@ -315,10 +332,18 @@ def factor_cells(shares: dict, pcts: dict, section: Section, i: int, col: int) -
 
 
 def reject_rows(
-    strategy: Strategy, rejects: pl.DataFrame, section: Section, panel: Panel, names: Names, i: int = 0
+    strategy: Strategy,
+    rejects: pl.DataFrame,
+    section: Section,
+    panel: Panel,
+    names: Names,
+    formulas: dict[str, list] | None = None,
+    i: int = 0,
 ) -> list[Reject]:
-    """The rejects frame's rows with each name, simple comparison's op and thresholds and group's member verdicts."""
+    """The rejects frame's rows with each name, simple comparison's op and thresholds, group's member verdicts and, at
+    a formula condition in formulas (formula_rejects), its lines' values."""
     steps, column = {step.name: step for step in strategy.steps()}, {code: j for j, code in enumerate(panel.codes)}
+    formulas = formulas or {}
     found = []
     for row in rejects.iter_rows(named=True):
         step = steps.get(row["step"])
@@ -336,6 +361,7 @@ def reject_rows(
                 threshold_hi=compared and compared.threshold_hi,
                 members=members,
                 note=pool_note(row["step"], panel, int(section.rows[i]), column[row["code"]]),
+                formula_values=numbers_at(formulas.get(row["step"], []), column[row["code"]]),
             )
         )
     return found

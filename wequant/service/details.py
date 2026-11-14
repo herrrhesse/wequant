@@ -44,7 +44,10 @@ def error_details(errors: Sequence[Mapping], loc: Loc = ()) -> list[ErrorDetail]
 
 def spec_details(error: SpecError | SpecErrors, loc: Loc = ()) -> list[ErrorDetail]:
     """One detail per field error of a description."""
-    return [ErrorDetail(code=e.code, message=e.message, loc=[*loc, *e.loc], path=list(e.path)) for e in error.errors]
+    return [
+        ErrorDetail(code=e.code, message=e.message, loc=[*loc, *e.loc], path=list(e.path), position=e.position)
+        for e in error.errors
+    ]
 
 
 def expr_detail(error: ExprError, loc: Loc = ()) -> ErrorDetail:

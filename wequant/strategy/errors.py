@@ -13,9 +13,12 @@ class SpecError(ValueError):
 
     complete = True  # see SpecErrors.complete
 
-    def __init__(self, code: str, loc: Loc, message: str, path: tuple[int, ...] = ()) -> None:
+    def __init__(
+        self, code: str, loc: Loc, message: str, path: tuple[int, ...] = (), position: dict | None = None
+    ) -> None:
         super().__init__(f"{'.'.join(map(str, loc))}: {message}" if loc else message)
         self.code, self.loc, self.message, self.path = code, tuple(loc), message, tuple(path)
+        self.position = position  # inside a formula's text (S4.1): line, col, end_line, end_col, token
 
     @property
     def errors(self) -> tuple[SpecError, ...]:
@@ -24,7 +27,7 @@ class SpecError(ValueError):
 
     def under(self, *prefix: str | int) -> SpecError:
         """The same error located under prefix."""
-        return SpecError(self.code, (*prefix, *self.loc), self.message, self.path)
+        return SpecError(self.code, (*prefix, *self.loc), self.message, self.path, self.position)
 
 
 class SpecErrors(ValueError):

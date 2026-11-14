@@ -51,7 +51,19 @@ from wequant.expr.build import (
 )
 from wequant.expr.cache import Cache, panel_key
 from wequant.expr.evaluate import evaluate, evaluate_all
-from wequant.expr.tree import MAX_DEPTH, MAX_NODES, Codes, Expr, ExprError, Field, LookAheadError, Op, from_form
+from wequant.expr.tree import (
+    MAX_DEPTH,
+    MAX_NODES,
+    Codes,
+    Expr,
+    ExprError,
+    Field,
+    LookAheadError,
+    Op,
+    Source,
+    from_form,
+    with_source,
+)
 from wequant.expr.vocab import (
     BOOL,
     DESCRIPTIVE,
@@ -128,6 +140,8 @@ __all__ = [
     "Field",
     "LookAheadError",
     "Op",
+    "Source",
+    "with_source",
     "from_form",
     "BOOL",
     "DESCRIPTIVE",

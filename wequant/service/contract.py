@@ -18,6 +18,8 @@ from wequant.service.delistings import data_delistings
 from wequant.service.explain import explain
 from wequant.service.expr import expr_check, expr_eval
 from wequant.service.folders import fs_list, fs_mkdir, fs_places
+from wequant.service.formula import formula_check, formula_format, formula_trial
+from wequant.service.formula_vocab import formula_vocab
 from wequant.service.homes import data_relocate, data_use_home, setup_save, setup_status
 from wequant.service.index_bars import data_index_bars
 from wequant.service.index_check import data_index_check
@@ -146,6 +148,7 @@ OPERATIONS = (
     *(data_own_check, data_own_import),
     *(data_verify_submit, data_verify_list, data_resolve_list, data_resolve_approve, data_resolve_reject),
     *(expr_check, expr_eval, expr_indicators),
+    *(formula_check, formula_trial, formula_format, formula_vocab),
     *(strategies.strategy_validate, strategies.strategy_summary, strategies.strategy_schema, strategies.strategy_save),
     *(strategies.strategy_list, strategies.strategy_versions, strategies.strategy_show, strategies.strategy_archive),
     *(strategy_export, strategy_import),
