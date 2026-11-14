@@ -250,9 +250,13 @@ function Funnel({ r, step, setStep }: { r: ScreenResult; step: string | null; se
             <li key={`${s.step}/${i}`} className={s.chain ? "" : "off-chain"}>
               <button type="button" aria-pressed={step === s.step} disabled={out === 0} onClick={() => setStep(s.step)}>
                 <span className="funnel-name">
-                  {s.chain ? "" : "└ "}
-                  {stepName(s.step, s.kind, L.of)}
-                  <PeriodTag value={r.periods?.[s.step]} />
+                  <span className="funnel-line">
+                    <span className="funnel-text">
+                      {s.chain ? "" : "└ "}
+                      {stepName(s.step, s.kind, L.of)}
+                    </span>
+                    <PeriodTag value={r.periods?.[s.step]} />
+                  </span>
                 </span>
                 <span className="funnel-bar">
                   <span style={{ width: `${Math.max(1, (n / top) * 100)}%` }} />

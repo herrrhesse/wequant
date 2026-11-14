@@ -117,10 +117,14 @@ function Funnel(props: Props & { fading: string }) {
                   onClick={() => locate(s.step)}
                 >
                   <span className="funnel-name">
-                    {s.chain ? "" : "└ "}
-                    {stepName(s.step, s.kind, L.of)}
-                    <PeriodTag value={screen.periods?.[s.step]} />
-                    {s.left === null ? "（命中）" : ""}
+                    <span className="funnel-line">
+                      <span className="funnel-text">
+                        {s.chain ? "" : "└ "}
+                        {stepName(s.step, s.kind, L.of)}
+                        {s.left === null ? "（命中）" : ""}
+                      </span>
+                      <PeriodTag value={screen.periods?.[s.step]} />
+                    </span>
                     {alone !== null && s.left !== null && <span className="tiny muted funnel-alone">{st.filters.cut(alone)}</span>}
                   </span>
                   <span className="funnel-bar">
