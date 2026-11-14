@@ -946,6 +946,47 @@ test.describe("first-run setup", () => {
     await page.goto("#/data");
     await expect(page.getByRole("region", { name: "存储位置" }).locator(".loc-path")).toHaveText(join(SCRATCH, "向导新建"));
   });
+  test("own data without stock names: 剔除退市整理期 says on its row that it cannot work here", async ({ page }) => {
+    test.setTimeout(90_000);
+    const own = join(SCRATCH, "own-no-names");
+    mkdirSync(own, { recursive: true });
+    const days: string[] = [];
+    for (let d = new Date("2025-01-02"); days.length < 30; d.setDate(d.getDate() + 1)) if (d.getDay() % 6 !== 0) days.push(d.toISOString().slice(0, 10));
+    const lines = ["code,date,open,high,low,close,volume,amount"];
+    ["600000.SH", "600001.SH", "000002.SZ"].forEach((code, k) =>
+      days.forEach((day, i) => {
+        const p = 10 + k + i * 0.05;
+        lines.push(`${code},${day},${p.toFixed(2)},${(p + 0.2).toFixed(2)},${(p - 0.2).toFixed(2)},${(p + 0.1).toFixed(2)},100000,${(100000 * p).toFixed(0)}`);
+      }),
+    );
+    writeFileSync(join(own, "bars.csv"), lines.join("\n") + "\n");
+    await page.request.post("api/setup_save", { data: { clear: true } });
+    await page.goto("#/setup");
+    await page.getByRole("button", { name: /导入自己的数据/ }).click();
+    await page.getByRole("button", { name: "浏览…" }).click();
+    const d = page.getByRole("dialog", { name: "选择数据存放的文件夹" });
+    await d.getByLabel("文件夹路径").fill(SCRATCH);
+    await d.getByLabel("文件夹路径").press("Enter");
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(SCRATCH);
+    await d.getByLabel("新文件夹名称").fill("没有名称");
+    await d.getByRole("button", { name: "新建文件夹" }).click();
+    await d.getByRole("button", { name: "选择这个文件夹" }).click();
+    await page.getByRole("button", { name: "下一步" }).click();
+    await page.getByLabel("要导入的文件夹").fill(own);
+    await page.getByRole("button", { name: "检查这个文件夹" }).click();
+    await expect(page.getByLabel("检查结果")).toContainText("3 只股票");
+    await page.getByRole("button", { name: "开始导入" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "导入完成" })).toBeVisible({ timeout: 60_000 });
+    await page.getByRole("button", { name: "下一步" }).click();
+    await page.getByRole("button", { name: /^模板：/ }).first().click();
+    await expect(page).toHaveURL(/#\/strategy\?new=1/);
+    // The template has the rule on; the data has no names to tell the period by.
+    const row = page.locator('[data-step="exclude_delisting"]');
+    await expect(row.getByRole("checkbox")).toBeChecked();
+    await expect(row).toContainText("这份数据没有股票名称，认不出退市整理期");
+    await row.getByRole("checkbox").uncheck();
+    await expect(row).not.toContainText("这份数据没有股票名称");
+  });
 });
 
 test("the history backfill shows in the status bar and on the data page, waits for BaoStock in Chinese, pauses and carries on; the setup can be run again", async ({ page }) => {
@@ -1201,4 +1242,18 @@ test("data downloaded by index says how far back the history goes before the bac
   const card = page.getByRole("region", { name: "数据范围" });
   await expect(card.getByRole("button", { name: "补齐更早的历史（到 2007 年）" })).toBeVisible();
   await expect(card.getByRole("note", { name: "补齐能补到哪天" })).toHaveText("按指数下载的数据最早补到 2007-01-15（中证500的成分名单从这天开始；沪深300从 2006-01-04 开始），更早需要扩大到沪深全部");
+});
+
+test("剔除退市整理期: a stock in its last trading days is left out by its own step, its chain says which day of the period; the day before, it is not", async ({ page, request }) => {
+  // The demo's 600070.SH (演示07退) trades its last 15 days from 2024-12-10 to 2024-12-30.
+  const strategy = { ...spec, pool: { index: null, exclude_st: true, exclude_delisting: true } };
+  const saved = await (await request.post("api/strategy_save", { data: { strategy, name: `e2e-delisting-${STAMP}` } })).json();
+  await page.goto(`#/picks?id=${saved.id}&date=2024-12-30`);
+  const funnel = page.getByRole("region", { name: "漏斗" });
+  await funnel.getByRole("button", { name: /剔除退市整理期/ }).click();
+  const out = page.getByRole("table", { name: "被剔除的股票" });
+  await out.getByRole("row").filter({ hasText: "600070.SH" }).click();
+  await expect(page.getByRole("complementary", { name: "600070.SH" })).toContainText("处于退市整理期（第 15/15 天）");
+  const before = await (await request.post("api/screen", { data: { strategy, date: "2024-12-09" } })).json();
+  expect(before.rejects.some((x: { code: string; step: string }) => x.code === "600070.SH" && x.step === "exclude_delisting")).toBe(false);
 });
