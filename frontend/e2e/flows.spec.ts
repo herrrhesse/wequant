@@ -276,6 +276,14 @@ test("picks with no saved strategy: the draft is computed; with no draft either,
   await fresh.close();
 });
 
+test("the scrollbar's room is always kept: a page growing taller does not shift sideways", async ({ page }) => {
+  // The test browser hides scrollbars, so the rule itself is checked: the page and the strategy preview keep the room.
+  await page.goto("#/strategy?new=1");
+  await expect(page.locator(".strat-aside")).toBeVisible();
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollbarGutter)).toBe("stable");
+  expect(await page.locator(".strat-aside").evaluate((e) => getComputedStyle(e).scrollbarGutter)).toBe("stable");
+});
+
 test("navigation order: 今日, 策略, 回测, 选股, 数据", async ({ page }) => {
   await page.goto("#/");
   await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link")).toHaveText(["今日", "策略", "回测", "选股", "数据"]);
@@ -737,11 +745,15 @@ async function replayBuilds(page: Page) {
     return r.fulfill({ json: j.kind === "data_build" ? built : j.kind === "data_extend" ? extended : { segments: [], status: "complete" } });
   });
   await page.route("**/api/jobs_list", async (r) => {
-    const res = await r.fetch();
-    const body = await res.json();
     // Running first, then finished ones, newest first: as the backend lists them.
     const mine = [...jobs.values()].sort((a, b) => Number(a.state !== "running") - Number(b.state !== "running") || b.id - a.id).map(info);
-    return r.fulfill({ response: res, json: { ...body, jobs: [...mine, ...body.jobs] } });
+    try {
+      const res = await r.fetch();
+      const body = await res.json();
+      await r.fulfill({ response: res, json: { ...body, jobs: [...mine, ...body.jobs] } });
+    } catch {
+      // The page closed while the real list was on its way (the test is over): nothing left to answer.
+    }
   });
   return { jobs, starts };
 }
@@ -820,7 +832,7 @@ test.describe("first-run setup", () => {
     const second = [...jobs.values()].at(-1)!;
     Object.assign(second, { state: "succeeded", fraction: 1, stage: "build_commit", params: {} });
     // Done: the history fills in behind (on by default), and the setup goes on.
-    const history = page.getByRole("status", { name: "后台补全更早的历史（到 2000 年）" });
+    const history = page.getByRole("status", { name: /^后台补全更早的历史（到 \d{4} 年）/ });
     await expect(history).toBeVisible();
     expect(starts.at(-1)!.kind).toBe("data_backfill");
     await expect(page.getByText("最近 1 年的数据已经可用")).toBeVisible();
@@ -956,6 +968,47 @@ test.describe("first-run setup", () => {
     // The folder has data now: other pages open as usual.
     await page.goto("#/data");
     await expect(page.getByRole("region", { name: "存储位置" }).locator(".loc-path")).toHaveText(join(SCRATCH, "向导新建"));
+  });
+  test("own data without stock names: 剔除退市整理期 says on its row that it cannot work here", async ({ page }) => {
+    test.setTimeout(90_000);
+    const own = join(SCRATCH, "own-no-names");
+    mkdirSync(own, { recursive: true });
+    const days: string[] = [];
+    for (let d = new Date("2025-01-02"); days.length < 30; d.setDate(d.getDate() + 1)) if (d.getDay() % 6 !== 0) days.push(d.toISOString().slice(0, 10));
+    const lines = ["code,date,open,high,low,close,volume,amount"];
+    ["600000.SH", "600001.SH", "000002.SZ"].forEach((code, k) =>
+      days.forEach((day, i) => {
+        const p = 10 + k + i * 0.05;
+        lines.push(`${code},${day},${p.toFixed(2)},${(p + 0.2).toFixed(2)},${(p - 0.2).toFixed(2)},${(p + 0.1).toFixed(2)},100000,${(100000 * p).toFixed(0)}`);
+      }),
+    );
+    writeFileSync(join(own, "bars.csv"), lines.join("\n") + "\n");
+    await page.request.post("api/setup_save", { data: { clear: true } });
+    await page.goto("#/setup");
+    await page.getByRole("button", { name: /导入自己的数据/ }).click();
+    await page.getByRole("button", { name: "浏览…" }).click();
+    const d = page.getByRole("dialog", { name: "选择数据存放的文件夹" });
+    await d.getByLabel("文件夹路径").fill(SCRATCH);
+    await d.getByLabel("文件夹路径").press("Enter");
+    await expect(d.getByLabel("文件夹路径")).toHaveValue(SCRATCH);
+    await d.getByLabel("新文件夹名称").fill("没有名称");
+    await d.getByRole("button", { name: "新建文件夹" }).click();
+    await d.getByRole("button", { name: "选择这个文件夹" }).click();
+    await page.getByRole("button", { name: "下一步" }).click();
+    await page.getByLabel("要导入的文件夹").fill(own);
+    await page.getByRole("button", { name: "检查这个文件夹" }).click();
+    await expect(page.getByLabel("检查结果")).toContainText("3 只股票");
+    await page.getByRole("button", { name: "开始导入" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "导入完成" })).toBeVisible({ timeout: 60_000 });
+    await page.getByRole("button", { name: "下一步" }).click();
+    await page.getByRole("button", { name: /^模板：/ }).first().click();
+    await expect(page).toHaveURL(/#\/strategy\?new=1/);
+    // The template has the rule on; the data has no names to tell the period by.
+    const row = page.locator('[data-step="exclude_delisting"]');
+    await expect(row.getByRole("checkbox")).toBeChecked();
+    await expect(row).toContainText("这份数据没有股票名称，认不出退市整理期");
+    await row.getByRole("checkbox").uncheck();
+    await expect(row).not.toContainText("这份数据没有股票名称");
   });
 });
 
@@ -1164,4 +1217,117 @@ test("a blank draft (no factor yet) is not sent from picks or backtest: they say
   await page.goto("#/backtest?use=draft");
   await expect(page.getByRole("button", { name: "开始回测" })).toBeEnabled();
   expect(refused).toEqual([]);
+});
+
+// S2.10a 剔除退市整理期: on by default for a new strategy; a strategy saved without it opens with it off and screens
+// as before.
+test("剔除退市整理期: a new strategy has it on, with its funnel step; off takes the step away; a strategy saved without it opens off and screens the same", async ({ page, request }) => {
+  await page.goto("#/data");
+  await page.evaluate(() => localStorage.clear());
+  await page.goto("#/strategy?new=1");
+  const box = page.getByRole("checkbox", { name: /退市前最后一段交易日/ });
+  await expect(box).toBeChecked();
+  const steps = page.locator(".strat-aside .funnel button");
+  await expect(steps.filter({ hasText: "剔除退市整理期" })).toHaveCount(1);
+  const withIt = await steps.count();
+  await box.uncheck();
+  await expect(steps.filter({ hasText: "剔除退市整理期" })).toHaveCount(0);
+  await expect(steps).toHaveCount(withIt - 1);
+  // `spec` (saved at the start) has no exclude_delisting: it opens off, and screens as with it off.
+  await page.goto(`#/strategy?id=${preset}`);
+  await expect(page.getByRole("checkbox", { name: /退市前最后一段交易日/ })).not.toBeChecked();
+  await expect(page.locator(".strat-aside .funnel button").filter({ hasText: "剔除退市整理期" })).toHaveCount(0);
+  const saved = await (await request.post("api/screen", { data: { saved: { id: preset } } })).json();
+  const off = await (await request.post("api/screen", { data: { strategy: { ...spec, pool: { ...spec.pool, exclude_delisting: false } } } })).json();
+  expect(saved.rows.map((r: { code: string }) => r.code)).toEqual(off.rows.map((r: { code: string }) => r.code));
+  // 选股's temporary changes can turn it on.
+  await page.goto(`#/picks?id=${preset}`);
+  await page.getByRole("button", { name: "临时调整" }).click();
+  await page.getByRole("checkbox", { name: /剔除退市整理期/ }).check();
+  await expect(page.getByText("未保存的变体")).toBeVisible();
+  await expect(page.locator(".funnel, .picks-layout").getByText("剔除退市整理期").first()).toBeVisible();
+});
+
+test("data downloaded by index says how far back the history goes before the backfill starts", async ({ page }) => {
+  // The demo homes' member lists start on their first day: data_status is answered in the browser with the backend's
+  // shape for a 沪深300 + 中证500 build of the last year.
+  await page.route("**/api/data_status", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    const layer = { all: false, indexes: ["000300.SH", "000905.SH"], stocks: [], label: "沪深300 + 中证500", since: body.scope.first_date };
+    const member_floors = [
+      { index: "000300.SH", name: "沪深300", date: "2006-01-04" },
+      { index: "000905.SH", name: "中证500", date: "2007-01-15" },
+    ];
+    return r.fulfill({ response: res, json: { ...body, scope: { ...body.scope, layers: [layer], covers: [], backfill_floor: null, member_floors } } });
+  });
+  await page.goto("#/data");
+  const card = page.getByRole("region", { name: "数据范围" });
+  await expect(card.getByRole("button", { name: "补齐更早的历史（到 2007 年）" })).toBeVisible();
+  await expect(card.getByRole("note", { name: "补齐能补到哪天" })).toHaveText("按指数下载的数据最早补到 2007-01-15（中证500的成分名单从这天开始；沪深300从 2006-01-04 开始），更早需要扩大到沪深全部");
+});
+
+test("剔除退市整理期: a stock in its last trading days is left out by its own step, its chain says which day of the period; the day before, it is not", async ({ page, request }) => {
+  // The demo's 600070.SH (演示07退) trades its last 15 days from 2024-12-10 to 2024-12-30.
+  const strategy = { ...spec, pool: { index: null, exclude_st: true, exclude_delisting: true } };
+  const saved = await (await request.post("api/strategy_save", { data: { strategy, name: `e2e-delisting-${STAMP}` } })).json();
+  await page.goto(`#/picks?id=${saved.id}&date=2024-12-30`);
+  const funnel = page.getByRole("region", { name: "漏斗" });
+  await funnel.getByRole("button", { name: /剔除退市整理期/ }).click();
+  const out = page.getByRole("table", { name: "被剔除的股票" });
+  // The list says it too, in the chain's words.
+  await expect(out.getByRole("row").filter({ hasText: "600070.SH" })).toContainText("处于退市整理期（第 15/15 天）");
+  await out.getByRole("row").filter({ hasText: "600070.SH" }).click();
+  await expect(page.getByRole("complementary", { name: "600070.SH" })).toContainText("处于退市整理期（第 15/15 天）");
+  const before = await (await request.post("api/screen", { data: { strategy, date: "2024-12-09" } })).json();
+  expect(before.rejects.some((x: { code: string; step: string }) => x.code === "600070.SH" && x.step === "exclude_delisting")).toBe(false);
+});
+
+test("a backtest whose benchmark starts later than the run says from which day its line is drawn; one starting on day one says nothing", async ({ page }) => {
+  await page.goto("#/backtest");
+  await page.getByLabel("策略", { exact: true }).selectOption(preset);
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await expect(page).toHaveURL(/#\/backtest\?.*run=[0-9a-f]+/, { timeout: 90_000 });
+  const result = page.getByRole("region", { name: "回测结果" });
+  await expect(result.getByRole("img", { name: "净值曲线" })).toBeVisible();
+  // The demo's indexes start on its first day: the line starts with the run.
+  await expect(result).not.toContainText("基准 无");
+  await expect(result.getByRole("note", { name: "基准线" })).toHaveCount(0);
+  // Answered in the browser with the backend's shape for a run from before the benchmark's first close: no value
+  // before that day, the strategy's nav on it, excess 0.
+  let first = "";
+  await page.route("**/api/runs_show", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    const daily = body.daily as { date: string; nav: number; benchmark_nav: number | null; excess: number | null }[];
+    const k = Math.floor(daily.length / 3);
+    const scale = daily[k].nav / (daily[k].benchmark_nav as number);
+    first = daily[k].date;
+    body.benchmark = "000300.SH";
+    body.daily = daily.map((d, i) => ({ ...d, benchmark_nav: i < k ? null : (d.benchmark_nav as number) * scale, excess: i < k ? null : i === k ? 0 : d.excess }));
+    return r.fulfill({ response: res, json: body });
+  });
+  await page.reload();
+  await expect(result).toContainText("基准 沪深300");
+  expect(first).not.toBe("");
+  await expect(result.getByRole("note", { name: "基准线" })).toHaveText(`沪深300从 ${first} 起才有数据，基准线和超额从这天画起，起点对齐到当天的策略净值。`);
+});
+
+test("a backtest whose benchmark has no value on any day says there is no benchmark line, and names the index", async ({ page }) => {
+  // Kept for a run the backend should not give (a benchmark with no close in the whole run is no_data): answered
+  // in the browser.
+  await page.route("**/api/runs_show", async (r) => {
+    const res = await r.fetch();
+    const body = await res.json();
+    body.benchmark = "000300.SH";
+    body.daily = body.daily.map((d: Record<string, unknown>) => ({ ...d, benchmark_nav: null, excess: null }));
+    return r.fulfill({ response: res, json: body });
+  });
+  await page.goto("#/backtest");
+  await page.getByLabel("策略", { exact: true }).selectOption(preset);
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await expect(page).toHaveURL(/#\/backtest\?.*run=[0-9a-f]+/, { timeout: 90_000 });
+  const result = page.getByRole("region", { name: "回测结果" });
+  await expect(result).toContainText("基准 沪深300");
+  await expect(result.getByRole("note", { name: "基准线" })).toHaveText("沪深300在回测期间没有数据，所以画不出基准线和超额。");
 });

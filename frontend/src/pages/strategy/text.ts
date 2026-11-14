@@ -1,6 +1,6 @@
 export const st = {
   help: {
-    scope: "先圈定从哪些股票里挑：沪深全部，或者某个指数的成分股；再去掉 ST 股和刚上市不久的股票。后面的筛选和排名都只在这个范围里进行。",
+    scope: "先圈定从哪些股票里挑：沪深全部，或者某个指数的成分股；再去掉 ST 股、快要退市的股票和刚上市不久的股票。后面的筛选和排名都只在这个范围里进行。股票决定退市以后，最后还有十几到三十个交易日可以买卖，这段叫退市整理期，简称里会带“退”；这期间往往天天下跌，退市后剩下的股票基本不值钱，所以默认不碰。",
     filters: "给股票设门槛，比如成交额要够大、波动不能太大，没过门槛的不参与排名。同一组里的条件，可以要求全部满足，也可以满足其中一条就行。",
     factors: "给过了门槛的股票打分排名。每个因子先把股票排出名次，再按权重加在一起，得到综合分；综合分高的排在前面。",
     trade: "决定买几只、多久调一次仓、每只买多少。排名靠前的买入；已经持有的股票可以给一个更宽的名次，没掉出去就继续拿着，少来回买卖。",
@@ -39,6 +39,8 @@ export const st = {
     st: "剔除 ST",
     stText: "当天是 ST 的股票不参与",
     stNone: "这份数据没有 ST 记录，这一项暂时不起作用",
+    delisting: "剔除退市整理期",
+    delistingText: "退市前最后一段交易日（简称里带“退”）的股票不参与",
     ipo: "剔除次新股",
     ipoBefore: "上市不足",
     ipoAfter: "个交易日的不参与",
@@ -202,9 +204,11 @@ export const st = {
   },
 };
 
+/** The scope items' names until the backend's labels.pool_items has them (it is read first). */
 export const POOL_STEP_NAMES: Record<string, string> = {
   index: "指数成分",
   boards: "板块",
   exclude_st: "剔除 ST",
+  exclude_delisting: "剔除退市整理期",
   min_list_days: "剔除次新股",
 };

@@ -19,6 +19,7 @@ import { useUi } from "../../ui";
 import { metricShown, percent, shares } from "../../runs/display";
 import { ChainView } from "../../components/ChainView";
 import { AnomalyTable } from "./shared";
+import { useScopes } from "../../components/IndexSeg";
 
 const r = t.runs;
 const pct = (v: number | null | undefined) => (typeof v === "number" ? percent(v) : t.common.none);
@@ -46,6 +47,7 @@ const KPIS = [
 ];
 
 export function Info({ run, command }: { run: RunDetail; command: string }) {
+  const { name: scopeName } = useScopes();
   const ex = run.execution;
   return (
     <Card title={r.info} version={run.store_version} command={command}>
@@ -68,7 +70,7 @@ export function Info({ run, command }: { run: RunDetail; command: string }) {
           }
         />
         <Item k={r.cash} v={`${yuan(run.cash)} 元`} />
-        <Item k={r.benchmark} v={run.benchmark ?? t.common.none} />
+        <Item k={r.benchmark} v={run.benchmark ? scopeName(run.benchmark) : t.common.none} />
         <Item k={r.data} v={`${r.dataModes[run.data.anomalies ?? "flag"]}${run.data.exclude_suspicious ? " · exclude_suspicious" : ""}`} />
       </dl>
       <details className="sources">

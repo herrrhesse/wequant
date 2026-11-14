@@ -160,6 +160,14 @@ export function PicksPage({ route }: { route: PicksRoute }) {
               }}
             />
             {(custom || !!spec.pool?.stocks) && <PoolPicker pool={spec.pool} editable={false} apply={(p) => edit((s) => void (s.pool = fromPool(s.pool, p)))} />}
+            <label className="row small">
+              <input
+                type="checkbox"
+                checked={spec.pool?.exclude_delisting ?? false}
+                onChange={(e) => edit((s) => void (s.pool = { ...(s.pool ?? {}), exclude_delisting: e.target.checked }))}
+              />
+              {L.of("pool_items", "exclude_delisting") || "剔除退市整理期"}：{L.help("pool_items", "exclude_delisting") || "退市前最后一段交易日（简称里带“退”）的股票不参与"}
+            </label>
             <span className="small b">因子权重</span>
             {(spec.factors ?? []).map((f, i) => (
               <label key={f.name} className="row small">
@@ -333,7 +341,8 @@ function why(x: Reject, units: Map<string, Unit>): string {
   if (x.members) return x.members.map((m) => `${m.name} ${m.passed ? "✓" : "✗"}`).join("；");
   if (x.value !== null && x.threshold !== null)
     return `${v(x.value)} / 要求 ${x.op ? OPS[x.op] : ""} ${v(x.threshold)}${x.threshold_hi !== null ? ` 至 ${v(x.threshold_hi)}` : ""}`;
-  return "";
+  // A scope step's own sentence, as in the judgment chain (e.g. 处于退市整理期（第 3/15 天）).
+  return x.note ?? "";
 }
 
 function Rejects({ r, step, back, pick, units }: { r: ScreenResult; step: string; back: () => void; pick: (c: string) => void; units: Map<string, Unit> }) {

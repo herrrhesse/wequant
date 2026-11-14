@@ -7,7 +7,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useCall, useCallMutation } from "../../api/client";
 import { cancelJob, finished, useJob } from "../../api/jobs";
-import type { DataScope, ExtendEstimate, JobInfo } from "../../api/types.gen";
+import type { BackfillFloor, DataScope, ExtendEstimate, JobInfo } from "../../api/types.gen";
+import { historyStop, stopNote, stopYear } from "../../components/history";
 import { useScopes } from "../../components/IndexSeg";
 import { about, fillYears, JobBar } from "../../components/JobBar";
 import { Problem } from "../../components/Problem";
@@ -16,10 +17,10 @@ import { useLabels } from "../../labels";
 import { DEFAULT_PICK, OwnList, type Pick, SCOPE_INDEXES, scopeOf } from "../setup/Scope";
 
 /** The label of a running data_extend or data_backfill job: what it fills in and the years it is at now. */
-export function fillLabel(job: JobInfo): string {
+export function fillLabel(job: JobInfo, back = "2000"): string {
   const years = fillYears(job);
   if (job.kind === "data_extend") return `扩大数据范围${job.params.name ? `：${job.params.name}` : ""}${years ? ` · 正在补 ${years}` : ""}`;
-  return `后台补齐更早的历史（到 2000 年）${years ? ` · 正在补 ${years}` : ""}`;
+  return `后台补齐更早的历史（到 ${back} 年）${years ? ` · 正在补 ${years}` : ""}`;
 }
 
 const month = (d: string) => d.slice(0, 7);
@@ -121,7 +122,7 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
       )}
       {job?.state === "succeeded" && job.id === jobId && !wider && <span className="small ok b">数据范围已经扩大，所有页面已经换成新的数据。</span>}
       {job?.state === "failed" && <JobProblem job={job} />}
-      <History first={scope?.first_date ?? first} floor={scope?.backfill_floor ?? null} />
+      <History first={scope?.first_date ?? first} floor={scope?.backfill_floor ?? null} floors={scope?.member_floors ?? []} />
     </section>
   );
 }
@@ -207,7 +208,7 @@ function Extend({ since, busy, error, onStart, onCancel }: { since: string | nul
 
 /** The earlier history (back to 2000) filling in behind: its progress and pause, or a button to start or carry on; where
  * an index's member list ends, the backend's reason instead. */
-function History({ first, floor }: { first: string | null; floor: { index: string; name: string; date: string } | null }) {
+function History({ first, floor, floors }: { first: string | null; floor: BackfillFloor | null; floors: BackfillFloor[] }) {
   const L = useLabels();
   const jobs = useCall("jobs_list", {}, { staleTime: 0 });
   const running = jobs.data?.jobs.find((j) => j.kind === "data_backfill" && !finished(j)) ?? null;
@@ -215,7 +216,10 @@ function History({ first, floor }: { first: string | null; floor: { index: strin
   const job = useJob(jobId ?? running?.id ?? null);
   const begin = useCallMutation("jobs_start", ["jobs_list"]);
   const active = !!job && !finished(job);
-  const missing = !!first && first.slice(0, 4) > "2000" && !floor;
+  // Data downloaded by index goes back to its member lists only: said before the button is pressed.
+  const stop = historyStop(floors);
+  const back = stopYear(stop);
+  const missing = !!first && (stop ? first > stop.stop.date : first.slice(0, 4) > "2000") && !floor;
   const client = useQueryClient();
   const done = job?.state === "succeeded" || job?.state === "cancelled";
   useEffect(() => {
@@ -225,14 +229,14 @@ function History({ first, floor }: { first: string | null; floor: { index: strin
   return (
     <div className="col tight">
       {job && active ? (
-        <JobBar job={job} label={fillLabel(job)}>
+        <JobBar job={job} label={fillLabel(job, back)}>
           <button type="button" className="btn sm soft" onClick={() => void cancelJob(job.id)}>
             暂停
           </button>
         </JobBar>
       ) : floor ? (
         <span className="small sub" role="note" aria-label="补齐历史停在这里">
-          数据从 {first} 开始。{L.stage("backfill_floor", floor)}
+          数据从 {first} 开始。{L.stage("backfill_floor", { ...floor })}
         </span>
       ) : (
         <div className="row">
@@ -249,8 +253,13 @@ function History({ first, floor }: { first: string | null; floor: { index: strin
                 setJobId(j.id);
               }}
             >
-              {job?.state === "cancelled" ? "继续补齐" : "补齐更早的历史（到 2000 年）"}
+              {job?.state === "cancelled" ? "继续补齐" : `补齐更早的历史（到 ${back} 年）`}
             </button>
+          )}
+          {missing && stop && (
+            <span className="small muted" role="note" aria-label="补齐能补到哪天">
+              {stopNote(stop)}
+            </span>
           )}
         </div>
       )}

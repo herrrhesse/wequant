@@ -15,7 +15,8 @@ export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null 
       {e.pool.map((p) => (
         <div key={p.name} className="chain-row">
           {mark(p.passed)}
-          <span>{POOL_STEP_NAMES[p.name] ?? (L.of("funnel_kinds", p.name) || p.name)}</span>
+          <span>{L.of("pool_items", p.name) || POOL_STEP_NAMES[p.name] || L.of("funnel_kinds", p.name) || p.name}</span>
+          {p.note && <span className="muted small">{p.note}</span>}
         </div>
       ))}
       {e.steps.map((s) => (

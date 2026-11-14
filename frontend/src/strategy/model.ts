@@ -223,7 +223,7 @@ export function factorMetric(f: FactorSpec): Metric | null {
 
 /** A new, empty strategy (the backend fills its other defaults). */
 export function blank(): StrategySpec {
-  return { universe: ["NOT", "exchange@BJ"], filters: [], factors: [], top_n: 10, backups: 0, period: "week", every: 1, weighting: "equal", pool: { index: null, boards: null, exclude_st: true, min_list_days: null } };
+  return { universe: ["NOT", "exchange@BJ"], filters: [], factors: [], top_n: 10, backups: 0, period: "week", every: 1, weighting: "equal", pool: { index: null, boards: null, exclude_st: true, exclude_delisting: true, min_list_days: null } };
 }
 
 /** A condition's value as the user reads it: in the condition's unit, a rank for top-N conditions, a percentile for

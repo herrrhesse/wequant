@@ -84,11 +84,12 @@ function run(cmd, cwd) {
   if (r.status !== 0) throw new Error(`failed (${r.status}): ${cmd}`);
 }
 
-/** Background process; its output goes to test-results/<name>.log, not the test report. */
+/** Background process; its output goes to e2e-logs/<name>.log, not the test report (Playwright empties test-results
+ * when it starts, so the logs live beside it; CI uploads the folder when a run fails). */
 function start(name, cmd, cwd, extra = {}) {
-  log(`& ${cmd}  (log: test-results/${name}.log)`);
-  mkdirSync(resolve(root, "test-results"), { recursive: true });
-  const out = openSync(resolve(root, `test-results/${name}.log`), "w");
+  log(`& ${cmd}  (log: e2e-logs/${name}.log)`);
+  mkdirSync(resolve(root, "e2e-logs"), { recursive: true });
+  const out = openSync(resolve(root, `e2e-logs/${name}.log`), "w");
   const child = spawn(cmd, { cwd, shell: true, stdio: ["ignore", out, out], env: { ...env, ...extra }, detached: true });
   children.push(child);
   return child;

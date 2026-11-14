@@ -129,6 +129,8 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const updating = !blocked && (spec !== settled || check.isFetching || screen.isFetching || check.isPlaceholderData || screen.isPlaceholderData);
   const st0 = screen.data?.warnings.find((w) => w.code === "st_unknown");
   const stNone = !!st0 && Number(st0.params.known_share) === 0;
+  // No stock names in the data: 剔除退市整理期 cannot tell the period (the backend's delisting_unknown), said on its row.
+  const delistingNone = screen.data?.warnings.find((w) => w.code === "delisting_unknown");
   // The check's warnings, and the preview's data-scope warning for its day when the check has not given that one.
   const warnings = [...(check.data?.warnings ?? []), ...(screen.data?.warnings ?? []).filter((w) => SCOPE_WARNINGS.has(w.code) && !check.data?.warnings.some((c) => c.code === w.code))];
 
@@ -156,7 +158,7 @@ function Editor({ origin, savedSpec }: { origin: Origin | null; savedSpec: Strat
   const nB = screen.data?.rows.filter((r) => r.role === "backup").length ?? 0;
   const following = origin ? followed.includes(origin.id) : false;
 
-  const props = { spec, edit, errors, hl, setHl, stNone, drift: check.data?.pool_drift ?? null };
+  const props = { spec, edit, errors, hl, setHl, stNone, delistingNone: delistingNone ? L.warning(delistingNone) : null, drift: check.data?.pool_drift ?? null };
   const preview = <Preview spec={asked} screen={screen.data} updating={updating} errors={errors.length} blocked={blocked} noFactors={noFactors} hl={hl} setHl={setHl} />;
 
   return (

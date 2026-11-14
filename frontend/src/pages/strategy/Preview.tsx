@@ -16,8 +16,8 @@ import { POOL_STEP_NAMES, st } from "./text";
 const OPS: Record<string, string> = { gt: ">", ge: "≥", lt: "<", le: "≤", eq: "=", between: "介于" };
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
 
-export function stepName(step: string, kind: string, of: (t: "funnel_kinds", c: string) => string): string {
-  if (kind === "pool") return POOL_STEP_NAMES[step] ?? step;
+export function stepName(step: string, kind: string, of: (t: "funnel_kinds" | "pool_items", c: string) => string): string {
+  if (kind === "pool") return of("pool_items", step) || POOL_STEP_NAMES[step] || step;
   if (kind === "condition" || kind === "group") return step;
   return of("funnel_kinds", kind);
 }

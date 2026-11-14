@@ -45,6 +45,8 @@ export interface EditorProps {
   setHl: (step: string | null) => void;
   /** The data has no ST records at all (the backend's st_unknown warning with a known share of 0). */
   stNone: boolean;
+  /** Why 剔除退市整理期 has no effect on this data (no stock names), in the backend's words; null: it works. */
+  delistingNone?: string | null;
   /** The stock pool the scope's list came from has changed since (strategy validate's pool_drift). */
   drift?: PoolDrift | null;
 }
@@ -59,7 +61,8 @@ function ErrText({ errors }: { errors: Err[] }) {
 
 /* ---------- 1 · scope ---------- */
 
-export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, drift }: EditorProps) {
+export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, delistingNone, drift }: EditorProps) {
+  const L = useLabels();
   const pool = spec.pool ?? {};
   const [custom, setCustom] = useState(false);
   const scope = custom && !pool.stocks ? "stocks" : scopeOf(pool);
@@ -146,6 +149,22 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, drift }: Edit
           {stNone && <span className="warn-text small">{st.scope.stNone}</span>}
           </>,
           ["pool", "exclude_st"],
+        )}
+        {row(
+          "exclude_delisting",
+          L.of("pool_items", "exclude_delisting") || st.scope.delisting,
+          <>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={pool.exclude_delisting ?? false}
+                onChange={() => setPool((p) => void (p.exclude_delisting = !(pool.exclude_delisting ?? false)))}
+              />
+              {L.help("pool_items", "exclude_delisting") || st.scope.delistingText}
+            </label>
+            {delistingNone && (pool.exclude_delisting ?? false) && <span className="warn-text small">{delistingNone}</span>}
+          </>,
+          ["pool", "exclude_delisting"],
         )}
         {row(
           "min_list_days",
