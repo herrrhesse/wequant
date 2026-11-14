@@ -733,7 +733,8 @@ async function replayBuilds(page: Page) {
   await page.route("**/api/jobs_list", async (r) => {
     const res = await r.fetch();
     const body = await res.json();
-    const mine = [...jobs.values()].filter((j) => j.state === "running").map(info);
+    // Running first, then finished ones, newest first: as the backend lists them.
+    const mine = [...jobs.values()].sort((a, b) => Number(a.state !== "running") - Number(b.state !== "running") || b.id - a.id).map(info);
     return r.fulfill({ response: res, json: { ...body, jobs: [...mine, ...body.jobs] } });
   });
   return { jobs, starts };
@@ -1040,6 +1041,12 @@ test("data scope: the data page says which stocks and from when; widening picks 
   await expect(bar).toContainText("30%");
   await expect(card.getByRole("status", { name: "扩大数据范围：沪深全部 · 正在补 2024–2026 年" })).toBeVisible();
   await bar.getByRole("button", { name: "暂停" }).click();
+  // Paused: carrying on is offered on this card only; the status bar shows running work alone.
+  await expect(card).toContainText("扩大数据范围已暂停，已经补上的部分保留。");
+  await expect(bar).toBeHidden();
+  await page.getByRole("link", { name: "策略", exact: true }).click();
+  await expect(page.locator(".statusbar")).not.toContainText(/扩大数据范围|继续扩大/);
+  await page.getByRole("link", { name: "数据", exact: true }).click();
   await expect(card).toContainText("扩大数据范围已暂停，已经补上的部分保留。");
   await card.getByRole("button", { name: "继续扩大" }).click();
   expect(starts.at(-1)).toEqual(starts.at(-2));

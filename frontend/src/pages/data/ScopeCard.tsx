@@ -37,9 +37,12 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
   const status = useCall("data_status", {});
   const scope = scopeStatus(status.data);
   const jobs = useCall("jobs_list", {}, { staleTime: 0 });
-  const running = jobs.data?.jobs.find((j) => (j.kind as string) === "data_extend" && !finished(j)) ?? null;
+  // The extension running, else the newest one if it was paused (carrying on is offered here, never in the status bar).
+  const extends_ = jobs.data?.jobs.filter((j) => (j.kind as string) === "data_extend") ?? [];
+  const running = extends_.find((j) => !finished(j)) ?? null;
+  const newest = extends_.reduce<JobInfo | null>((a, j) => (!a || j.id > a.id ? j : a), null);
   const [jobId, setJobId] = useState<number | null>(null);
-  const job = useJob(jobId ?? running?.id ?? null);
+  const job = useJob(jobId ?? running?.id ?? (newest?.state === "cancelled" ? newest.id : null));
   const [choosing, setChoosing] = useState(!!open);
   const begin = useCallMutation("jobs_start", ["jobs_list"]);
   const ref = useRef<HTMLElement>(null);
@@ -110,7 +113,7 @@ export function ScopeCard({ first, open }: { first: string | null; open?: boolea
           </button>
         </div>
       )}
-      {job?.state === "succeeded" && !wider && <span className="small ok b">数据范围已经扩大，所有页面已经换成新的数据。</span>}
+      {job?.state === "succeeded" && job.id === jobId && !wider && <span className="small ok b">数据范围已经扩大，所有页面已经换成新的数据。</span>}
       {job?.state === "failed" && <JobProblem job={job} />}
       <History first={scope?.first_date ?? first} floor={scope?.backfill_floor ?? null} />
     </section>
