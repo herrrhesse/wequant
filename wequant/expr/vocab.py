@@ -69,7 +69,7 @@ def _in_index(panel: Panel, index: str) -> np.ndarray:
 
 
 def _list_days(panel: Panel) -> np.ndarray:
-    """Trading days listed on each bar, from securities.first_date; NaN without a bar or before it."""
+    """Trading days listed on each bar, from the listing day (list_date, else first_date); NaN without a bar or before."""
     return np.where(panel.traded & (panel.list_days > 0), panel.list_days, np.nan)
 
 

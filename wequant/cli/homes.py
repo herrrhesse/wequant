@@ -3,6 +3,7 @@ first-run setup's saved progress."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Annotated
 
 from cyclopts import App
@@ -100,29 +101,103 @@ def setup_save(
     return run(service.setup_save, request, common)
 
 
+SCOPE_DEFAULT = ("000300.SH", "000905.SH")
+
+
+def _scope(scope: Sequence[str], stocks: Sequence[str]) -> dict:
+    """The DataScope of --scope (all, or index codes) and --stocks."""
+    if "all" in scope:
+        return {"all": True, "indexes": [s for s in scope if s != "all"], "stocks": list(stocks)}
+    return {"indexes": list(scope), "stocks": list(stocks)}
+
+
 @data.command(name="build")
-def data_build(*, years: int = 3, common: Common = COMMON) -> int:
-    """Build the last 1, 3 or 5 years from BaoStock into an empty data root as its first version; run it again after a
-    stop and it carries on.
+def data_build(
+    *,
+    years: int = 3,
+    scope: list[str] = list(SCOPE_DEFAULT),
+    stocks: list[str] = [],  # noqa: B006
+    pool_name: str | None = None,
+    common: Common = COMMON,
+) -> int:
+    """Build the last 1, 3 or 5 years of a scope from BaoStock into an empty data root as its first version; run it
+    again after a stop and it carries on.
 
     Parameters
     ----------
     years
         1, 3 or 5.
+    scope
+        all, or one or both of 000300.SH and 000905.SH (every stock that was a member in those years).
+    stocks
+        Codes to fetch as well (or alone with --scope given no index); saved as a stock pool.
+    pool_name
+        The stock pool's name (default 首次建库名单).
     """
-    return run(service.data_build, lambda: validated(service.BuildRequest, {"years": years}), common)
+    fields = {"years": years, "scope": _scope(scope, stocks), "pool_name": pool_name}
+    return run(service.data_build, lambda: validated(service.BuildRequest, fields), common)
 
 
 @data.command(name="build-estimate")
-def data_build_estimate(*, years: int = 3, common: Common = COMMON) -> int:
-    """How many trading days and requests a first build takes, and about how long; sends no request.
+def data_build_estimate(
+    *,
+    years: int = 3,
+    scope: list[str] = list(SCOPE_DEFAULT),
+    stocks: list[str] = [],
+    common: Common = COMMON,  # noqa: B006
+) -> int:
+    """How many stocks, trading days and requests a first build of a scope takes, and about how long; sends no request.
 
     Parameters
     ----------
     years
         1, 3 or 5.
+    scope
+        all, or one or both of 000300.SH and 000905.SH.
+    stocks
+        Codes to fetch as well.
     """
-    return run(service.data_build_estimate, lambda: validated(service.BuildEstimateRequest, {"years": years}), common)
+    fields = {"years": years, "scope": _scope(scope, stocks)}
+    return run(service.data_build_estimate, lambda: validated(service.BuildEstimateRequest, fields), common)
+
+
+@data.command(name="extend")
+def data_extend(
+    *,
+    scope: list[str] = [],
+    stocks: list[str] = [],
+    pool_name: str | None = None,
+    common: Common = COMMON,  # noqa: B006
+) -> int:
+    """Add an index, every stock or a list to the data, newest years first, three years a version, back to the data's
+    first day; run it again after a stop and it carries on.
+
+    Parameters
+    ----------
+    scope
+        all, or index codes to add (000300.SH, 000905.SH).
+    stocks
+        Codes to add; saved as a stock pool.
+    pool_name
+        The stock pool's name (default 扩大范围名单).
+    """
+    fields = {"scope": _scope(scope, stocks), "pool_name": pool_name}
+    return run(service.data_extend, lambda: validated(service.ExtendRequest, fields), common)
+
+
+@data.command(name="extend-estimate")
+def data_extend_estimate(*, scope: list[str] = [], stocks: list[str] = [], common: Common = COMMON) -> int:  # noqa: B006
+    """How many stocks adding a scope brings in and about how long it takes; sends no request.
+
+    Parameters
+    ----------
+    scope
+        all, or index codes to add.
+    stocks
+        Codes to add.
+    """
+    fields = {"scope": _scope(scope, stocks)}
+    return run(service.data_extend_estimate, lambda: validated(service.ExtendEstimateRequest, fields), common)
 
 
 @data.command(name="backfill")

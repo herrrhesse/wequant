@@ -351,7 +351,7 @@ def runs_show(request: RunRequest, context: Context = Context()) -> RunDetail:
         orders=order_counts(run.ledger.orders),
         delisted=[DelistedRow(**r) for r in run.ledger.delisted.iter_rows(named=True)],
         anomalies=data_anomaly(run.anomalies, spec.data.excluded),
-        warnings=warnings_out(run.warnings),
+        warnings=warnings_out(run.warnings) + noted_warnings(archive, run.id),
         fees=[_fee(table, rule, until) for table, rule, until in fees_in_force(default_book(), start, end)],
         daily=[DailyRow(**r) for r in daily_view(run.ledger.daily, run.ledger.positions).iter_rows(named=True)],
         periods=Periods(**{p: _periods(run.ledger.daily, p) for p in ("year", "month")}),
@@ -387,7 +387,7 @@ def runs_report(request: RunRequest, context: Context = Context()) -> RunReport:
         orders=order_counts(run.ledger.orders),
         delisted=[DelistedRow(**r) for r in run.ledger.delisted.iter_rows(named=True)],
         anomalies=data_anomaly(run.anomalies, spec.data.excluded),
-        warnings=warnings_out(run.warnings),
+        warnings=warnings_out(run.warnings) + noted_warnings(archive, run.id),
         report=None,
     )
     return RunReport(id=run.id, report=report(result, spec.strategy, row["code_version"]))
@@ -483,6 +483,11 @@ def saved_refs(library: Library) -> dict[str, list[SavedRef]]:
         for version in entry.versions:
             found.setdefault(version.strategy_hash, []).append(SavedRef(id=entry.id, n=version.n))
     return found
+
+
+def noted_warnings(archive: Archive, run_id: str) -> list[Warning]:
+    """The warnings the run was saved with beyond the engine's own (S2.11: the data scope then)."""
+    return [Warning(**found) for found in archive.notes(run_id).get("warnings", [])]
 
 
 def load_run(context: Context, run_id: str, loc: list = ("id",)) -> tuple[Archive, Run]:

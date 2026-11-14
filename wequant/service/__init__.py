@@ -10,9 +10,15 @@ from wequant.service.build import (
     BuildEstimateRequest,
     BuildRequest,
     BuildResult,
+    ExtendEstimate,
+    ExtendEstimateRequest,
+    ExtendRequest,
+    ExtendResult,
     data_backfill,
     data_build,
     data_build_estimate,
+    data_extend,
+    data_extend_estimate,
 )
 from wequant.service.calendar import Calendar, CalendarRequest, data_calendar
 from wequant.service.check import CheckReport, CheckRequest, data_check
@@ -145,6 +151,7 @@ from wequant.service.runs import (
     runs_show,
 )
 from wequant.service.schedule import Schedule, ScheduledDay, ScheduleRequest, strategy_schedule
+from wequant.service.scopes import DataScope
 from wequant.service.screen import ScreenRequest, ScreenResult, screen
 from wequant.service.securities import Securities, SecuritiesRequest, SecurityRow, data_securities
 from wequant.service.status import DataStatus, StatusRequest, TableStatus, data_status
@@ -240,9 +247,16 @@ __all__ = [
     "BuildEstimateRequest",
     "BuildRequest",
     "BuildResult",
+    "DataScope",
+    "ExtendEstimate",
+    "ExtendEstimateRequest",
+    "ExtendRequest",
+    "ExtendResult",
     "data_backfill",
     "data_build",
     "data_build_estimate",
+    "data_extend",
+    "data_extend_estimate",
     "HomeSwitched",
     "RelocateRequest",
     "Relocated",

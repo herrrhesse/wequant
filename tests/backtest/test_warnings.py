@@ -141,25 +141,30 @@ def test_index_uncovered_counts_the_decision_days_outside_each_index_span(tmp_pa
     )
 
 
-def test_list_days_approximate_counts_the_codes_starting_with_the_calendar_and_their_cells_left_out(tmp_path):
+def test_list_days_approximate_counts_the_lower_bound_codes_min_list_days_left_out_and_their_cells(tmp_path):
     store = build_store(tmp_path / "home", WEEK, {A: [(10.0, 10.0)] * 5, B: [(20.0, 20.0)] * 5})
     seasoned = Strategy(pool=Pool(min_list_days=3), period="day")
     result = run(Backtest(seasoned, execution=EX0, benchmark=None), load_panel(store=store, cache_dir=tmp_path / "a"))
     text = (
-        "list_days counts trading days from securities.first_date, the first day of the source's data, not the listing "
-        "date: a lower bound for the 2 codes whose data starts with the calendar, which min_list_days left out of {} "
-        "decision-day cells"
+        "list_days is a lower bound for {} codes whose listing day is unknown or before the calendar, which "
+        "min_list_days left out of {} decision-day cells"
     )
-    assert result.warnings["list_days_approximate"] == (text.format(4), {"codes_at_calendar_start": 2, "cells": 4})
+    assert result.warnings["list_days_approximate"] == (text.format(2, 4), {"codes_at_calendar_start": 2, "cells": 4})
     later = replace(seasoned, anchor=dt.date(2024, 1, 3))
     panel = load_panel(WEEK[1], store=store, cache_dir=tmp_path / "b")
     assert run(Backtest(later, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"][0] == (
-        text.format(2)
+        text.format(2, 2)
     )
-    seasoned_expr = Strategy(filters=(Condition("seasoned", Field("list_days") > 1),), period="day")
-    assert run(Backtest(seasoned_expr, execution=EX0, benchmark=None), panel).warnings["list_days_approximate"][0] == (
-        text.format(0)
-    )
+
+
+def test_a_known_listing_day_raises_no_list_days_warning(tmp_path):
+    """Stocks listed long before the data starts pass min_list_days from its first day (S2.11 acceptance)."""
+    store = build_store(tmp_path / "home", WEEK, {A: [(10.0, 10.0)] * 5, B: [(20.0, 20.0)] * 5})
+    listed = store.read_table("securities").with_columns(list_date=pl.lit(dt.date(2010, 1, 4)))
+    store.commit({}, replace={"securities": listed}, reason="unspecified")
+    seasoned = Strategy(pool=Pool(min_list_days=3), period="day")
+    result = run(Backtest(seasoned, execution=EX0, benchmark=None), load_panel(store=store, cache_dir=tmp_path / "a"))
+    assert "list_days_approximate" not in result.warnings and result.ledger.orders.height
 
 
 def test_a_screen_warns_of_what_its_decision_alone_shows(tmp_path):

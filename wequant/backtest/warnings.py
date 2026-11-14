@@ -62,9 +62,8 @@ def _decision_params(
         found["no_picks"] = {}
     if uncovered := index_uncovered(fields, panel, section):
         found["index_uncovered"] = _numbered(uncovered)
-    if "list_days" in fields:
-        codes, cells = list_days_bounds(panel, section)
-        found["list_days_approximate"] = {"codes_at_calendar_start": codes, "cells": cells}
+    if "list_days" in fields and (bounds := list_days_bounds(panel, section))[1]:
+        found["list_days_approximate"] = {"codes_at_calendar_start": bounds[0], "cells": bounds[1]}
     if (kept := choice.cash[choice.cash > 0]).size:
         found["max_weight_cash"] = {"days": kept.size, "mean_share": float(kept.mean())}
     if uses.height:
@@ -86,12 +85,12 @@ def index_uncovered(fields: set[str], panel: Panel, section: Section) -> list[tu
 
 
 def list_days_bounds(panel: Panel, section: Section) -> tuple[int, int]:
-    """Codes whose data starts with the calendar, so that list_days only bounds their listing age from below, and the
-    decision-day cells of theirs min_list_days left out."""
-    at_start = panel.list_days[0] == panel.calendar_offset + 1
+    """The codes whose list_days is a lower bound that min_list_days left out on some decision day, and those
+    decision-day cells."""
     if "min_list_days" not in section.steps:
-        return int(at_start.sum()), 0
-    return int(at_start.sum()), int((section.steps["min_list_days"][:, at_start] == 0).sum())
+        return 0, 0
+    left = section.steps["min_list_days"][:, panel.list_days_bound] == 0
+    return int(left.any(axis=0).sum()), int(left.sum())
 
 
 def stale_holdings(panel: Panel, ledger: Ledger) -> Params:

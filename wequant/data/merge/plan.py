@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -79,11 +79,14 @@ def plan_merge(
     resolutions: Path | None = None,
     first: bool = False,
     daily: pl.DataFrame | None = None,
+    codes: Collection[str] | None = None,
 ) -> MergePlan:
     """What one merge of raw snapshots (None: every day on disk) and factor files (None: every file) writes, with the
     approved entries of a resolutions file (None: the data root's) applied; reads only. first: the store has no
     version yet and the merge makes its first one (round 3's first build). daily: the days' rows as read_daily
-    gives them, read elsewhere (round 3's per-stock histories); None: the days' snapshot files."""
+    gives them, read elsewhere (round 3's per-stock histories); None: the days' snapshot files. codes: only these
+    stocks' rows on the days are merged, every other row stays, and none is audited against the store (S2.11's wider
+    scope: stocks without bars on those days); None: every row of the days."""
     manifest = store.manifest()
     if manifest is None and first:
         manifest = EMPTY
@@ -101,12 +104,12 @@ def plan_merge(
     years = {"bars": {d.year for d in days} | stale}
     previous = previous_bars(store, manifest, days[0])
     parts, bars_new, status_new, bar_issues, unresolved, bar_stats = _merge_bars(
-        store, manifest, raw, stored, entries, years["bars"], days, bars_new, status_new, previous, source
+        store, manifest, raw, stored, entries, years["bars"], days, bars_new, status_new, previous, source, codes
     )
     after = bars_after(store, manifest, parts, years["bars"])
     spans = after.group_by("code").agg(first_date=pl.col("date").min(), last_date=pl.col("date").max())
     years["daily_status"] = {d.year for d in days} | orphan_status_years(store, manifest, spans)
-    status_new, status_parts, early = _merge_status(store, manifest, status_new, spans, years, days, source)
+    status_new, status_parts, early = _merge_status(store, manifest, status_new, spans, years, days, source, codes)
 
     new_adj = normalize(read_factors(raw, factor_codes), spans.filter(pl.col("code").is_in(factor_codes)))
     event_issues, event_stats = _event_issues(new_adj, stored_adj, factor_codes, after, source)
@@ -203,15 +206,15 @@ def _newest(sources: pl.Series) -> str:
     return max(sources.unique().to_list(), key=lambda s: [int(n) for n in re.findall(r"[0-9]+", s)])
 
 
-def _merge_bars(store, manifest, raw, stored, entries, years, days, bars_new, status_new, previous, source) -> tuple:
+def _merge_bars(store, manifest, raw, stored, entries, years, days, bars_new, status_new, previous, source, codes):
     """(bars parts of the touched years, new bars, new status rows, issues, conflicts without an approved entry, stats):
     duplicate codes dropped, the approved resolutions applied and the store's bars on audited days compared."""
-    old, kept, bj_rows = _stored_bars(store, manifest, years, days)
+    old, kept, bj_rows = _stored_bars(store, manifest, years, days, codes)
     bars_new, status_new, duplicates = drop_duplicate_codes(bars_new, status_new, old, source)
     found, cut = marks(bars_new, status_new, previous, old), truncated_days(bars_new, old)  # as BaoStock delivered them
     bars_new, resolved, unresolved, counts = _resolve(raw, stored, entries, days, bars_new, old, found, source)
     calendar, securities = stored["calendar"]["date"], stored["securities"]
-    audited = calendar.filter(calendar.is_in(days))
+    audited = calendar.filter(calendar.is_in(days)) if codes is None else calendar.clear()
     new_audited = bars_new.filter(pl.col("date").is_in(audited.implode()))
     bar_issues, compared = audit_bars(new_audited, old, status_new, securities, source)
     stats = {
@@ -234,21 +237,23 @@ def _resolve(raw, stored, entries, days, bars_new, old, found, source) -> tuple:
     return bars_new, resolved, unresolved, counts
 
 
-def _stored_bars(store: Store, manifest: dict, years: set[int], days: list[dt.date]) -> tuple:
-    """(SH/SZ rows on merged days, every other row, BJ rows per year before and after) of the touched years."""
+def _stored_bars(store: Store, manifest: dict, years: set[int], days: list[dt.date], codes) -> tuple:
+    """(SH/SZ rows on merged days (of codes, unless None), every other row, BJ rows per year before and after) of the
+    touched years."""
     stored = read_years(store, manifest, "bars", years)
-    replaced = ~BJ & pl.col("date").is_in(days)
+    replaced = ~BJ & pl.col("date").is_in(days) & (pl.lit(True) if codes is None else pl.col("code").is_in(list(codes)))
     old, kept = stored.filter(replaced), stored.filter(~replaced)
     before = _counts(stored.filter(BJ), pl.col("date").dt.year())
     after = _counts(kept.filter(BJ), pl.col("date").dt.year())
     return old, kept, {y: [before.get(y, 0), after.get(y, 0)] for y in sorted(before.keys() | after.keys())}
 
 
-def _merge_status(store, manifest, status_new, spans, years, days, source) -> tuple:
+def _merge_status(store, manifest, status_new, spans, years, days, source, codes) -> tuple:
     """(new status rows, daily_status parts, before_first_bar issues): no row, stored or new, before its code's first
-    bar."""
+    bar; stored rows on the days are replaced (those of codes only, unless None)."""
     status_new, early_new = drop_status_before_first_bar(status_new, spans, source)
-    stored = read_years(store, manifest, "daily_status", years["daily_status"]).filter(~pl.col("date").is_in(days))
+    replaced = pl.col("date").is_in(days) & (pl.lit(True) if codes is None else pl.col("code").is_in(list(codes)))
+    stored = read_years(store, manifest, "daily_status", years["daily_status"]).filter(~replaced)
     stored, early_stored = drop_status_before_first_bar(stored, spans, source)
     return status_new, pl.concat([stored, status_new]), pl.concat([early_new, early_stored])
 

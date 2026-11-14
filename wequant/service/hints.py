@@ -14,6 +14,8 @@ NOT_KEPT = "这次回测用的数据版本已经被清理，不能{}；如果导
 # (code, field, English message pattern) -> hint. The field is the last name in the error's loc ("" for none), the
 # pattern a re.search on its message ("" for any); the first rule that fits wins, so a field's patterns come first.
 HINTS: dict[tuple[str, str | None, str], str] = {
+    ("requires", "scope", "names no index"): "选了沪深全部，就不用再选指数或名单",
+    ("requires", "scope", "needs every stock"): "数据范围至少选一项：沪深全部、沪深300、中证500 或一份股票名单",
     ("requires", "top_n", ""): "限定了持有只数，就需要至少一个启用的打分因子来排名：请添加或启用一个因子，或者选不限",
     ("requires", "backups", ""): "备选只数需要先设持有只数",
     ("requires", "weighting", ""): "按综合分加权需要至少一个启用的打分因子",

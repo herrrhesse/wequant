@@ -16,6 +16,7 @@ from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.base import Context, DataRequest, Model, Names, manifest, named, names_of, not_found, read_version
 from wequant.service.details import Loc, spec_details, to_data, usage
 from wequant.service.outputs import DataAnomaly, Op, Role, SavedRef, Warning, data_anomaly, warnings_out
+from wequant.service.scopes import beyond_data
 from wequant.service.specs import DataSpec, IsoDate
 from wequant.service.strategies import Hash, StrategyInput, resolve, saved_as
 from wequant.strategy import (
@@ -175,7 +176,9 @@ def screen(request: ScreenRequest, context: Context = Context()) -> ScreenResult
         rows=screen_rows(strategy, section, choice, panel, names),
         rejects=reject_rows(strategy, shot.rejects, section, panel, names),
         anomalies=data_anomaly(uses, panel.excluded, sample=None),
-        warnings=warnings + warnings_out(screen_warnings(strategy, panel, section, choice, uses)),
+        warnings=warnings
+        + warnings_out(screen_warnings(strategy, panel, section, choice, uses))
+        + beyond_data(strategy, context.store(), panel.manifest, panel.dates[row].item()),
     )
     context.stage("result")
     return result

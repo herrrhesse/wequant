@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 RAW_FIELDS = ("open", "high", "low", "close", "preclose", "volume", "amount")
 PRICE_FIELDS = ("open", "high", "low", "close", "preclose")
 PRICE_SCALE = 1000.0  # store prices are 厘
+HOLIDAY_WEEKDAYS = 22  # more weekdays than the exchanges close in any year (18 to 20 since 2010)
 
 
 def calendar(src: PanelCache) -> np.ndarray:
@@ -96,13 +97,40 @@ def limits(src: PanelCache) -> np.ndarray:
 
 
 def list_days(src: PanelCache) -> np.ndarray:
-    """int16 trading days from each code's first_date, that day counted as 1, suspended days included; 0 before it."""
+    """int16 trading days from each code's listing day, that day counted as 1, suspended days included; 0 before it.
+    The listing day is list_date when known, else first_date; one before the calendar adds a lower bound of the trading
+    days between them (earlier_days)."""
     dates = src.array("dates")
-    first = asof_rows(
-        dates, src.scan("securities").sort("code").select("first_date").collect()["first_date"].to_numpy()
-    )
+    listed = _listed(src)
+    first = asof_rows(dates, listed)
+    earlier = earlier_days(listed, dates[0])
     rows = np.arange(len(dates), dtype=np.int32)[:, None]
-    return np.maximum(rows - first.astype(np.int32) + 1, 0).astype(np.int16)
+    days = np.maximum(rows - first.astype(np.int32) + 1, 0) + np.where(rows >= first, earlier, 0)
+    return np.minimum(days, np.iinfo(np.int16).max).astype(np.int16)
+
+
+def list_days_bound(src: PanelCache) -> np.ndarray:
+    """(N,) bool: the code's list_days is a lower bound, its listing day unknown or before the calendar."""
+    dates, found = src.array("dates"), src.scan("securities").sort("code").select("list_date").collect()
+    known = found["list_date"].to_numpy()
+    return np.isnat(known) | (known < dates[0])
+
+
+def earlier_days(listed: np.ndarray, start: np.datetime64) -> np.ndarray:
+    """A lower bound of the trading days from each listing day to start (none for one on or after it): the weekdays
+    between, less HOLIDAY_WEEKDAYS for each calendar year they touch."""
+    before = listed < start
+    weekdays = np.busday_count(np.where(before, listed, start).astype("datetime64[D]"), start.astype("datetime64[D]"))
+    years = start.astype("datetime64[Y]").astype(int) - np.where(before, listed, start).astype("datetime64[Y]").astype(
+        int
+    )
+    return np.where(before, np.maximum(weekdays - HOLIDAY_WEEKDAYS * (years + 1), 0), 0).astype(np.int32)
+
+
+def _listed(src: PanelCache) -> np.ndarray:
+    """Each code's listing day: list_date when known, else first_date (the first day of its data)."""
+    found = src.scan("securities").sort("code").select("first_date", "list_date").collect()
+    return found.select(pl.coalesce("list_date", "first_date"))["list_date"].to_numpy()
 
 
 def members(index: str) -> Callable[[PanelCache], np.ndarray]:
@@ -160,4 +188,5 @@ BUILDERS: dict[str, Callable[[PanelCache], np.ndarray]] = {
     "status": status,
     "st": st,
     "list_days": list_days,
+    "list_days_bound": list_days_bound,
 }
