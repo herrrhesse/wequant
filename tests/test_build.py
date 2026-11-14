@@ -226,3 +226,14 @@ def test_a_backfill_by_index_stops_at_the_index_s_first_member_list(tmp_path, mo
     added = backfill(store, BaoStock(client=scoped_market()), NOW, oldest=2023)
     stopped = backfill(store, BaoStock(client=scoped_market()), NOW, oldest=2023)
     assert (added.first, stopped.status, stopped.floor) == (C2, "complete", ("000300.SH", C2))
+
+
+def test_a_short_list_s_update_fetches_each_stock_s_days_instead_of_the_day_s_cross_section(tmp_path):
+    """One stock costs less than a day of every stock (S2.11 probe: 0.8 s against 60 s)."""
+    store = Store(tmp_path / "home")
+    build(store, BaoStock(client=joining_market()), 1, NOW, start=D1, scope=Scope(stocks=("600002.SH",)))
+    market = joining_market()
+    update(store, BaoStock(client=market), AFTER_CLOSE[D5])
+    asked = {method for method, _ in market.calls}
+    days = store.read_table("bars").filter(pl.col("code") == "600002.SH")["date"].to_list()
+    assert "query_daily_history_k_AStock" not in asked and days == [D1, D2, D3, D4, D5]

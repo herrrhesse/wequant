@@ -27,13 +27,20 @@ from wequant.data.names import basic_rows, with_basic
 from wequant.data.raw import BaoStockRaw
 from wequant.data.schema import TABLES
 from wequant.data.scope import Layer, Scope, as_meta, at, layers, needed, reach, segments, widen
-from wequant.data.sources.baostock import FIRST_DAY, INDEX_FIELDS, BaoStock, from_baostock, parse_index, to_baostock
+from wequant.data.sources.baostock import (
+    FIRST_DAY,
+    HISTORY_FIELDS,
+    INDEX_FIELDS,
+    BaoStock,
+    from_baostock,
+    parse_index,
+    to_baostock,
+)
 from wequant.data.store import Store, exclusive
 from wequant.data.update import SHANGHAI, Step, UpdateCancelled, due_days, refresh
 from wequant.data.update import _fetch as fetch
 
 STAGES = ("build_calendar", "build_stocks", "build_factors", "build_indexes", "build_merge", "build_commit")
-HISTORY_FIELDS = "date,code,open,high,low,close,preclose,volume,amount,turn,tradestatus,isST"
 OLDEST = 2000  # the history a backfill reaches back to
 SEGMENT_YEARS = 3  # years of history one backfill version adds
 FACTOR_SECONDS = 0.5  # a factor history, for the time left before the factor stage has measured its own
