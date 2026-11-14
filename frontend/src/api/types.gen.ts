@@ -80,6 +80,9 @@ export interface ServiceModels {
   IndexCoverage?: IndexCoverage;
   IndexPool?: IndexPool;
   IndexPoolRequest?: IndexPoolRequest;
+  Indicator?: Indicator;
+  Indicators?: Indicators;
+  IndicatorsRequest?: IndicatorsRequest;
   IssueCount?: IssueCount;
   IssueKindLabel?: IssueKindLabel;
   IssueRow?: IssueRow;
@@ -189,7 +192,10 @@ export interface ServiceModels {
   StrategyVersions?: StrategyVersions;
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
+  Template?: Template;
   TemplateLabel?: TemplateLabel;
+  Templates?: Templates;
+  TemplatesRequest?: TemplatesRequest;
   UnparsedItem?: UnparsedItem;
   UpdateRequest?: UpdateRequest;
   UpdateResult?: UpdateResult;
@@ -1661,8 +1667,8 @@ export interface PoolCheck {
    */
   passed: boolean | null;
   /**
-   * bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days;
-   * stocks: on the fixed list.
+   * bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days.
+   * universe passes on the strategy's fixed list only, when it has one.
    */
   value: number | boolean | string | null;
   /**
@@ -2178,6 +2184,94 @@ export interface IndexPoolRequest {
   index: "000300.SH" | "000905.SH";
 }
 /**
+ * One indicator a condition or a factor can use.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Indicator".
+ */
+export interface Indicator {
+  /**
+   * A field name (close, board@main, member@000300.SH) or a common indicator's id (change_20).
+   */
+  id: string;
+  /**
+   * Its expression form, to write into a condition or a factor; a field's is its name.
+   */
+  form: string | unknown[];
+  /**
+   * Chinese name.
+   */
+  label: string;
+  /**
+   * yuan, shares, fraction (0.05 is 5%), ratio, trading_days or bool.
+   */
+  unit: "yuan" | "shares" | "fraction" | "ratio" | "trading_days" | "bool";
+  /**
+   * labels.indicator_categories gives the Chinese.
+   */
+  category:
+    | "price"
+    | "adjusted_price"
+    | "volume"
+    | "momentum"
+    | "volatility"
+    | "trend"
+    | "limit"
+    | "status"
+    | "classification"
+    | "membership"
+    | "listing";
+  /**
+   * One Chinese sentence.
+   */
+  help: string;
+  kind: "num" | "bool";
+  /**
+   * False: a planned field the expressions cannot read yet; see reason.
+   */
+  available: boolean;
+  reason: string | null;
+  /**
+   * Empty until the BaoStock merge (S2.4b) fills its table, e.g. ST and the turnover rate.
+   */
+  needs_merge: boolean;
+  /**
+   * An older index's membership: still read, no longer updated.
+   */
+  legacy: boolean;
+  /**
+   * The first day the data has a value for it; null: none (or no data).
+   */
+  first: string | null;
+  last: string | null;
+}
+/**
+ * The indicators: fields first, then the common indicators built from them.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Indicators".
+ */
+export interface Indicators {
+  /**
+   * The store version the days are read from; null: no data.
+   */
+  data_version: number | null;
+  data_version_name: string | null;
+  rows: Indicator[];
+}
+/**
+ * Every indicator, with the days the store version has for it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndicatorsRequest".
+ */
+export interface IndicatorsRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+}
+/**
  * Matching rows of one (table, kind, action).
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2505,6 +2599,10 @@ export interface Labels {
    * Why an item of a pasted list or file names no stock (UnparsedItem.reason).
    */
   parse_reasons: Label[];
+  /**
+   * The categories of expr indicators (Indicator.category).
+   */
+  indicator_categories: Label[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -3972,6 +4070,90 @@ export interface VersionInfo1 {
   note: string | null;
   current: boolean;
 }
+/**
+ * A starting point for a new strategy.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Template".
+ */
+export interface Template {
+  id: string;
+  /**
+   * Chinese, plain.
+   */
+  name: string;
+  /**
+   * Two or three Chinese sentences: what it does, when it may work, when it may not.
+   */
+  description: string;
+  strategy: StrategySpec2;
+  /**
+   * The strategy's Chinese summary sentence.
+   */
+  summary: string;
+}
+/**
+ * What a rebalance strategy holds and when; defaults are left out of its canonical form.
+ *
+ * Cross-field rules (hold_rank > top_n, formula only with formula weighting, unique names) are checked by the core
+ * and reported with codes by strategy validate.
+ */
+export interface StrategySpec2 {
+  /**
+   * A condition expression: the scope, before the pool items.
+   */
+  universe?: string | JsonValue[];
+  filters?: (ConditionSpec | GroupSpec)[];
+  factors?: FactorSpec[];
+  /**
+   * Number of targets; null: every scored stock.
+   */
+  top_n?: number | null;
+  backups?: number;
+  period?: "day" | "week" | "month";
+  /**
+   * Rebalance every this many periods.
+   */
+  every?: number;
+  weighting?: "equal" | "score" | "formula";
+  /**
+   * The weight formula, with formula weighting only.
+   */
+  formula?: string | JsonValue[] | null;
+  /**
+   * Resize a kept target only when its weight is off by more than this share of its target; null: never.
+   */
+  band?: number | null;
+  /**
+   * The trading day expressions count from; null: the calendar's first day.
+   */
+  anchor?: string | null;
+  /**
+   * Keep a holding while it ranks within this many (> top_n); null: no buffer.
+   */
+  hold_rank?: number | null;
+  /**
+   * Cap on one target's weight; the excess goes to the other targets, cash only when none can take it.
+   */
+  max_weight?: number | null;
+  pool?: PoolSpec;
+}
+/**
+ * The strategy templates, in the order to show.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Templates".
+ */
+export interface Templates {
+  rows: Template[];
+}
+/**
+ * Every strategy template.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TemplatesRequest".
+ */
+export interface TemplatesRequest {}
 /**
  * Fetch BaoStock's trading days after the store's last one and merge them as one version.
  *

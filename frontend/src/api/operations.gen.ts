@@ -25,6 +25,7 @@ export interface Operations {
   data_resolve_reject: { request: M.DecisionRequest; result: M.Decision };
   expr_check: { request: M.ExprRequest; result: M.ExprCheck };
   expr_eval: { request: M.EvalRequest; result: M.EvalResult };
+  expr_indicators: { request: M.IndicatorsRequest; result: M.Indicators };
   strategy_validate: { request: M.StrategyRequest; result: M.StrategyCheck };
   strategy_summary: { request: M.StrategyRequest; result: M.StrategySummary };
   strategy_schema: { request: M.StrategySchemaRequest; result: M.StrategySchema };
@@ -36,6 +37,7 @@ export interface Operations {
   strategy_export: { request: M.ExportStrategyRequest; result: M.Exported };
   strategy_import: { request: M.ImportRequest; result: M.StrategyImported };
   strategy_schedule: { request: M.ScheduleRequest; result: M.Schedule };
+  strategy_templates: { request: M.TemplatesRequest; result: M.Templates };
   pools_list: { request: M.PoolsListRequest; result: M.PoolList };
   pools_show: { request: M.PoolRequest; result: M.PoolOut };
   pools_save: { request: M.PoolSaveRequest; result: M.PoolOut };
@@ -98,6 +100,7 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_resolve_reject: { method: "POST", path: "/api/data_resolve_reject" },
   expr_check: { method: "POST", path: "/api/expr_check" },
   expr_eval: { method: "POST", path: "/api/expr_eval" },
+  expr_indicators: { method: "POST", path: "/api/expr_indicators" },
   strategy_validate: { method: "POST", path: "/api/strategy_validate" },
   strategy_summary: { method: "POST", path: "/api/strategy_summary" },
   strategy_schema: { method: "POST", path: "/api/strategy_schema" },
@@ -109,6 +112,7 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   strategy_export: { method: "POST", path: "/api/strategy_export" },
   strategy_import: { method: "POST", path: "/api/strategy_import" },
   strategy_schedule: { method: "POST", path: "/api/strategy_schedule" },
+  strategy_templates: { method: "POST", path: "/api/strategy_templates" },
   pools_list: { method: "POST", path: "/api/pools_list" },
   pools_show: { method: "POST", path: "/api/pools_show" },
   pools_save: { method: "POST", path: "/api/pools_save" },
