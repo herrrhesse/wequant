@@ -222,6 +222,22 @@ def _kind(
 
 
 ISSUE_KINDS: dict[str, IssueKind] = {
+    "own_row_dropped": _kind(
+        "bars",
+        "row_dropped",
+        "a row of the user's own file whose numbers cannot be read, or that repeats an earlier row's code and date; "
+        "dropped",
+        "gap",
+        "suspicious",
+    ),
+    "own_price_order": _kind(
+        "bars",
+        "flagged",
+        "a bar of the user's own file whose open, high, low and close do not fit together (a price not above zero, "
+        "high below another price or low above one); kept as given",
+        "price",
+        "error",
+    ),
     "off_scale": _kind(
         "bars", "row_dropped", "the seed's amount and volume disagree with its price; bar dropped", "gap", "suspicious"
     ),

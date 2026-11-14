@@ -427,6 +427,41 @@ uv run wequant data copy TO ; uv run wequant data move TO   # also background jo
 - **The first-run setup's progress** (`setup save`: step, source, home, years, job_id, import_path; `--clear`) is kept
   in the same user settings, so the frontend can carry on after the browser is closed.
 
+## First build, history and your own data (S2.9)
+
+```bash
+uv sync --extra baostock
+uv run wequant data build-estimate --years 3      # days, requests and about how long; sends no request
+uv run wequant data build --years 3               # an empty data root's first version (job kind data_build)
+uv run wequant data backfill [--oldest 2000]      # earlier years, one version per three years (data_backfill)
+uv run wequant data own-check FOLDER ; uv run wequant data own-import FOLDER   # your own files (data_own_import)
+```
+
+- **`data build`** fills an empty data root from BaoStock with the last 1, 3 or 5 years up to the latest closed
+  trading day: every SH/SZ stock's daily snapshots (`query_daily_history_k_AStock`, prices, preclose, volume, amount,
+  trade status, ST) and adjustment events, each listed code's factor history, names and official dates
+  (`query_stock_basic`), and CSI 300 and CSI 500 bars and members (member lists of each month's first trading day,
+  dated by BaoStock's `updateDate`). Every response goes to the raw layer first and the S2.4b merge then builds every
+  table from the raw files on an empty base, with its checks and `data_issues`; one version, reason 首次建库. A data
+  root with data makes no version (`exists`, no BaoStock session). A cancel leaves no version and keeps what was
+  fetched, so the next run carries on and makes the same tables as one run straight through. It holds
+  `raw/baostock/.lock` like the daily update: one BaoStock session at a time.
+- **`data build-estimate`** gives the days, requests and seconds of a build from the speeds measured in round 3
+  (report `Database/reports/round3_*.md`); days already in the raw layer cost nothing again.
+- **`data backfill`** adds the years before the store's first day, three years per version (reason 补齐历史 first–last),
+  down to the start of `--oldest` (2000), merging each segment like the build; a cancel keeps the segments already
+  added and leaves no half segment. Cleanup never removes the version in use (S2.6), so a backfill running alongside
+  is safe. The frontend starts it after a first build unless the user turns it off.
+- **Your own data:** a folder with `bars.parquet` or `bars.csv`, one row per stock and day, with `code` (600000.SH),
+  `date` (YYYY-MM-DD), `open`, `high`, `low`, `close` (yuan), `volume` (shares) and `amount` (yuan); optionally
+  `preclose` (yuan; else the previous close, marked derived), `factor` (the back adjustment factor), `st` (1/0) and
+  `tradestatus` (1 traded, 0 suspended); optionally `securities.parquet` or `securities.csv` with `code`, `name`,
+  `list_date`, `delist_date`. `data own-check` writes nothing and reports each rule rows break (`labels`
+  `own_rules`): `missing_columns` (cannot import), `unreadable` and `duplicate` (not imported), `price_order` (kept,
+  flagged) and `no_list_date`. `data own-import` makes the first version of an empty data root (reason 导入自备数据,
+  `store_exists` otherwise); dropped rows that have a code and a date and flagged bars go to `data_issues`
+  (`own_row_dropped`, `own_price_order`); nothing is corrected. A cancel before the commit leaves no version.
+
 ## Storage
 
 - **Settings** live in `<home>/settings.json` (`wequant settings show|set`): the run archive's size limit

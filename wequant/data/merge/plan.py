@@ -64,6 +64,9 @@ class MergePlan:
     meta: dict  # last_trade_date, baostock_merge {first_day, last_day, days}
 
 
+EMPTY = {"version": 0, "tables": {}}  # the base of a first merge: every table reads as empty
+
+
 class StalePlan(RuntimeError):
     """The store committed a new version after the plan was made."""
 
@@ -74,18 +77,24 @@ def plan_merge(
     days: Iterable[dt.date] | None = None,
     factor_codes: Iterable[str] | None = None,
     resolutions: Path | None = None,
+    first: bool = False,
+    daily: pl.DataFrame | None = None,
 ) -> MergePlan:
     """What one merge of raw snapshots (None: every day on disk) and factor files (None: every file) writes, with the
-    approved entries of a resolutions file (None: the data root's) applied; reads only."""
+    approved entries of a resolutions file (None: the data root's) applied; reads only. first: the store has no
+    version yet and the merge makes its first one (round 3's first build). daily: the days' rows as read_daily
+    gives them, read elsewhere (round 3's per-stock histories); None: the days' snapshot files."""
     manifest = store.manifest()
+    if manifest is None and first:
+        manifest = EMPTY
     if manifest is None:
         raise ValueError(f"{store.home} has no committed version to merge into")
     entries = load_resolutions(resolutions or default_path(store.home))
     stored = {table: store.read_table(table, manifest=manifest) for table in STORED}
     calendar, stored_adj = stored["calendar"]["date"], stored["adj_factor"]
-    days = _merge_days(raw, days, calendar)
+    days = _merge_days(raw, days, calendar, files=daily is None)
     factor_codes = _factor_codes(raw, factor_codes)
-    bars_new, status_new = split(read_daily(raw, days))
+    bars_new, status_new = split(read_daily(raw, days) if daily is None else daily)
     source = _newest(status_new["source"])
 
     stale = stale_years(store, manifest, "bars")
@@ -139,19 +148,21 @@ def plan_merge(
     )
 
 
-def apply_merge(store: Store, plan: MergePlan, timeout: float = 0, reason: str = "baostock_merge") -> CommitResult:
+def apply_merge(
+    store: Store, plan: MergePlan, timeout: float = 0, reason: str = "baostock_merge", params: dict | None = None
+) -> CommitResult:
     """Commit the plan, code_version added to its block, as one version under the writer lock, made for reason
     (daily_update: its days only); StalePlan if the store moved on, UnresolvedConflicts while a conflict lacks an
     approved resolution."""
     if plan.unresolved.height:
         raise UnresolvedConflicts(plan.unresolved)
     with store.lock(timeout):
-        current = store.manifest()["version"]
+        current = (store.manifest() or EMPTY)["version"]
         if current != plan.base_version:
             raise StalePlan(f"planned on version {plan.base_version}, the store is at version {current}")
         block = {**plan.meta["baostock_merge"], "code_version": code_version()}
         applied = sum(plan.stats["resolutions"]["applied"].values())
-        params = {"days": len(plan.days)} | ({} if reason == "daily_update" else {"resolutions": applied})
+        params = params or {"days": len(plan.days)} | ({} if reason == "daily_update" else {"resolutions": applied})
         return store.commit(
             {**plan.meta, "baostock_merge": block},
             replace_parts=plan.replace_parts,
@@ -162,11 +173,11 @@ def apply_merge(store: Store, plan: MergePlan, timeout: float = 0, reason: str =
         )
 
 
-def _merge_days(raw: BaoStockRaw, days: Iterable[dt.date] | None, calendar: pl.Series) -> list[dt.date]:
+def _merge_days(raw: BaoStockRaw, days, calendar: pl.Series, files: bool = True) -> list[dt.date]:
     days = sorted(set(raw.daily_days() if days is None else days))
     if not days:
         raise ValueError("no raw day to merge")
-    absent = [d for d in days if not raw.daily(d).exists()]
+    absent = [d for d in days if files and not raw.daily(d).exists()]
     if absent:
         raise ValueError(f"no raw snapshot for {len(absent)} days: {_listed(absent)}")
     holes = calendar.filter(calendar.is_between(days[0], days[-1]) & ~calendar.is_in(days))

@@ -90,6 +90,14 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
 }
 
 ISSUE_KIND_TEXT = {
+    "own_row_dropped": (
+        "自备数据的行没有导入",
+        "自备数据里这一行的数字读不出来，或者和前面一行的代码、日期重复，没有导入",
+    ),
+    "own_price_order": (
+        "自备数据价格不合理",
+        "自备数据里这根 K 线的开高低收对不上（有价格不大于 0，或最高价低于其他价格、最低价高于其他价格），按原样导入",
+    ),
     "off_scale": ("量额与价格不符", "种子数据的成交量、成交额和价格对不上，这根 K 线没有导入"),
     "removed_security": ("整只股票被删除", "这只股票每根 K 线都量额与价格不符，整只没有导入"),
     "adj_blip": ("复权价尖峰", "种子数据的复权价出现尖峰，复权因子和推算的昨收绕开了它"),
@@ -304,6 +312,7 @@ ERROR_CODES = {
     "no_file": ("没有这个文件", "要导入的文件不存在"),
     "no_stock_basic": ("没有股票基础信息", "还没有从 BaoStock 取过股票基础信息（stock_basic）"),
     "source_unreachable": ("连不上 BaoStock", "BaoStock 无法访问或登录失败，数据库没有改动"),
+    "store_exists": ("已经有数据", "这个数据目录里已经有数据：请换一个空的数据目录再导入"),
     "store_busy": ("数据库正在被占用", "另一个写入或 BaoStock 任务正在进行，请稍后再试；数据库没有改动"),
     "no_store": ("没有数据库", "数据目录里还没有数据库"),
     "no_directory": ("没有这个文件夹", "这个文件夹不存在"),
@@ -361,6 +370,9 @@ VERSION_REASONS = {  # code -> (name, template over the reason's params)
     "baostock_merge": ("合并 BaoStock", "合并 BaoStock 的 {days} 个交易日，应用 {resolutions} 条已批准的数据问题处理"),
     "limit_check": ("提交涨跌停检查", "提交涨跌停检查"),
     "daily_update": ("每日更新", "每日更新，补了 {days} 个交易日"),
+    "first_build": ("首次建库", "首次建库，从 BaoStock 取了 {days} 个交易日"),
+    "history_backfill": ("补齐历史", "补齐历史 {first_year}–{last_year}，{days} 个交易日"),
+    "own_import": ("导入自备数据", "导入自备数据，{days} 个交易日"),
     "names": ("补充股票名称", "补充股票名称"),
     "version_import": ("从文件导入", "从文件导入（原版本 {name}）"),
     "demo": ("生成演示数据", "生成演示数据"),
@@ -391,6 +403,9 @@ JOB_KINDS = {
     "backtest": ("回测", "按策略回测一段区间，结果存进运行记录"),
     "data_update": ("每日更新", "从 BaoStock 补齐本地数据之后已收盘的交易日"),
     "data_relocate": ("更换数据目录", "把数据移动或复制到新的文件夹，检查无误后改用它"),
+    "data_build": ("首次建库", "从 BaoStock 建好最近几年的数据"),
+    "data_backfill": ("补齐历史", "在后台把更早的历史一段一段补进来"),
+    "data_own_import": ("导入自备数据", "把自己的数据文件导入成一个数据版本"),
 }
 
 JOB_STATES = {
@@ -418,6 +433,12 @@ JOB_STAGES = {  # code -> (name, template over the stage's params)
     "update_indexes": ("下载指数", "正在下载指数行情"),
     "update_merge": ("检查合并", "正在检查和合并新数据"),
     "update_commit": ("写入版本", "正在写入新版本"),
+    "build_calendar": ("读取交易日历", "正在读取交易日历"),
+    "build_stocks": ("下载行情", "正在下载 {code} 的行情（已完成 {done}/{total} 只）"),
+    "build_factors": ("下载复权因子", "正在下载复权因子（已完成 {done}/{total} 只）"),
+    "build_indexes": ("下载指数", "正在下载沪深300和中证500的行情和成分"),
+    "build_merge": ("检查合并", "正在检查数据、整理成表"),
+    "build_commit": ("写入版本", "正在写入数据版本"),
     "relocate_check": ("检查目标位置", "正在检查目标文件夹和可用空间"),
     "relocate_copy": ("复制数据", "正在复制数据（已复制 {done_mb}/{total_mb} MB）"),
     "relocate_switch": ("切换目录", "复制完成并核对无误，正在改用新的数据目录"),
@@ -435,6 +456,24 @@ LEGACY_SCOPES = {  # code -> (name, sentence): older index options existing stra
     "000906.SH": ("中证800", "中证800指数在决策日的成分股；旧选项，新建策略不再提供"),
     "000852.SH": ("中证1000", "中证1000指数在决策日的成分股；旧选项，新建策略不再提供"),
     "000985.SH": ("中证全指", "中证全指在决策日的成分股；旧选项，新建策略不再提供"),
+}
+
+OWN_RULES = {  # the rules the user's own files are checked against
+    "missing_columns": ("缺少必需的列", "没有日线文件，或者缺少代码、日期、开高低收、成交量、成交额中的某一列"),
+    "unreadable": ("读不出来的行", "代码、日期或数字读不出来，这些行不会导入"),
+    "duplicate": ("重复的行", "和前面一行的代码、日期相同，只导入前一行"),
+    "price_order": (
+        "价格不合理",
+        "开高低收对不上（有价格不大于 0，或最高价低于其他价格、最低价高于其他价格），按原样导入并标记",
+    ),
+    "no_list_date": ("缺上市日期", "这些股票没有上市日期，上市天数会从它们的第一根 K 线算起"),
+}
+
+BUILD_STATUSES = {
+    "built": ("已建好", "已经建好一个新的数据版本"),
+    "exists": ("已经有数据", "这个数据目录里已经有数据，没有新建版本"),
+    "complete": ("历史已补齐", "更早的历史已经补齐，没有可以再补的了"),
+    "not_published": ("数据未发布", "BaoStock 还没有这段时间的数据，请稍后再试"),
 }
 
 INDICATOR_CATEGORIES = {
@@ -558,6 +597,10 @@ class Labels(Model):
     """Why an item of a pasted list or file names no stock (UnparsedItem.reason)."""
     indicator_categories: list[Label]
     """The categories of expr indicators (Indicator.category)."""
+    own_rules: list[Label]
+    """The rules the user's own files are checked against (OwnProblem.rule)."""
+    build_statuses: list[Label]
+    """What a first build or a backfill segment did (BuildResult.status)."""
 
 
 def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
@@ -590,6 +633,8 @@ def labels(request: LabelsRequest, context: Context = Context()) -> Labels:
         + [ScopeLabel(code=c, label=n, help=h, kind="index", legacy=True) for c, (n, h) in LEGACY_SCOPES.items()],
         parse_reasons=_labels(PARSE_REASONS),
         indicator_categories=_labels(INDICATOR_CATEGORIES),
+        own_rules=_labels(OWN_RULES),
+        build_statuses=_labels(BUILD_STATUSES),
     )
 
 

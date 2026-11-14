@@ -95,3 +95,64 @@ def setup_save(
 ) -> int:
     """Keep the first-run setup's progress (each option given replaces the saved one); --clear forgets it."""
     return run(service.setup_save, request, common)
+
+
+@data.command(name="build")
+def data_build(*, years: int = 3, common: Common = COMMON) -> int:
+    """Build the last 1, 3 or 5 years from BaoStock into an empty data root as its first version; run it again after a
+    stop and it carries on.
+
+    Parameters
+    ----------
+    years
+        1, 3 or 5.
+    """
+    return run(service.data_build, lambda: validated(service.BuildRequest, {"years": years}), common)
+
+
+@data.command(name="build-estimate")
+def data_build_estimate(*, years: int = 3, common: Common = COMMON) -> int:
+    """How many trading days and requests a first build takes, and about how long; sends no request.
+
+    Parameters
+    ----------
+    years
+        1, 3 or 5.
+    """
+    return run(service.data_build_estimate, lambda: validated(service.BuildEstimateRequest, {"years": years}), common)
+
+
+@data.command(name="backfill")
+def data_backfill(*, oldest: int = 2000, common: Common = COMMON) -> int:
+    """Add the years before the data root's first day from BaoStock, one version per three years, back to OLDEST.
+
+    Parameters
+    ----------
+    oldest
+        The first year to reach.
+    """
+    return run(service.data_backfill, lambda: validated(service.BackfillRequest, {"oldest": oldest}), common)
+
+
+@data.command(name="own-check")
+def data_own_check(path: str, /, *, common: Common = COMMON) -> int:
+    """Check a folder of your own files (bars.parquet or bars.csv, see README) without writing anything.
+
+    Parameters
+    ----------
+    path
+        The folder.
+    """
+    return run(service.data_own_check, lambda: validated(service.OwnRequest, {"path": path}), common)
+
+
+@data.command(name="own-import")
+def data_own_import(path: str, /, *, common: Common = COMMON) -> int:
+    """Import a folder of your own files into an empty data root as its first version.
+
+    Parameters
+    ----------
+    path
+        The folder.
+    """
+    return run(service.data_own_import, lambda: validated(service.OwnRequest, {"path": path}), common)

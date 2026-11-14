@@ -36,6 +36,9 @@ REASONS = (  # why a version was made; the service layer gives each a Chinese se
     "baostock_merge",
     "limit_check",
     "daily_update",
+    "first_build",  # round 3: the first version, built from BaoStock on an empty data root
+    "history_backfill",  # round 3: earlier years added in the background
+    "own_import",  # round 3: the user's own files
     "names",
     "version_import",
     "demo",
