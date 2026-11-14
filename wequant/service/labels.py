@@ -57,8 +57,8 @@ WARNINGS = {  # code -> (name, template, optional clauses by param, repeat separ
     ),
     "list_days_approximate": (
         "上市天数是估算的",
-        "上市天数从数据的第一天算起，不是真正的上市日期：数据从日历首日开始的 {codes_at_calendar_start} 只股票偏少，"
-        "最少上市天数因此排除了 {cells} 个决策日的股票",
+        "有 {codes_at_calendar_start} 只股票不知道上市日期或在数据的日历之前上市，上市天数按下限估算，"
+        "最少上市天数因此可能多排除了 {cells} 个决策日的股票",
         {},
         None,
     ),

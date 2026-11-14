@@ -148,12 +148,17 @@ class Panel:
 
     @cached_property
     def list_days(self) -> np.ndarray:
-        """(T, N) int16 trading days since each code's first_date, that day counted as 1; 0 before it.
+        """(T, N) int16 trading days since each code's listing day, that day counted as 1; 0 before it.
 
-        first_date is the first day the source has data, not the official listing date: a lower bound for codes listed
-        before the calendar starts.
+        The listing day is the official list_date when known, else first_date (the first day the source has data). For a
+        listing before the calendar, the days before it are a lower bound (list_days_bound).
         """
         return self._grid("list_days")
+
+    @cached_property
+    def list_days_bound(self) -> np.ndarray:
+        """(N,) bool: list_days is a lower bound, the listing day unknown or before the calendar."""
+        return self._vector("list_days_bound")
 
     @property
     def calendar_offset(self) -> int:

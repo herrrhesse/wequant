@@ -53,8 +53,7 @@ TEXTS: dict[str, Callable[[Params], str]] = {
     "no_picks": lambda p: "no decision day selected a stock",
     "index_uncovered": _index_uncovered,
     "list_days_approximate": lambda p: (
-        "list_days counts trading days from securities.first_date, the first day of the source's data, not the "
-        f"listing date: a lower bound for the {p['codes_at_calendar_start']} codes whose data starts with the "
+        f"list_days is a lower bound for {p['codes_at_calendar_start']} codes whose listing day is unknown or before the "
         f"calendar, which min_list_days left out of {p['cells']} decision-day cells"
     ),
     "max_weight_cash": lambda p: (

@@ -17,7 +17,7 @@ from wequant.data.files import FileInUse, atomic_write, remove_tree
 from wequant.data.store import KEEP_VERSIONS, Store, tables_digest
 from wequant.panel.build import BUILDERS
 
-FORMAT = 1  # bump when the meaning of a cached array changes
+FORMAT = 2  # bump when the meaning of a cached array changes (2: list_days from the listing day, S2.11)
 _KEY = re.compile(r"f([0-9]+)-v([0-9]+)-[0-9a-f]{12}")
 _BUILDING: Counter[str] = Counter()  # panel keys a thread of this process is building arrays for
 _LOCK = threading.Lock()

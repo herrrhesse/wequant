@@ -196,7 +196,7 @@ def assert_invariants(panel, store):
 
 def test_axes_and_units(store, cache):
     panel = load_panel(store=store, cache_dir=cache)
-    assert panel.version == 1 and panel.key.startswith("f1-v1-")
+    assert panel.version == 1 and panel.key.startswith("f2-v1-")
     assert panel.dates.tolist() == [dt.date.fromisoformat(d) for d in DAYS] and panel.dates.dtype == "datetime64[D]"
     assert panel.codes.tolist() == [D, B, A, C] and panel.codes.dtype == "<U9"
     assert panel.boards.tolist() == ["main", "chinext", "main", "bse"]
