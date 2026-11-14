@@ -10,7 +10,7 @@ from typing import get_type_hints
 from wequant.backtest import Progress
 from wequant.data.update import STAGES as UPDATE_STAGES
 from wequant.data.update import Step
-from wequant.service.base import Context, ErrorBody, error_body
+from wequant.service.base import Context, error_body, failure
 from wequant.service.errors import Exit, ServiceError
 
 log = logging.getLogger("wequant")
@@ -30,8 +30,9 @@ def outcome(operation: Callable, request: dict, context: Context) -> dict:
     except ServiceError as error:
         return {"error": error_body(error).model_dump(mode="json")}
     except Exception as error:
-        log.exception("internal error in %s", operation.__name__)
-        body = ErrorBody(exit=Exit.INTERNAL, name=Exit.INTERNAL.name, message=f"{type(error).__name__}: {error}")
+        body = failure(error)
+        if body.exit == Exit.INTERNAL:
+            log.exception("internal error in %s", operation.__name__)
         return {"error": body.model_dump(mode="json")}
     return {"result": result.model_dump_json()}
 

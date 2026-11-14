@@ -13,7 +13,7 @@ from pathlib import Path
 import polars as pl
 
 from wequant.canonical import canonical
-from wequant.data.files import atomic_write
+from wequant.data.files import atomic_write, remove_tree, rename
 from wequant.data.store import wequant_home
 from wequant.runs.compare import SAME, Comparison, code_notes, differences
 from wequant.runs.record import FILES, PROVENANCE, provenance, read_json, read_run, run_files
@@ -95,7 +95,7 @@ class Archive:
 
     def delete(self, run_id: str) -> None:
         """Remove the archived run; KeyError when there is none."""
-        shutil.rmtree(self._directory(run_id))
+        remove_tree(self._directory(run_id))
 
     def size(self, run_id: str) -> int:
         """Bytes the archived run takes on disk."""
@@ -158,7 +158,7 @@ class Archive:
         try:
             for name, data in files.items():
                 atomic_write(tmp / name, data)
-            os.rename(tmp, directory)
+            rename(tmp, directory)
             _sync(self.root)
         except OSError:
             if not directory.is_dir():

@@ -23,7 +23,7 @@ def library(tmp_path):
 
 
 def meta(library, id):
-    return json.loads((library.root / id / "meta.json").read_text())
+    return json.loads((library.root / id / "meta.json").read_text(encoding="utf-8"))
 
 
 def test_the_hash_is_the_sha256_of_the_whole_canonical_text():
@@ -74,7 +74,9 @@ def test_a_version_file_missing_from_the_index_is_read_and_written_back_only_by_
     library.save(A, "s")
     library.save(B, "s")
     index = meta(library, "s")
-    (library.root / "s" / "meta.json").write_text(json.dumps({**index, "versions": index["versions"][:1]}))
+    (library.root / "s" / "meta.json").write_text(
+        json.dumps({**index, "versions": index["versions"][:1]}), encoding="utf-8"
+    )
     entry = library.entry("s")
     assert entry.rebuilt == 1 and len(meta(library, "s")["versions"]) == 1  # reading writes nothing
     assert (entry.current.n, entry.current.strategy_version, entry.current.note) == (2, None, None)
@@ -93,7 +95,7 @@ def test_an_index_entry_without_its_file_is_dropped(library):
 
 def test_a_version_file_changed_after_saving_is_refused(library):
     library.save(A, "s")
-    (library.root / "s" / "1.json").write_text(B.key + "\n")
+    (library.root / "s" / "1.json").write_text(B.key + "\n", encoding="utf-8")
     with pytest.raises(SpecError) as raised:
         library.load("s", 1)
     assert raised.value.code == "hash_mismatch"

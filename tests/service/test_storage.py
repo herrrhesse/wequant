@@ -82,7 +82,7 @@ def test_a_run_still_names_its_version_once_that_version_is_cleaned(market_home)
 
 
 def test_a_file_that_is_not_an_export_is_refused(home, tmp_path):
-    (tmp_path / "x.wqver").write_text("not a zip")
+    (tmp_path / "x.wqver").write_text("not a zip", encoding="utf-8")
     with pytest.raises(ServiceError) as caught:
         service.data_import(service.ImportRequest(path=str(tmp_path / "x.wqver")), Context(home))
     assert [d.code for d in caught.value.detail] == ["bad_file"]

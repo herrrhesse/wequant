@@ -1,6 +1,5 @@
 import datetime as dt
 import json
-import os
 import signal
 from types import SimpleNamespace
 
@@ -113,7 +112,7 @@ def test_a_full_run_writes_every_file_newest_first(home):
     assert set(META_COLUMNS) <= set(snapshot.columns)
     assert snapshot["_request"][0] == f"query_daily_history_k_AStock(date={DAYS[0]})"
     assert snapshot["date"].unique().to_list() == [DAYS[0].isoformat()]
-    progress = json.loads((raw.root / "progress.json").read_text())
+    progress = json.loads((raw.root / "progress.json").read_text(encoding="utf-8"))
     assert progress["requests"] == len(server.calls) and progress["failures"] == {}
     assert server.calls[-1] == ("logout", None)
 
@@ -138,7 +137,7 @@ def test_failures_are_listed_and_retried_once_at_the_end(home):
     assert flaky in raw.daily_days() and broken not in raw.daily_days()
     assert bad not in raw.daily_days()  # a snapshot failing its checks is never written
     assert server.snapshots().count(flaky) == 4  # three attempts, then one more in the retry pass
-    failures = json.loads((raw.root / "progress.json").read_text())["failures"]
+    failures = json.loads((raw.root / "progress.json").read_text(encoding="utf-8"))["failures"]
     assert set(failures) == {f"1:{bad}", f"1:{broken}"}
     assert "rows dated other than" in failures[f"1:{bad}"]["error"]
     assert job.sleeps[:2] == [2.0, 4.0]
@@ -166,7 +165,7 @@ def test_snapshot_checks(change, problem):
 def test_a_signal_finishes_the_current_file_and_exits_cleanly(home):
     def interrupt(server, day):
         if len(server.snapshots()) == 3:
-            os.kill(os.getpid(), signal.SIGINT)
+            signal.raise_signal(signal.SIGINT)
 
     server = Server(on_snapshot=interrupt)
     job = backfill(home, server)
@@ -222,7 +221,7 @@ def test_a_long_outage_stops_the_run(home):
     assert bf.DOWN_GIVE_UP <= sum(job.sleeps) - 3 * (2.0 + 4.0) < bf.DOWN_GIVE_UP + bf.DOWN_WAITS[-1]
     raw = BaoStockRaw.at(home)
     assert DAYS[4] not in raw.daily_days()
-    failures = json.loads((raw.root / "progress.json").read_text())["failures"]
+    failures = json.loads((raw.root / "progress.json").read_text(encoding="utf-8"))["failures"]
     assert list(failures) == [f"1:{day}" for day in DAYS[1:4]]  # the third failure is listed before the wait
 
 
@@ -231,7 +230,7 @@ def test_a_signal_ends_an_outage_wait(home):
 
     def sleep(seconds):
         if seconds == bf.PAUSE_STEP:
-            os.kill(os.getpid(), signal.SIGTERM)
+            signal.raise_signal(signal.SIGTERM)
 
     job.sleep = sleep
     assert job.run([0, 1]) == 0

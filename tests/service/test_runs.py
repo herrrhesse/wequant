@@ -56,7 +56,10 @@ def archived(market_home):
 def test_the_list_is_newest_first_filters_by_strategy_and_pages(archived):
     context, a, b = archived
     made = context.store().home / "runs" / a.run_id / "provenance.json"
-    made.write_text(json.dumps({**json.loads(made.read_text()), "created_at": "2000-01-01T00:00:00+00:00"}))
+    made.write_text(
+        json.dumps({**json.loads(made.read_text(encoding="utf-8")), "created_at": "2000-01-01T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
     page = runs_list(RunsListRequest(), context)
     assert [(r.id, [s.id for s in r.saved_as], r.rerunnable) for r in page.rows] == [
         (b.run_id, [], True),

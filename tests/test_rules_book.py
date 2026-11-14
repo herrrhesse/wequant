@@ -62,7 +62,7 @@ confirm = "to check"
 
 def book_from(tmp_path, text):
     path = tmp_path / "rules.toml"
-    path.write_text(text, "utf-8")
+    path.write_text(text, "utf-8", newline="\n")  # the digest is of these bytes: LF on Windows too
     return load_book(path)
 
 

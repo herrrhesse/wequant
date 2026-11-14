@@ -46,7 +46,7 @@ def test_the_list_filters_by_cell_date_and_verifier_and_pages(tmp_path):
 
 def test_the_command_takes_json_lines_and_prints_the_models(tmp_path, capsys):
     path = tmp_path / "records.jsonl"
-    path.write_text("\n".join(json.dumps(r) for r in (RECORD, OTHER)) + "\n")
+    path.write_text("\n".join(json.dumps(r) for r in (RECORD, OTHER)) + "\n", encoding="utf-8")
     with pytest.raises(SystemExit) as exited:
         main(["data", "verify", "submit", str(path), "--json", "--home", str(tmp_path)])
     submitted = VerifySubmitResult.model_validate_json(capsys.readouterr().out)

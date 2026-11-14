@@ -22,7 +22,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
 from wequant.service import Context, ErrorBody, ErrorDetail, Exit, JobRef, SchemaRequest, ServiceError, schema
-from wequant.service.base import error_body
+from wequant.service.base import error_body, failure
 from wequant.service.contract import OPERATIONS, route
 from wequant.service.details import error_details, usage, validated
 from wequant.service.jobs import KINDS, jobs_show
@@ -212,9 +212,10 @@ def _respond(operation: Callable, request: object, context: Context) -> Response
         log.error("%s: %s", operation.__name__, error)
         return _failure(error_body(error))
     except Exception as error:
-        log.exception("internal error in %s", operation.__name__)
-        message = f"{type(error).__name__}: {error}"
-        return _failure(ErrorBody(exit=Exit.INTERNAL, name=Exit.INTERNAL.name, message=message))
+        body = failure(error)
+        if body.exit == Exit.INTERNAL:
+            log.exception("internal error in %s", operation.__name__)
+        return _failure(body)
     return Response(result.model_dump_json(), media_type="application/json")
 
 

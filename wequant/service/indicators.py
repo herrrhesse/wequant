@@ -59,6 +59,9 @@ FIELD_TEXT: dict[str, tuple[str, Unit, Category, str]] = {  # name -> (Chinese n
     "member@000985.SH": ("中证全指成分", "bool", "membership", "当天是中证全指的成分股；旧选项，不再更新"),
     "turn": ("换手率", "fraction", "volume", "当天成交量占流通股本的比例"),
 }
+PLANNED_TEXT = {
+    "turn": "换手率要等 BaoStock 数据正式合并以后才有，现在还不能用"
+}  # why each planned field is unavailable
 NEEDS_MERGE = frozenset(("st", "st_known", "turn"))  # empty until the BaoStock merge (S2.4b) fills daily_status
 DERIVED: dict[str, tuple[str, Unit, Category, str, list]] = {  # id -> (Chinese name, unit, category, sentence, form)
     **{
@@ -131,6 +134,7 @@ class Indicator(Model):
     available: bool
     """False: a planned field the expressions cannot read yet; see reason."""
     reason: str | None
+    """Why it is not available, one Chinese sentence for the page (F-31); null when it is."""
     needs_merge: bool
     """Empty until the BaoStock merge (S2.4b) fills its table, e.g. ST and the turnover rate."""
     legacy: bool
@@ -175,7 +179,7 @@ def _field(name: str, spans: dict) -> Indicator:
         help=help,
         kind=kind,
         available=available,
-        reason=PLANNED.get(name),
+        reason=PLANNED_TEXT.get(name) if name in PLANNED else None,
         needs_merge=name in NEEDS_MERGE,
         legacy=family == "member" and param in LEGACY,
         first=first,

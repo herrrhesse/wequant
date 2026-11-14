@@ -73,7 +73,7 @@ def test_index_rows(tmp_path, clock):
     """One row per archived run by created_at then id, from its files; other entries in the root are skipped."""
     archive = Archive(tmp_path)
     (tmp_path / ".x.tmp").mkdir()
-    (tmp_path / "notes").write_text("not a run")
+    (tmp_path / "notes").write_text("not a run", encoding="utf-8")
     clock(NEW_YEAR)
     run = hold(DESC, 1)
     archive.save(run)

@@ -88,7 +88,7 @@ def test_replace_writes_versioned_year_files_and_manifest(store):
     assert manifest["release_tag"] == "t1"
     for entry in manifest["tables"]["bars"]["files"]:
         assert hashlib.sha256((store.home / entry["path"]).read_bytes()).hexdigest() == entry["sha256"]
-    assert json.loads((store.home / "manifests" / "manifest.v1.json").read_text()) == manifest
+    assert json.loads((store.home / "manifests" / "manifest.v1.json").read_text(encoding="utf-8")) == manifest
     assert store.read_table("bars").height == 16
 
 
@@ -240,7 +240,7 @@ def test_an_interrupted_commit_leaves_the_last_version_intact(store, monkeypatch
             failed_at.append(calls[-1].name)
             assert store.manifest() == manifest
             assert store.read_table("bars").equals(rows) and "calendar" not in store.manifest()["tables"]
-            assert (store.home / ".lock").read_text() == ""
+            assert (store.home / ".lock").read_text(encoding="utf-8") == ""
             continue
         break
     assert failed_at == ["2003.v2.parquet", "calendar.v2.parquet", "manifest.v2.json", "manifest.json"]
@@ -303,7 +303,7 @@ def test_commit_fails_fast_while_another_process_holds_the_lock(store):
     child.start()
     try:
         assert ready.wait(30)
-        holder = json.loads((store.home / ".lock").read_text())
+        holder = json.loads((store.home / ".lock").read_text(encoding="utf-8"))
         assert holder["pid"] == child.pid and holder["host"] == socket.gethostname() and holder["started"]
         with pytest.raises(StoreLocked) as error:
             store.commit(META, replace={"bars": four_years()}, timeout=0)
@@ -313,7 +313,7 @@ def test_commit_fails_fast_while_another_process_holds_the_lock(store):
         release.set()
         child.join(30)
     assert store.commit(META, replace={"bars": four_years()}).changed
-    assert (store.home / ".lock").read_text() == ""
+    assert (store.home / ".lock").read_text(encoding="utf-8") == ""
 
 
 def test_lock_is_reentrant_within_one_store(store):
@@ -361,8 +361,8 @@ def test_a_version_written_before_names_is_named_by_its_day_and_own_number(store
     dated(store, "2024-01-05", "a")
     dated(store, "2024-01-05", "b")
     path = store.home / "manifests" / "manifest.v2.json"
-    legacy = {k: v for k, v in json.loads(path.read_text()).items() if k not in ("name", "reason")}
-    path.write_text(json.dumps(legacy))
+    legacy = {k: v for k, v in json.loads(path.read_text(encoding="utf-8")).items() if k not in ("name", "reason")}
+    path.write_text(json.dumps(legacy), encoding="utf-8")
     assert (version_name(store.manifest(2)), version_reason(store.manifest(2))["code"]) == ("20240105.2", "legacy")
 
 

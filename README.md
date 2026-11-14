@@ -53,6 +53,28 @@ seed always writes the same bytes, so end-to-end tests run on it.
 - `tools/`: command-line jobs: fetch, merge, data checks and reports. `tools/investment_data/` is a temporary seed
   import and not part of the package.
 
+## Windows and Linux (W0)
+
+wequant runs on Linux and Windows alike; GitHub Actions runs the tests on both on every push to main and every pull
+request (`.github/workflows/ci.yml`: Linux also runs ruff, Windows also times the first numba compile and runs the
+frontend's `npm run e2e`).
+
+- **Default places** (`wequant/paths.py`): the data root is `$WEQUANT_HOME`, else `~/.wequant` (Windows:
+  `%LOCALAPPDATA%\WeQuant\data`); settings outside any data root go to `~/.config/wequant` (`$XDG_CONFIG_HOME`;
+  Windows: `%APPDATA%\WeQuant`); caches to `~/.cache/wequant` (`$XDG_CACHE_HOME`; Windows:
+  `%LOCALAPPDATA%\WeQuant\cache`).
+- **numba's compile cache** goes to the cache folder (`numba/`) unless `NUMBA_CACHE_DIR` names one, so a program
+  installed where it cannot write still compiles its operators once: about 7 s on a first start, 0.3 s after
+  (`uv run python -m tools.compile_time`).
+- **Locks** are the same on both: one writer at a time (`flock` on Linux, a locked byte past the holder text on
+  Windows), a second one refused at once.
+- **Files in use:** Windows refuses to replace or delete a file another handle has open; writes, renames and deletes
+  try again a few times, then stop with `file_in_use` (exit 5) and nothing changed. A panel folder a reader still maps
+  stays until the next cleanup.
+- **Workers:** background jobs start `python -m wequant.service.worker`, or the hidden `wequant job-worker` command in
+  a frozen build (W2). Text files are read and written as UTF-8 everywhere; paths with Chinese characters and spaces
+  work.
+
 ## The wequant command
 
 ```bash
@@ -214,7 +236,7 @@ Exit codes (`wequant.service.Exit`):
 | 2 | `USAGE` | bad arguments or input: a refused expression or strategy, a malformed `ID@N`, a changed version file, a date that is not a run's decision or fill day, an invalid verification record (none of the submission is added), a malformed resolutions file, a decision without a selector or one that would approve an `undetermined` entry (nothing is changed) |
 | 3 | `NOT_FOUND` | no store, store version, code, trading day, saved strategy or version, run, stock pool, index members, or resolutions file to decide in |
 | 4 | `UNREACHABLE` | a data source cannot be reached or logged in to (`data update`: the store is unchanged) |
-| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock, the verification records' lock or the resolutions file's lock, or another BaoStock session holds `raw/baostock/.lock`; try again later |
+| 5 | `LOCKED` | another writer holds the store lock, a strategy's lock, the verification records' lock or the resolutions file's lock, or another BaoStock session holds `raw/baostock/.lock`; or another program kept a file open through every try (`file_in_use`, nothing changed); try again later |
 | 70 | `INTERNAL` | a bug (the traceback is on stderr), or the cli extra is not installed |
 | 130 | `INTERRUPTED` | Ctrl-C, or a cancelled run |
 

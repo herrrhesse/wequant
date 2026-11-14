@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import math
-import resource
 import tempfile
 import time
 from collections import Counter
@@ -21,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from tools.peak import peak_mib
 from wequant.account import EXECUTION_VERSION, ORDER_REASONS, REJECTED, Account, Execution, Fills, Ledger
 from wequant.analytics.inputs import known_fills
 from wequant.analytics.metrics import capacity
@@ -103,7 +103,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 def report(run: Run) -> str:
     """The Markdown report: every section of SECTIONS, under a header written last for the peak RSS."""
     body = [line for section in SECTIONS for line in section(run)]
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    peak = peak_mib()
     manifest = run.store.manifest(run.version)
     header = [
         f"# Account report: store v{run.version}",

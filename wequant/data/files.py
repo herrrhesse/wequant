@@ -1,4 +1,5 @@
-"""Atomic file writes: a file either does not exist yet or is complete."""
+"""Atomic file writes: a file either does not exist yet or is complete. Windows refuses to replace or delete a file
+another handle has open or mapped (round 3, W0), so replacing and removing try a few times before they give up."""
 
 from __future__ import annotations
 
@@ -6,11 +7,27 @@ import datetime as dt
 import io
 import os
 import secrets
+import shutil
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import polars as pl
 
 ROW_GROUP_ROWS = 262_144
+PAUSES = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6)  # seconds between tries of a replace or a delete the system refuses
+
+
+class FileInUse(PermissionError):
+    """A file stayed open elsewhere (another program, or a reader on Windows) through every try of a replace or a
+    delete; nothing was changed."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        self.path = Path(path)
+
+    def __str__(self) -> str:
+        return f"{self.path} is in use by another program; nothing was changed, try again once it is closed"
 
 
 def utc_now() -> str:
@@ -34,7 +51,7 @@ def atomic_write(path: Path, data: bytes) -> None:
             out.write(data)
             out.flush()
             os.fsync(out.fileno())
-        os.replace(tmp, path)
+        replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
     if os.name != "nt":  # directories cannot be opened for fsync on Windows
@@ -43,6 +60,32 @@ def atomic_write(path: Path, data: bytes) -> None:
             os.fsync(fd)
         finally:
             os.close(fd)
+
+
+def replace(source: Path, target: Path) -> None:
+    """os.replace, tried again while the system refuses; FileInUse after the last try, target unchanged."""
+    _retried(lambda: os.replace(source, target), target)
+
+
+def rename(source: Path, target: Path) -> None:
+    """os.rename (a directory too), tried again while the system refuses; FileInUse after the last try."""
+    _retried(lambda: os.rename(source, target), source)
+
+
+def remove_tree(path: Path) -> None:
+    """shutil.rmtree, tried again while the system refuses; FileInUse after the last try (some files may be gone)."""
+    _retried(lambda: shutil.rmtree(path) if Path(path).exists() else None, path)
+
+
+def _retried(change: Callable[[], None], path: Path) -> None:
+    for pause in (*PAUSES, None):
+        try:
+            change()
+            return
+        except PermissionError:
+            if pause is None:
+                raise FileInUse(path) from None
+            time.sleep(pause)
 
 
 class OutsideRoot(PermissionError):

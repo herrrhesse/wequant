@@ -41,7 +41,7 @@ def test_an_available_indicator_passes_the_expression_check_and_a_planned_one_is
         else:
             with pytest.raises(ExprError) as raised:
                 from_form(row.form)
-            assert raised.value.code == "not_available"
+            assert raised.value.code == "not_available" and row.reason
 
 
 def test_an_indicator_s_days_are_the_days_its_data_has(market_home):

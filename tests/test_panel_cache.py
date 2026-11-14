@@ -86,12 +86,11 @@ def test_stores_sharing_a_cache_get_their_own_directories(tmp_path, cache):
 def test_versions_the_store_no_longer_keeps_are_pruned(store, cache):
     (cache / "panel" / f"f{FORMAT + 1}-v1-0123456789ab").mkdir(parents=True)
     (cache / "panel" / "notes").mkdir()
-    first = load_panel(store=store, cache_dir=cache)
-    assert directories(cache) == sorted([first.key, "notes"])
-    for n in range(2, KEEP_VERSIONS + 2):  # versions 2 .. KEEP_VERSIONS + 1: version 1 falls out
+    first = load_panel(store=store, cache_dir=cache).key  # no panel of version 1 stays open (Windows keeps a
+    for n in range(2, KEEP_VERSIONS + 2):  # mapped folder); versions 2 .. KEEP_VERSIONS + 1: version 1 falls out
         commit(store, bars=BARS[n:])
     load_panel(version=2, store=store, cache_dir=cache)
-    assert directories(cache) == sorted([first.key, cache_key(store.manifest(2)), "notes"])
+    assert directories(cache) == sorted([first, cache_key(store.manifest(2)), "notes"])
     latest = load_panel(store=store, cache_dir=cache)
     assert directories(cache) == sorted([cache_key(store.manifest(2)), latest.key, "notes"])
 
