@@ -34,9 +34,12 @@ MIB = 1 << 20
 
 
 class UseHomeRequest(Model):
-    """Read and write another, existing data root from now on."""
+    """Read and write another data root from now on."""
 
     path: str
+    empty_ok: bool = False
+    """Also a new or empty folder, made when missing (the setup's 换一个文件夹, F-33); a folder with other files is
+    still refused (not_empty)."""
 
 
 class HomeSwitched(Model):
@@ -83,6 +86,8 @@ class SetupState(Model):
     """The build's or import's background job."""
     import_path: str | None = None
     """The folder of the user's own data to import."""
+    backfill: bool | None = None
+    """Add the earlier years in the background once the build is done (F-33)."""
     updated_at: str | None = None
 
 
@@ -109,12 +114,18 @@ class SetupSaveRequest(SetupState):
 
 
 def data_use_home(request: UseHomeRequest, context: Context = Context()) -> HomeSwitched:
-    """Use another folder that holds complete WeQuant data; refused, with the reason, for any other folder."""
+    """Use another folder that holds complete WeQuant data, or with empty_ok a new or empty one; refused, with the
+    reason, for any other folder."""
     target = absolute(request.path)
-    if (refused := problem(target)) is not None:
+    fresh = request.empty_ok and (not target.exists() or (target.is_dir() and not any(target.iterdir())))
+    if not fresh and (refused := problem(target)) is not None:
+        if request.empty_ok and refused.code == "not_a_data_root":
+            refused = Refused("not_empty", f"{target} holds other files and no WeQuant data")
         raise _refusal(refused)
     current = context.store()
     with _held(current):
+        if fresh:
+            _make(target)
         _switch(context, target)
     return HomeSwitched(home=str(target), previous=str(current.home))
 
@@ -210,6 +221,16 @@ def _held(store: Store) -> Iterator[None]:
             yield
     except StoreLocked as error:
         raise ServiceError(Exit.LOCKED, str(error), [ErrorDetail(code="store_busy", message=str(error))]) from None
+
+
+def _make(folder: Path) -> None:
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except PermissionError as error:
+        message = f"no permission to make {folder}"
+        raise ServiceError(
+            Exit.USAGE, message, [ErrorDetail(code="no_access", message=message, loc=["path"])]
+        ) from error
 
 
 def _switch(context: Context, home: Path) -> None:

@@ -70,9 +70,9 @@ def test_a_move_or_copy_waits_until_no_other_writer_holds_the_data_root(tmp_path
 
 def test_the_setup_s_progress_is_kept_until_cleared(tmp_path):
     context = Context(tmp_path / "empty", clock=lambda: "2026-11-14T00:00:00+00:00")
-    service.setup_save(service.SetupSaveRequest(step="folder", source="baostock", years=3), context)
+    service.setup_save(service.SetupSaveRequest(step="folder", source="baostock", years=3, backfill=False), context)
     kept = service.setup_save(service.SetupSaveRequest(step="build", job_id=4), context).setup
-    assert (kept.step, kept.source, kept.years, kept.job_id) == ("build", "baostock", 3, 4)
+    assert (kept.step, kept.source, kept.years, kept.job_id, kept.backfill) == ("build", "baostock", 3, 4, False)
     assert service.setup_save(service.SetupSaveRequest(clear=True), context).setup == service.SetupState()
 
 
@@ -94,3 +94,24 @@ def test_a_disk_without_room_says_how_much_the_data_needs(tmp_path, monkeypatch)
         service.data_relocate(service.RelocateRequest(to=str(tmp_path / "new"), mode="copy"), Context(home))
     detail = raised.value.detail[0]
     assert detail.code == "no_space" and detail.hint and detail.hint != ERROR_CODES["no_space"][1]
+
+
+@pytest.mark.parametrize("made", [False, True], ids=["new folder", "empty folder"])
+def test_the_setup_can_switch_to_a_new_or_empty_folder(tmp_path, made):
+    """F-33: empty_ok takes a folder without data when it is new or empty, and makes it."""
+    target, switched = tmp_path / "fresh", []
+    if made:
+        target.mkdir()
+    request = service.UseHomeRequest(path=str(target), empty_ok=True)
+    service.data_use_home(request, Context(seed(tmp_path / "home").home, switch=switched.append))
+    assert target.is_dir() and switched == [target] and user_config.configured_home() == target
+
+
+def test_a_folder_with_other_files_is_refused_even_when_empty_is_fine(tmp_path):
+    (tmp_path / "busy").mkdir()
+    (tmp_path / "busy" / "notes.txt").write_text("not WeQuant data", encoding="utf-8")
+    with pytest.raises(ServiceError) as raised:
+        service.data_use_home(
+            service.UseHomeRequest(path=str(tmp_path / "busy"), empty_ok=True), Context(tmp_path / "h")
+        )
+    assert raised.value.detail[0].code == "not_empty"

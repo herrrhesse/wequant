@@ -11,6 +11,7 @@ Nothing is committed until a segment's merge is complete; a cancel leaves no ver
 from __future__ import annotations
 
 import datetime as dt
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,8 @@ STAGES = ("build_calendar", "build_stocks", "build_factors", "build_indexes", "b
 HISTORY_FIELDS = "date,code,open,high,low,close,preclose,volume,amount,turn,tradestatus,isST"
 OLDEST = 2000  # the history a backfill reaches back to
 SEGMENT_YEARS = 3  # years of history one backfill version adds
+FACTOR_SECONDS = 0.5  # a factor history, for the time left before the factor stage has measured its own
+INDEX_SECONDS = 180.0  # the indexes' bars and member lists
 
 
 @dataclass
@@ -95,6 +98,9 @@ def backfill(
 
 def _segment(store, source, start, end, now, say, cancel, first) -> Built:
     """Fetch the trading days from start to end (None: the latest closed one) into the raw layer, then merge them."""
+    if not first:  # a backfill's steps name its years (F-33)
+        years, plain = {"first_year": start.year, "last_year": end.year}, say
+        say = lambda step: plain(step._replace(params={**step.params, **years}))  # noqa: E731
     raw = BaoStockRaw.at(store.home)
     check_inside(store.home, [raw.root, store.home / "manifests"])
     raw.root.mkdir(parents=True, exist_ok=True)
@@ -138,19 +144,37 @@ def _listed(basic: pl.DataFrame, first: dt.date, last: dt.date) -> list[str]:
 def _histories(source, raw, stocks, first, last, say, cancel) -> list[Path]:
     """Each stock's history file over the window, fetching the ones not on disk; the files with rows."""
     window = {"start_date": first.isoformat(), "end_date": last.isoformat(), "frequency": "d", "adjustflag": "3"}
-    paths = []
+    paths, pace = [], Pace()
     for n, code in enumerate(stocks):
         _check(cancel)
-        say(
-            Step(
-                STAGES[1], 0.02 + 0.6 * n / len(stocks), {"code": from_baostock(code), "done": n, "total": len(stocks)}
-            )
-        )
+        histories = pace.left(len(stocks) - n)
+        left = None if histories is None else histories + len(stocks) * FACTOR_SECONDS + INDEX_SECONDS
+        params = {"code": from_baostock(code), "done": n, "total": len(stocks), "eta_seconds": left}
+        say(Step(STAGES[1], 0.02 + 0.6 * n / len(stocks), params))
         path = raw.history(from_baostock(code), first, last)
-        params = {"code": code, "fields": HISTORY_FIELDS, **window}
-        if fetch(source, raw, path, "query_history_k_data_plus", params, empty=True).height:
+        fetched = not path.exists()
+        request = {"code": code, "fields": HISTORY_FIELDS, **window}
+        frame = fetch(source, raw, path, "query_history_k_data_plus", request, empty=True)
+        pace.count(fetched)
+        if frame.height:
             paths.append(path)
     return paths
+
+
+class Pace:
+    """Seconds per item fetched (items already on disk cost nothing), for the time a stage has left."""
+
+    def __init__(self) -> None:
+        self.started, self.fetched = time.monotonic(), 0
+
+    def count(self, fetched: bool) -> None:
+        self.fetched += fetched
+
+    def left(self, items: int) -> float | None:
+        """Seconds the items left take at the pace so far; None before a first fetch."""
+        if not self.fetched:
+            return None
+        return round(items * (time.monotonic() - self.started) / self.fetched)
 
 
 def _new_codes(store: Store, daily: pl.DataFrame) -> list[str]:
@@ -164,11 +188,14 @@ def _factors(source, raw, codes, now, say, cancel) -> None:
     """Each code's whole factor history, for the codes without a factor file."""
     missing = [code for code in codes if not raw.adjust_factor(code).exists()]
     end = now.astimezone(SHANGHAI).date().isoformat()
+    pace = Pace()
     for n, code in enumerate(missing):
         _check(cancel)
-        say(Step(STAGES[2], 0.62 + 0.2 * n / len(missing), {"done": n, "total": len(missing)}))
+        left = (pace.left(len(missing) - n) or (len(missing) - n) * FACTOR_SECONDS) + INDEX_SECONDS
+        say(Step(STAGES[2], 0.62 + 0.2 * n / len(missing), {"done": n, "total": len(missing), "eta_seconds": left}))
         params = {"code": to_baostock(code), "start_date": FIRST_DAY, "end_date": end}
         fetch(source, raw, raw.adjust_factor(code), "query_adjust_factor", params, empty=True)
+        pace.count(True)
 
 
 def _indexes(source, raw, days, say, cancel) -> tuple[pl.DataFrame, pl.DataFrame]:

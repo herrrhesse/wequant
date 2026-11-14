@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Literal
 
 from wequant.data import own
+from wequant.data.update import Step
 from wequant.service.base import Check, Context, ErrorDetail, Model, guarded, name_of
 from wequant.service.errors import Exit, ServiceError
 
 Rule = Literal["missing_columns", "unreadable", "duplicate", "price_order", "no_list_date"]
+STAGES = ("own_read", "own_commit")  # reading and checking the files, then writing the version
 
 
 class OwnRequest(Model):
@@ -71,12 +73,15 @@ def data_own_import(request: OwnRequest, context: Context = Context()) -> OwnImp
     if store.manifest() is not None:
         message = f"{store.home} has data already; import into an empty data root"
         raise ServiceError(Exit.USAGE, message, [ErrorDetail(code="store_exists", message=message)])
+    say = context.progress or (lambda step: None)
+    say(Step(STAGES[0], 0.05, {}))
     try:
         tables = own.tables(folder)
     except ValueError as error:
         raise ServiceError(Exit.USAGE, str(error), [ErrorDetail(code="bad_file", message=str(error))]) from None
     if context.cancel is not None and context.cancel():
         raise ServiceError(Exit.INTERRUPTED, "import cancelled; nothing was written")
+    say(Step(STAGES[1], 0.8, {}))
     days, last = tables["calendar"].height, tables["calendar"]["date"].max()
     meta = {"source": own.SOURCE, "last_trade_date": last.isoformat()}  # the version is named by it (F-29)
     with guarded():

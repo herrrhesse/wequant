@@ -84,3 +84,18 @@ def test_a_cancelled_segment_adds_no_version(tmp_path):
     with pytest.raises(UpdateCancelled):
         backfill(store, BaoStock(client=market()), NOW, cancel=lambda: True, oldest=2023)
     assert store.versions() == [1]
+
+
+def test_a_build_reports_the_time_it_has_left_once_it_has_fetched(tmp_path):
+    """F-33: eta_seconds from the build's own pace; unknown before the first fetch."""
+    steps = []
+    build(Store(tmp_path / "home"), BaoStock(client=market()), years=1, now=NOW, progress=steps.append, start=D1)
+    left = [s.params["eta_seconds"] for s in steps if s.stage == "build_stocks"]
+    assert left[0] is None and all(isinstance(seconds, int | float) for seconds in left[1:])
+
+
+def test_a_backfill_s_steps_name_its_years(tmp_path):
+    run(tmp_path / "home")
+    steps = []
+    backfill(Store(tmp_path / "home"), BaoStock(client=market()), NOW, progress=steps.append, oldest=2023)
+    assert {(s.params["first_year"], s.params["last_year"]) for s in steps} == {(2023, 2024)}

@@ -417,7 +417,9 @@ uv run wequant data copy TO ; uv run wequant data move TO   # also background jo
   new folder. Only folders: a file's name or content is never returned. A missing folder is NOT_FOUND
   `no_directory`; one that cannot be read or a bad name is USAGE (`no_access`, `bad_name`, `exists`).
 - **Changing it:** `data use-home` takes a folder only when it holds complete data (`not_a_data_root`,
-  `data_root_incomplete` otherwise). `data copy` / `data move` (job kind `data_relocate`, with progress and cancel)
+  `data_root_incomplete` otherwise); with `--empty-ok` (`empty_ok`, the setup's 换一个文件夹) also a new or empty
+  folder, made when missing, a folder with other files staying refused (`not_empty`). After switching to an empty
+  folder, `data status` is `no_store` and `setup status` says `needs_setup`. `data copy` / `data move` (job kind `data_relocate`, with progress and cancel)
   check that the target is a new or empty folder outside the data root with room for the data (`not_empty`,
   `inside`, `no_space`), hold the writer lock (LOCKED `store_busy`, HTTP 409, while another writer has it), copy file
   by file (the panel cache is rebuilt, not copied), check every file and that the copy reads as the same version, then
@@ -448,6 +450,9 @@ uv run wequant data own-check FOLDER ; uv run wequant data own-import FOLDER   #
   root with data makes no version (`exists`, no BaoStock session). A cancel leaves no version and keeps what was
   fetched, so the next run carries on and makes the same tables as one run straight through. It holds
   `raw/baostock/.lock` like the daily update: one BaoStock session at a time.
+- **Progress:** a build or backfill job's `JobInfo.eta_seconds` is the time left at the job's own pace so far (null
+  before its first fetch); a backfill's steps carry `first_year` and `last_year`; an import reports `own_read` and
+  `own_commit`.
 - **`data build-estimate`** gives the days, requests and seconds of a build from the speeds measured in round 3
   (report `Database/reports/round3_*.md`); days already in the raw layer cost nothing again.
 - **`data backfill`** adds the years before the store's first day, three years per version (reason 补齐历史 first–last),

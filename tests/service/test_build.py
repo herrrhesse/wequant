@@ -99,3 +99,11 @@ def test_a_built_or_imported_version_is_named_by_its_data_s_last_trading_day(tmp
         ("20240104.1", "2024-01-04"),
         ("20240103.1", "2024-01-03"),
     ]
+
+
+def test_an_import_reports_its_stages(tmp_path):
+    steps = []
+    service.data_own_import(
+        service.OwnRequest(path=str(own_folder(tmp_path))), context(tmp_path / "home", progress=steps.append)
+    )
+    assert [s.stage for s in steps] == ["own_read", "own_commit"]

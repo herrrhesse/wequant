@@ -439,6 +439,8 @@ JOB_STAGES = {  # code -> (name, template over the stage's params)
     "build_indexes": ("下载指数", "正在下载沪深300和中证500的行情和成分"),
     "build_merge": ("检查合并", "正在检查数据、整理成表"),
     "build_commit": ("写入版本", "正在写入数据版本"),
+    "own_read": ("读取并检查文件", "正在读取并检查自备数据"),
+    "own_commit": ("写入版本", "正在把自备数据写成数据版本"),
     "relocate_check": ("检查目标位置", "正在检查目标文件夹和可用空间"),
     "relocate_copy": ("复制数据", "正在复制数据（已复制 {done_mb}/{total_mb} MB）"),
     "relocate_switch": ("切换目录", "复制完成并核对无误，正在改用新的数据目录"),
