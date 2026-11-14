@@ -1331,3 +1331,19 @@ test("a backtest whose benchmark has no value on any day says there is no benchm
   await expect(result).toContainText("基准 沪深300");
   await expect(result.getByRole("note", { name: "基准线" })).toHaveText("沪深300在回测期间没有数据，所以画不出基准线和超额。");
 });
+
+test("the storage card says it is counting until the usage comes back, then the total; nothing uncounted shows as 1 KB", async ({ page }) => {
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await page.route("**/api/storage_usage", async (r) => {
+    await held;
+    await r.continue();
+  });
+  await page.goto("#/data");
+  const card = page.getByRole("region", { name: "存储", exact: true });
+  await expect(card.locator(".card-head")).toContainText("正在统计");
+  await expect(page.getByRole("main")).not.toContainText("1 KB");
+  release();
+  await expect(card.locator(".card-head")).toContainText(/共 [\d.]+ (KB|MB|GB)/);
+  await expect(card.locator(".card-head")).not.toContainText("正在统计");
+});

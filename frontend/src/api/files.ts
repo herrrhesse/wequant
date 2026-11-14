@@ -1,6 +1,6 @@
 // Files between the browser and wequant serve: an export op writes into <home>/exports/ and the browser downloads it
 // from GET /api/exports/<name>; an upload goes to PUT /api/imports/<name> and the import op reads the returned path.
-import { ApiError, call, Unreachable } from "./http";
+import { ApiError, call, Unreachable } from "./http.ts";
 import type { Operation, Operations } from "./operations.gen";
 import type { ErrorBody } from "./types.gen";
 
@@ -32,11 +32,12 @@ export async function importFile<O extends ImportOp>(op: O, file: File): Promise
   return call(op, { path: body.path } as Operations[O]["request"]);
 }
 
-/** Bytes as KB / MB / GB. */
+/** Bytes as KB / MB / GB: nothing is 0 KB, a few bytes are 1 KB (not shown as empty), unknown is "—". */
 export function size(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return "—";
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
   if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  if (bytes <= 0) return "0 KB";
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 

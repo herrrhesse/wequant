@@ -107,7 +107,7 @@ export function Storage() {
   const cleanup = useCallMutation("storage_cleanup", ["storage_usage", "runs_list", "data_status"]);
   const preview = useCall("storage_cleanup", { dry_run: true }, { staleTime: 0 });
   const u = usage.data;
-  const total = u ? u.current + u.versions + u.cache + u.runs : 0;
+  const total = u ? u.current + u.versions + u.cache + u.runs : null;
   const parts = u
     ? [
         { label: "当前数据", n: u.current, note: "", color: "var(--inv)" },
@@ -120,7 +120,8 @@ export function Storage() {
     <section className="card storage" aria-label="存储">
       <div className="card-head">
         <h2>存储</h2>
-        <span className="small muted">共 {size(total)}</span>
+        {/* Until the usage is counted there is no total to show (not 0). */}
+        <span className="small muted">{usage.isPending ? "正在统计" : `共 ${size(total)}`}</span>
       </div>
       {u && (
         <>
@@ -162,7 +163,7 @@ export function Storage() {
         </div>
       )}
       <span className="note">回测存档超过上限时，自动删除最旧的未保留存档；保留的存档和固定的版本不会被自动删除。</span>
-      {(update.isError || cleanup.isError) && <Problem error={update.error ?? cleanup.error} />}
+      {(usage.isError || update.isError || cleanup.isError) && <Problem error={usage.error ?? update.error ?? cleanup.error} />}
     </section>
   );
 }
