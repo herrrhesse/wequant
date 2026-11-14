@@ -15,6 +15,7 @@ from wequant.backtest.anomalies import screen_uses
 from wequant.panel import NotInPanel, Panel, load_panel
 from wequant.service.base import Context, DataRequest, Model, Names, manifest, named, names_of, not_found, read_version
 from wequant.service.details import Loc, spec_details, to_data, usage
+from wequant.service.notes import pool_note
 from wequant.service.outputs import DataAnomaly, Op, Role, SavedRef, Warning, data_anomaly, warnings_out
 from wequant.service.scopes import beyond_data
 from wequant.service.specs import DataSpec, IsoDate
@@ -125,6 +126,9 @@ class Reject(Model):
     """between only."""
     members: list[MemberResult] | None
     """Groups only."""
+    note: str | None = None
+    """The page's sentence for a pool level, as the decision chain gives it: 处于退市整理期（第 k/N 天）, list days counted
+    by a lower bound; null otherwise (S2.10a)."""
     missing: str | None
     """At scored: the first factor without a value, or formula."""
 
@@ -302,6 +306,7 @@ def reject_rows(
                 threshold=compared and compared.threshold,
                 threshold_hi=compared and compared.threshold_hi,
                 members=members,
+                note=pool_note(row["step"], panel, int(section.rows[i]), column[row["code"]]),
             )
         )
     return found

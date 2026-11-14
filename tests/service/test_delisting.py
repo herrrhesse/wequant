@@ -76,3 +76,9 @@ def test_a_holding_entering_its_delisting_period_is_sold_at_the_next_rebalance(t
     sold = orders.filter((pl.col("code") == A) & (pl.col("side") == "sell"))["date"].to_list()
     first = dt.date.fromisoformat(DAYS[5])  # the period's first day: the last 15 of A's 20 bars
     assert sold == [dt.date.fromisoformat(DAYS[6])] and first < sold[0]  # filled the day after that decision
+
+
+def test_a_screen_s_reject_in_its_delisting_period_carries_the_decision_chain_s_note(tmp_path, cache):
+    found = screen(home(tmp_path), cache, {"exclude_delisting": True})
+    reject = next(r for r in found.rejects if r.code == A)
+    assert (reject.step, reject.note) == ("exclude_delisting", "处于退市整理期（第 15/15 天）")
