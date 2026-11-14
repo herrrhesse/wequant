@@ -61,3 +61,28 @@ export function editSell(spec: object, fn: (s: SellSpec) => void) {
   if (sellIsDefault(s)) delete d.sell;
   else d.sell = s;
 }
+
+/** S4.1: a formula condition's variables on the day (weekly: the week it read), for rejects and the chain. */
+export interface FormulaValue {
+  name: string;
+  kind: "num" | "bool";
+  value: number | null;
+  /** Used by the output line itself (A, B, C in XG: A AND B AND C). */
+  direct: boolean;
+}
+
+const num = (v: number) => String(Number(v.toFixed(Math.abs(v) >= 1000 ? 0 : 2)));
+
+/** The words for a formula condition's values: its direct parts as ✓ / ✗ (the failed ones first, as they explain
+ * the result), then the numbers. Nothing is computed: the values are the backend's. */
+export function formulaWords(values: FormulaValue[]): { parts: string[]; numbers: string[] } {
+  const direct = values.filter((v) => v.direct);
+  const mark = (v: FormulaValue) => (v.kind === "bool" ? `${v.name} ${v.value === null ? "—" : v.value ? "✓" : "✗"}` : `${v.name} ${v.value === null ? "—" : num(v.value)}`);
+  const failed = (v: FormulaValue) => v.kind === "bool" && v.value === 0;
+  const parts = [...direct.filter(failed), ...direct.filter((v) => !failed(v))].map(mark);
+  const numbers = values.filter((v) => !v.direct && v.kind === "num").map(mark);
+  return { parts, numbers };
+}
+
+/** formula_values of a StepCheck or a Reject (S4.1); empty when the condition is not a text formula. */
+export const formulaValuesOf = (x: unknown): FormulaValue[] => (x as { formula_values?: FormulaValue[] } | null | undefined)?.formula_values ?? [];

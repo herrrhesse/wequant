@@ -5,6 +5,7 @@ import { pct } from "../format";
 import { useLabels } from "../labels";
 import { POOL_STEP_NAMES } from "../pages/strategy/text";
 import { explainRules } from "../api/r4";
+import { formulaValuesOf, formulaWords, type FormulaValue } from "../strategy/formula";
 
 const ROLE_STEP = { target: "targets", backup: "backups", none: "scored" } as const;
 
@@ -30,6 +31,7 @@ export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null 
             </span>
           ))}
           {stepValue(spec, s) && <span className="muted small num">{stepValue(spec, s)}</span>}
+          <FormulaParts values={formulaValuesOf(s)} />
         </div>
       ))}
       {e.score?.factors.map((f) => (
@@ -62,5 +64,17 @@ export function ChainView({ e, spec }: { e: Explain; spec?: StrategySpec | null 
         </span>
       ))}
     </div>
+  );
+}
+
+/** A text formula condition's parts and numbers on the day (S4.1 formula_values): "B ✗ · A ✓ · C ✓", then the numbers. */
+function FormulaParts({ values }: { values: FormulaValue[] }) {
+  const w = formulaWords(values);
+  if (!w.parts.length && !w.numbers.length) return null;
+  return (
+    <span className="chain-formula">
+      {w.parts.length > 0 && <span className="small">{w.parts.join(" · ")}</span>}
+      {w.numbers.length > 0 && <span className="muted small num">{w.numbers.join(" · ")}</span>}
+    </span>
   );
 }

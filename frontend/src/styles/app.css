@@ -500,3 +500,4 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .sell-name { font-size: 13px; font-weight: 600; }
 .sell-help, .sell-formula, .sell-sub, .sell-row .err-text { grid-column: 2; }
 .sell-row .input:disabled { opacity: 0.5; }
+.chain-formula { flex-basis: 100%; display: flex; flex-direction: column; gap: 1px; padding-left: 22px; }

@@ -18,7 +18,7 @@ import { tx } from "../../text";
 import { useUi } from "../../ui";
 import { stepName } from "../strategy/Preview";
 import { screenHoldings } from "../../api/r4";
-import { sellIsDefault, sellOf } from "../../strategy/formula";
+import { formulaValuesOf, formulaWords, sellIsDefault, sellOf } from "../../strategy/formula";
 import { Holdings } from "./Holdings";
 import { PeriodTag } from "../../components/PeriodTag";
 import { MiniK } from "./MiniK";
@@ -351,6 +351,9 @@ function why(x: Reject, units: Map<string, Unit>): string {
   const u = units.get(x.step);
   const v = (n: number) => (u ? `${Number(toDisplay(n, u).toPrecision(4))}${UNIT_TEXT[u]}` : String(Number(n.toPrecision(6))));
   if (x.members) return x.members.map((m) => `${m.name} ${m.passed ? "✓" : "✗"}`).join("；");
+  // A text formula: its parts (failed first) and numbers on the day, as the backend gives them.
+  const fv = formulaWords(formulaValuesOf(x));
+  if (fv.parts.length || fv.numbers.length) return [fv.parts.join(" · "), fv.numbers.length ? `（${fv.numbers.join(" · ")}）` : ""].join("");
   if (x.value !== null && x.threshold !== null)
     return `${v(x.value)} / 要求 ${x.op ? OPS[x.op] : ""} ${v(x.threshold)}${x.threshold_hi !== null ? ` 至 ${v(x.threshold_hi)}` : ""}`;
   // A scope step's own sentence, as in the judgment chain (e.g. 处于退市整理期（第 3/15 天）).
