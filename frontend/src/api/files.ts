@@ -39,3 +39,15 @@ export function size(bytes: number | null | undefined): string {
   if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
+
+/** A text the browser saves as a file (an example file, an export made in the page). */
+export function downloadText(fileName: string, text: string, type = "text/csv;charset=utf-8") {
+  const url = URL.createObjectURL(new Blob(["﻿", text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

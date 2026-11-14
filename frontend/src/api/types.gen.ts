@@ -19,17 +19,23 @@ export type Exit = 0 | 1 | 2 | 3 | 4 | 5 | 70 | 130;
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "JobOutput".
  */
-export type JobOutput = BacktestResult | UpdateResult;
+export type JobOutput = BacktestResult | UpdateResult | Relocated | BuildResult | BackfillResult | OwnImported;
 
 export interface ServiceModels {
   AnomaliesPage?: AnomaliesPage;
   AnomaliesRequest?: AnomaliesRequest;
   AnomalyUse?: AnomalyUse;
   ArchiveRequest?: ArchiveRequest;
+  BackfillRequest?: BackfillRequest;
+  BackfillResult?: BackfillResult;
   BacktestRequest?: BacktestRequest;
   BacktestResult?: BacktestResult;
   Bars?: Bars;
   BarsRequest?: BarsRequest;
+  BuildEstimate?: BuildEstimate;
+  BuildEstimateRequest?: BuildEstimateRequest;
+  BuildRequest?: BuildRequest;
+  BuildResult?: BuildResult;
   Calendar?: Calendar;
   CalendarRequest?: CalendarRequest;
   CheckReport?: CheckReport;
@@ -69,8 +75,11 @@ export interface ServiceModels {
   FactorScore?: FactorScore;
   FactorSpec?: FactorSpec;
   FeeRule?: FeeRule;
+  FolderOut?: FolderOut;
+  FolderRequest?: FolderRequest;
   FunnelStep?: FunnelStep;
   GroupSpec?: GroupSpec;
+  HomeSwitched?: HomeSwitched;
   ImportRequest?: ImportRequest;
   IndexBar?: IndexBar;
   IndexBars?: IndexBars;
@@ -78,6 +87,11 @@ export interface ServiceModels {
   IndexCheck?: IndexCheck;
   IndexCheckRequest?: IndexCheckRequest;
   IndexCoverage?: IndexCoverage;
+  IndexPool?: IndexPool;
+  IndexPoolRequest?: IndexPoolRequest;
+  Indicator?: Indicator;
+  Indicators?: Indicators;
+  IndicatorsRequest?: IndicatorsRequest;
   IssueCount?: IssueCount;
   IssueKindLabel?: IssueKindLabel;
   IssueRow?: IssueRow;
@@ -94,10 +108,13 @@ export interface ServiceModels {
   Labels?: Labels;
   LabelsRequest?: LabelsRequest;
   LevelCounts?: LevelCounts;
+  Listing?: Listing;
+  Made?: Made;
   MemberResult?: MemberResult;
   MetricDiff?: MetricDiff;
   MetricOut?: MetricOut;
   MetricSpecModel?: MetricSpecModel1;
+  MkdirRequest?: MkdirRequest;
   NamesReport?: NamesReport;
   NamesRequest?: NamesRequest;
   OperationModels?: OperationModels;
@@ -105,15 +122,37 @@ export interface ServiceModels {
   OrderRow?: OrderRow;
   OrdersPage?: OrdersPage;
   OrdersRequest?: OrdersRequest;
+  OwnCheck?: OwnCheck;
+  OwnImported?: OwnImported;
+  OwnProblem?: OwnProblem;
+  OwnRequest?: OwnRequest;
+  ParseRequest?: ParseRequest;
+  ParsedStocks?: ParsedStocks;
   PeriodRow?: PeriodRow;
   Periods?: Periods;
   PinRunRequest?: PinRunRequest;
   PinVersionRequest?: PinVersionRequest;
+  PlaceOut?: PlaceOut;
+  Places?: Places;
+  PlacesRequest?: PlacesRequest;
   PoolCheck?: PoolCheck;
+  PoolCsv?: PoolCsv;
+  PoolDrift?: PoolDrift;
+  PoolImportRequest?: PoolImportRequest;
+  PoolImported?: PoolImported;
+  PoolList?: PoolList;
+  PoolOut?: PoolOut;
+  PoolRequest?: PoolRequest;
+  PoolRow?: PoolRow;
+  PoolSaveRequest?: PoolSaveRequest;
   PoolSpec?: PoolSpec1;
+  PoolStock?: PoolStock;
+  PoolsListRequest?: PoolsListRequest;
   PositionRow?: PositionRow;
   ProfileReport?: ProfileReport;
   Reject?: Reject;
+  RelocateRequest?: RelocateRequest;
+  Relocated?: Relocated;
   Resolution?: Resolution;
   ResolveListRequest?: ResolveListRequest;
   ResolvePage?: ResolvePage;
@@ -139,6 +178,7 @@ export interface ServiceModels {
   ScheduleRequest?: ScheduleRequest;
   ScheduledDay?: ScheduledDay;
   SchemaRequest?: SchemaRequest;
+  ScopeLabel?: ScopeLabel;
   ScoreCheck?: ScoreCheck;
   ScreenRequest?: ScreenRequest;
   ScreenResult?: ScreenResult;
@@ -151,12 +191,17 @@ export interface ServiceModels {
   SettingsOut?: SettingsOut;
   SettingsRequest?: SettingsRequest;
   SettingsUpdate?: SettingsUpdate;
+  SetupSaveRequest?: SetupSaveRequest;
+  SetupState?: SetupState;
+  SetupStatus?: SetupStatus;
+  SetupStatusRequest?: SetupStatusRequest;
   ShowRequest?: ShowRequest;
   SourceRef?: SourceRef;
   Stage?: Stage;
   StatusCount?: StatusCount;
   StatusRequest?: StatusRequest;
   StepCheck?: StepCheck;
+  StocksSpec?: StocksSpec;
   StorageUsage?: StorageUsage;
   StrategyCheck?: StrategyCheck;
   StrategyImported?: StrategyImported;
@@ -172,10 +217,15 @@ export interface ServiceModels {
   StrategyVersions?: StrategyVersions;
   SummaryPart?: SummaryPart;
   TableStatus?: TableStatus;
+  Template?: Template;
   TemplateLabel?: TemplateLabel;
+  Templates?: Templates;
+  TemplatesRequest?: TemplatesRequest;
+  UnparsedItem?: UnparsedItem;
   UpdateRequest?: UpdateRequest;
   UpdateResult?: UpdateResult;
   UsageRequest?: UsageRequest;
+  UseHomeRequest?: UseHomeRequest;
   UseVersionRequest?: UseVersionRequest;
   VerificationIn?: VerificationIn;
   VerificationOut?: VerificationOut;
@@ -281,6 +331,45 @@ export interface AnomaliesRequest {
 export interface ArchiveRequest {
   id: string;
   restore?: boolean;
+}
+/**
+ * The history before the data root's first day, back to the start of `oldest`, one version per segment.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BackfillRequest".
+ */
+export interface BackfillRequest {
+  oldest?: number;
+}
+/**
+ * The segments added, newest first, until no history was left.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BackfillResult".
+ */
+export interface BackfillResult {
+  segments: BuildResult[];
+  status: "complete";
+}
+/**
+ * What a build or one backfill segment did.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BuildResult".
+ */
+export interface BuildResult {
+  /**
+   * built: a new version; exists: the data root has data already (no new version); complete: no older history
+   * left; not_published: BaoStock has no day of the window yet.
+   */
+  status: "built" | "exists" | "complete" | "not_published";
+  version: number | null;
+  version_name: string | null;
+  first: string | null;
+  last: string | null;
+  days: number;
+  requests: number;
+  seconds: number;
 }
 /**
  * A strategy (inline or saved) over a date range.
@@ -422,7 +511,8 @@ export interface FactorSpec {
  */
 export interface PoolSpec {
   /**
-   * Members of this index on the decision day; null: any.
+   * Members of this index on the decision day; null: any. labels.scopes lists the ones offered; 000906.SH,
+   * 000852.SH and 000985.SH are older options that existing strategies still read.
    */
   index?: ("000300.SH" | "000905.SH" | "000906.SH" | "000852.SH" | "000985.SH") | null;
   /**
@@ -437,6 +527,33 @@ export interface PoolSpec {
    * Leave out stocks listed for fewer trading days; null: no limit.
    */
   min_list_days?: number | null;
+  /**
+   * Only the stocks on this fixed list (round 3); never together with index.
+   */
+  stocks?: StocksSpec | null;
+}
+/**
+ * A fixed list of stocks: the strategy keeps its own copy, so a later change to the stock pool leaves it as it
+ * was.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "StocksSpec".
+ */
+export interface StocksSpec {
+  /**
+   * Codes such as 600000.SH, in the order shown.
+   *
+   * @minItems 1
+   */
+  codes: [string, ...string[]];
+  /**
+   * The stock pool they were copied from (pools_list); shown only.
+   */
+  pool_id?: string | null;
+  /**
+   * That pool's name when copied; shown only.
+   */
+  pool_name?: string | null;
 }
 /**
  * A saved strategy version.
@@ -838,6 +955,46 @@ export interface BarsRequest {
   ];
 }
 /**
+ * A first build's size and expected time, from measured BaoStock speeds; BaoStock's own speed varies.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BuildEstimate".
+ */
+export interface BuildEstimate {
+  years: number;
+  /**
+   * Trading days, from BaoStock's calendar when the raw layer has it, else 243 a year.
+   */
+  days: number;
+  requests: number;
+  /**
+   * Expected time; the frontend shows it as 预计约 X 小时.
+   */
+  seconds: number;
+  /**
+   * Stocks whose history files the raw layer holds from an earlier, stopped build: they cost nothing again.
+   */
+  already: number;
+}
+/**
+ * How long a first build of the last `years` years will take.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BuildEstimateRequest".
+ */
+export interface BuildEstimateRequest {
+  years?: 1 | 3 | 5;
+}
+/**
+ * A first build of an empty data root from BaoStock.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "BuildRequest".
+ */
+export interface BuildRequest {
+  years?: 1 | 3 | 5;
+}
+/**
  * A store version's trading days.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -1152,6 +1309,10 @@ export interface DataStatus {
   meta: {
     [k: string]: JsonValue;
   };
+  /**
+   * The data root's folder, absolute (round 3: the data page's 存储位置).
+   */
+  home: string;
 }
 /**
  * One version the store keeps.
@@ -1616,10 +1777,11 @@ export interface PoolCheck {
   passed: boolean | null;
   /**
    * bar: t's close; index: membership; boards: the stock's board; exclude_st: its ST flag; min_list_days: list days.
+   * universe passes on the strategy's fixed list only, when it has one.
    */
   value: number | boolean | string | null;
   /**
-   * e.g. listing days counted from the data's first day before S2.3.
+   * A Chinese sentence for the page, e.g. that listing days count from the data's first day; null: none.
    */
   note: string | null;
 }
@@ -1937,6 +2099,33 @@ export interface FeeRule {
   note: string | null;
 }
 /**
+ * One subfolder.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FolderOut".
+ */
+export interface FolderOut {
+  name: string;
+  path: string;
+  /**
+   * It holds WeQuant data (a manifest or a kept version).
+   */
+  is_wequant_home: boolean;
+  /**
+   * A data root's size; null for other folders.
+   */
+  size_bytes: number | null;
+}
+/**
+ * A folder to list.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "FolderRequest".
+ */
+export interface FolderRequest {
+  path: string;
+}
+/**
  * One level of the funnel, in order: listed, bar, universe, pool items, filters, scored, targets, backups.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -1968,6 +2157,16 @@ export interface FunnelStep {
    * Groups only: member condition names.
    */
   members: string[] | null;
+}
+/**
+ * The data root now in use, and the one before.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "HomeSwitched".
+ */
+export interface HomeSwitched {
+  home: string;
+  previous: string;
 }
 /**
  * A file to import, as an export wrote it.
@@ -2083,6 +2282,139 @@ export interface IndexCoverage {
  * via the `definition` "IndexCheckRequest".
  */
 export interface IndexCheckRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+}
+/**
+ * An index's members on one day.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexPool".
+ */
+export interface IndexPool {
+  index: string;
+  /**
+   * The members' day: the version's last trading day, or the last day it has members for.
+   */
+  date: string;
+  data_version: number;
+  data_version_name: string;
+  stocks: PoolStock[];
+}
+/**
+ * A stock of a pool or a parsed list, with its name.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolStock".
+ */
+export interface PoolStock {
+  code: string;
+  /**
+   * As the data has it now; null: the data has no name (or no such stock).
+   */
+  name: string | null;
+}
+/**
+ * An index's members on the data's last day with members, as a list to start a pool from.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndexPoolRequest".
+ */
+export interface IndexPoolRequest {
+  /**
+   * Store version to read (default: the current one).
+   */
+  data_version?: number | null;
+  index: "000300.SH" | "000905.SH";
+}
+/**
+ * One indicator a condition or a factor can use.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Indicator".
+ */
+export interface Indicator {
+  /**
+   * A field name (close, board@main, member@000300.SH) or a common indicator's id (change_20).
+   */
+  id: string;
+  /**
+   * Its expression form, to write into a condition or a factor; a field's is its name.
+   */
+  form: string | unknown[];
+  /**
+   * Chinese name.
+   */
+  label: string;
+  /**
+   * yuan, shares, fraction (0.05 is 5%), ratio, trading_days or bool.
+   */
+  unit: "yuan" | "shares" | "fraction" | "ratio" | "trading_days" | "bool";
+  /**
+   * labels.indicator_categories gives the Chinese.
+   */
+  category:
+    | "price"
+    | "adjusted_price"
+    | "volume"
+    | "momentum"
+    | "volatility"
+    | "trend"
+    | "limit"
+    | "status"
+    | "classification"
+    | "membership"
+    | "listing";
+  /**
+   * One Chinese sentence.
+   */
+  help: string;
+  kind: "num" | "bool";
+  /**
+   * False: a planned field the expressions cannot read yet; see reason.
+   */
+  available: boolean;
+  /**
+   * Why it is not available, one Chinese sentence for the page (F-31); null when it is.
+   */
+  reason: string | null;
+  /**
+   * Empty until the BaoStock merge (S2.4b) fills its table, e.g. ST and the turnover rate.
+   */
+  needs_merge: boolean;
+  /**
+   * An older index's membership: still read, no longer updated.
+   */
+  legacy: boolean;
+  /**
+   * The first day the data has a value for it; null: none (or no data).
+   */
+  first: string | null;
+  last: string | null;
+}
+/**
+ * The indicators: fields first, then the common indicators built from them.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Indicators".
+ */
+export interface Indicators {
+  /**
+   * The store version the days are read from; null: no data.
+   */
+  data_version: number | null;
+  data_version_name: string | null;
+  rows: Indicator[];
+}
+/**
+ * Every indicator, with the days the store version has for it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "IndicatorsRequest".
+ */
+export interface IndicatorsRequest {
   /**
    * Store version to read (default: the current one).
    */
@@ -2238,6 +2570,11 @@ export interface JobInfo {
    */
   text: string;
   /**
+   * Expected seconds left, for the jobs that measure their own pace (a first build, a backfill); null otherwise
+   * (F-33).
+   */
+  eta_seconds?: number | null;
+  /**
    * Why a failed or cancelled job has no result; null otherwise.
    */
   error: ErrorBody | null;
@@ -2319,6 +2656,44 @@ export interface UpdateResult {
   requests: number;
 }
 /**
+ * A data root moved or copied and in use.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Relocated".
+ */
+export interface Relocated {
+  home: string;
+  previous: string;
+  mode: "move" | "copy";
+  files: number;
+  bytes: number;
+  /**
+   * A move on one disk: the folder was renamed, nothing copied.
+   */
+  renamed: boolean;
+  seconds: number;
+  /**
+   * After a move, files of the old folder that could not be removed (the data is safe in the new one).
+   */
+  left_behind: string[];
+}
+/**
+ * The version made from the user's files.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "OwnImported".
+ */
+export interface OwnImported {
+  version: number;
+  version_name: string;
+  days: number;
+  codes: number;
+  /**
+   * data_issues rows: rows not imported and bars flagged.
+   */
+  issues: number;
+}
+/**
  * One job.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2334,7 +2709,7 @@ export interface JobRef {
  * via the `definition` "JobStartRequest".
  */
 export interface JobStartRequest {
-  kind: "backtest" | "data_update";
+  kind: "backtest" | "data_update" | "data_relocate" | "data_build" | "data_backfill" | "data_own_import";
   /**
    * The request the operation takes (backtest: a BacktestRequest, data_update: {}); a null data_version is pinned to
    * the version current now, so a version committed while the job waits or runs changes nothing. An update builds on
@@ -2408,6 +2783,26 @@ export interface Labels {
    * Where a scheduled rebalance day comes from (ScheduledDay.source).
    */
   day_sources: Label[];
+  /**
+   * The scopes a strategy may have, the offered ones first in the order to show; legacy ones last.
+   */
+  scopes: ScopeLabel[];
+  /**
+   * Why an item of a pasted list or file names no stock (UnparsedItem.reason).
+   */
+  parse_reasons: Label[];
+  /**
+   * The categories of expr indicators (Indicator.category).
+   */
+  indicator_categories: Label[];
+  /**
+   * The rules the user's own files are checked against (OwnProblem.rule).
+   */
+  own_rules: Label[];
+  /**
+   * What a first build or a backfill segment did (BuildResult.status).
+   */
+  build_statuses: Label[];
 }
 /**
  * A warning: template, plus optional clauses and repetition (fill shows how).
@@ -2450,12 +2845,61 @@ export interface TemplateLabel {
   params: string[];
 }
 /**
+ * A scope a strategy may have: all stocks, an index's members, or a fixed list of stocks.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ScopeLabel".
+ */
+export interface ScopeLabel {
+  code: string;
+  /**
+   * Short, for tables and chips.
+   */
+  label: string;
+  /**
+   * One sentence, for tooltips.
+   */
+  help: string;
+  kind: "all" | "index" | "stocks";
+  /**
+   * True: an older index option, still read in existing strategies, never offered for new ones.
+   */
+  legacy: boolean;
+}
+/**
  * Every label table.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
  * via the `definition` "LabelsRequest".
  */
 export interface LabelsRequest {}
+/**
+ * A folder's visible subfolders by name, with the free space of its disk; files are never listed.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Listing".
+ */
+export interface Listing {
+  /**
+   * The folder, absolute.
+   */
+  path: string;
+  /**
+   * null at a drive's or the file system's root.
+   */
+  parent: string | null;
+  free_bytes: number;
+  dirs: FolderOut[];
+}
+/**
+ * The folder made.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Made".
+ */
+export interface Made {
+  path: string;
+}
 /**
  * A metric that differs between two runs.
  *
@@ -2478,6 +2922,16 @@ export interface MetricSpecModel1 {
   periods_per_year?: number;
   risk_free_rate?: number;
   tail_fraction?: number;
+}
+/**
+ * A new folder inside path.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "MkdirRequest".
+ */
+export interface MkdirRequest {
+  path: string;
+  name: string;
 }
 /**
  * What the stock_basic file gives the current version's securities.
@@ -2586,6 +3040,103 @@ export interface OrdersRequest {
   end?: string | null;
 }
 /**
+ * What the folder holds and which rows break which rule; ok False when it cannot be imported at all.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "OwnCheck".
+ */
+export interface OwnCheck {
+  /**
+   * True when the check found nothing to act on.
+   */
+  ok: boolean;
+  bars_file: string | null;
+  securities_file: string | null;
+  rows: number;
+  codes: number;
+  first: string | null;
+  last: string | null;
+  /**
+   * Optional columns found: preclose, factor, st, tradestatus.
+   */
+  optional: string[];
+  problems: OwnProblem[];
+}
+/**
+ * A rule some rows break (labels.own_rules): unreadable and duplicate rows are not imported, the others are,
+ * flagged in data_issues.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "OwnProblem".
+ */
+export interface OwnProblem {
+  rule: "missing_columns" | "unreadable" | "duplicate" | "price_order" | "no_list_date";
+  /**
+   * Rows (missing_columns: columns) that break it.
+   */
+  rows: number;
+  /**
+   * The first few as [code, date] (missing_columns: [column, ""]).
+   */
+  examples: string[][];
+}
+/**
+ * A folder with bars.parquet or bars.csv, and optionally securities.parquet or securities.csv.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "OwnRequest".
+ */
+export interface OwnRequest {
+  path: string;
+}
+/**
+ * A pasted list, or the text of an uploaded CSV or TXT file (first column codes, second names).
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ParseRequest".
+ */
+export interface ParseRequest {
+  /**
+   * Items split at line breaks, commas, spaces, tabs and semicolons: codes such as 600519, 600519.SH, sh600519,
+   * sh.600519 or SH600519, or stocks' current names.
+   */
+  text: string;
+}
+/**
+ * Every item accounted for: the stocks found, the items that named none, the repeats.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "ParsedStocks".
+ */
+export interface ParsedStocks {
+  /**
+   * In the order first named, each once.
+   */
+  stocks: PoolStock[];
+  unparsed: UnparsedItem[];
+  /**
+   * Items naming a stock already found, kept once.
+   */
+  duplicates: string[];
+}
+/**
+ * An item that names no one stock.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UnparsedItem".
+ */
+export interface UnparsedItem {
+  item: string;
+  /**
+   * labels.parse_reasons: not_found, ambiguous, beijing, not_a_stock or header.
+   */
+  reason: "not_found" | "ambiguous" | "beijing" | "not_a_stock" | "header";
+  /**
+   * The stocks an ambiguous item could mean; empty otherwise.
+   */
+  candidates: PoolStock[];
+}
+/**
  * One year or month of a run, not annualised.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2641,6 +3192,169 @@ export interface PinVersionRequest {
   pinned?: boolean;
 }
 /**
+ * A place to start browsing from.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PlaceOut".
+ */
+export interface PlaceOut {
+  /**
+   * Chinese, e.g. 主目录, C: 盘, or a mounted disk's name.
+   */
+  label: string;
+  /**
+   * home, root, drive or mount.
+   */
+  kind: string;
+  path: string;
+  /**
+   * Free space on its disk; null when it cannot be read.
+   */
+  free_bytes: number | null;
+}
+/**
+ * The usual places: home, then the drives (Windows) or the root and the mounted disks.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Places".
+ */
+export interface Places {
+  rows: PlaceOut[];
+}
+/**
+ * No fields.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PlacesRequest".
+ */
+export interface PlacesRequest {}
+/**
+ * A stock pool as a CSV file: a header row, then code and name per row.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolCsv".
+ */
+export interface PoolCsv {
+  file_name: string;
+  /**
+   * UTF-8 text with a byte order mark, so that spreadsheet programs read the names.
+   */
+  csv: string;
+}
+/**
+ * How a strategy's copied list differs from its stock pool now.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolDrift".
+ */
+export interface PoolDrift {
+  pool_id: string;
+  /**
+   * The pool's name now; null: the pool was deleted.
+   */
+  pool_name: string | null;
+  /**
+   * On the pool now, not on the strategy's list.
+   */
+  added: string[];
+  /**
+   * On the strategy's list, no longer on the pool.
+   */
+  removed: string[];
+}
+/**
+ * A new stock pool from a CSV or TXT file's text, read as parse reads it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolImportRequest".
+ */
+export interface PoolImportRequest {
+  name: string;
+  text: string;
+}
+/**
+ * The pool made, and the items that named no stock or repeated one.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolImported".
+ */
+export interface PoolImported {
+  pool: PoolOut;
+  unparsed: UnparsedItem[];
+  duplicates: string[];
+}
+/**
+ * A stock pool with its stocks, in the user's order.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolOut".
+ */
+export interface PoolOut {
+  id: string;
+  name: string;
+  stocks: PoolStock[];
+  /**
+   * ISO 8601 with offset.
+   */
+  created_at: string;
+  modified_at: string;
+  /**
+   * Codes the data (the version in use) has no stock for; empty without data.
+   */
+  missing: string[];
+}
+/**
+ * The stock pools, oldest first.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolList".
+ */
+export interface PoolList {
+  rows: PoolRow[];
+}
+/**
+ * One stock pool in the list.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolRow".
+ */
+export interface PoolRow {
+  id: string;
+  name: string;
+  /**
+   * Stocks on it.
+   */
+  count: number;
+  created_at: string;
+  modified_at: string;
+}
+/**
+ * One stock pool.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolRequest".
+ */
+export interface PoolRequest {
+  id: string;
+}
+/**
+ * A new stock pool, or a pool renamed and refilled.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolSaveRequest".
+ */
+export interface PoolSaveRequest {
+  /**
+   * null: a new pool with a generated id.
+   */
+  id?: string | null;
+  name: string;
+  /**
+   * Codes such as 600000.SH, in the order to keep.
+   */
+  codes?: string[];
+}
+/**
  * Explicit pool items, ANDed with the universe; all defaults leave the pool as the universe.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -2648,7 +3362,8 @@ export interface PinVersionRequest {
  */
 export interface PoolSpec1 {
   /**
-   * Members of this index on the decision day; null: any.
+   * Members of this index on the decision day; null: any. labels.scopes lists the ones offered; 000906.SH,
+   * 000852.SH and 000985.SH are older options that existing strategies still read.
    */
   index?: ("000300.SH" | "000905.SH" | "000906.SH" | "000852.SH" | "000985.SH") | null;
   /**
@@ -2663,7 +3378,18 @@ export interface PoolSpec1 {
    * Leave out stocks listed for fewer trading days; null: no limit.
    */
   min_list_days?: number | null;
+  /**
+   * Only the stocks on this fixed list (round 3); never together with index.
+   */
+  stocks?: StocksSpec | null;
 }
+/**
+ * Every stock pool.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "PoolsListRequest".
+ */
+export interface PoolsListRequest {}
 /**
  * A holding at a day's close.
  *
@@ -2747,6 +3473,19 @@ export interface Reject {
    * At scored: the first factor without a value, or formula.
    */
   missing: string | null;
+}
+/**
+ * Move or copy the data root to a new or empty folder, then use it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "RelocateRequest".
+ */
+export interface RelocateRequest {
+  to: string;
+  /**
+   * move: the old folder is removed once the copy is checked and in use; copy: it stays.
+   */
+  mode: "move" | "copy";
 }
 /**
  * One entry of the resolutions file.
@@ -3104,9 +3843,13 @@ export interface SavedStrategy {
   strategy: StrategySpec;
   summary: string;
   /**
-   * e.g. strategy_version_changed, meta_rebuilt.
+   * e.g. strategy_version_changed, meta_rebuilt, legacy_index, stocks_not_in_data.
    */
   warnings: Warning[];
+  /**
+   * How the copied stock list differs from its stock pool now; null: no pool, or no difference.
+   */
+  pool_drift?: PoolDrift | null;
 }
 /**
  * The version a save produced, or the current one when the content was unchanged.
@@ -3404,6 +4147,101 @@ export interface SettingsUpdate {
   keep_versions?: number | null;
 }
 /**
+ * The setup's progress to keep (each field given replaces the saved one); clear forgets all of it.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SetupSaveRequest".
+ */
+export interface SetupSaveRequest {
+  /**
+   * The wizard's step, e.g. folder, source, build, history, import_check, import, ready.
+   */
+  step?: string | null;
+  source?: ("baostock" | "import" | "existing") | null;
+  /**
+   * The folder chosen in the wizard.
+   */
+  home?: string | null;
+  /**
+   * Years of history a BaoStock build starts with.
+   */
+  years?: (1 | 3 | 5) | null;
+  /**
+   * The build's or import's background job.
+   */
+  job_id?: number | null;
+  /**
+   * The folder of the user's own data to import.
+   */
+  import_path?: string | null;
+  /**
+   * Add the earlier years in the background once the build is done (F-33).
+   */
+  backfill?: boolean | null;
+  updated_at?: string | null;
+  clear?: boolean;
+}
+/**
+ * How far the first-run setup has got, as the frontend saved it; every field may be null.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SetupState".
+ */
+export interface SetupState {
+  /**
+   * The wizard's step, e.g. folder, source, build, history, import_check, import, ready.
+   */
+  step?: string | null;
+  source?: ("baostock" | "import" | "existing") | null;
+  /**
+   * The folder chosen in the wizard.
+   */
+  home?: string | null;
+  /**
+   * Years of history a BaoStock build starts with.
+   */
+  years?: (1 | 3 | 5) | null;
+  /**
+   * The build's or import's background job.
+   */
+  job_id?: number | null;
+  /**
+   * The folder of the user's own data to import.
+   */
+  import_path?: string | null;
+  /**
+   * Add the earlier years in the background once the build is done (F-33).
+   */
+  backfill?: boolean | null;
+  updated_at?: string | null;
+}
+/**
+ * The data root in use, whether it needs the first-run setup, and the setup's saved progress.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SetupStatus".
+ */
+export interface SetupStatus {
+  home: string;
+  /**
+   * Where the folder comes from: --home, $WEQUANT_HOME, the user's last choice, or the system's default.
+   */
+  home_source: "argument" | "environment" | "config" | "default";
+  has_data: boolean;
+  /**
+   * True while the folder holds no WeQuant data: the frontend shows the first-run setup.
+   */
+  needs_setup: boolean;
+  setup: SetupState;
+}
+/**
+ * No fields.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "SetupStatusRequest".
+ */
+export interface SetupStatusRequest {}
+/**
  * One saved version (n null: the current one).
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -3468,7 +4306,14 @@ export interface StrategyCheck {
   weight_shares: {
     [k: string]: number;
   };
+  /**
+   * e.g. legacy_index, stocks_not_in_data, and those of reading a saved version.
+   */
   warnings: Warning[];
+  /**
+   * How the copied stock list differs from its stock pool now; null: no pool, or no difference.
+   */
+  pool_drift?: PoolDrift | null;
 }
 /**
  * What a rebalance strategy holds and when; defaults are left out of its canonical form.
@@ -3658,6 +4503,90 @@ export interface VersionInfo1 {
   current: boolean;
 }
 /**
+ * A starting point for a new strategy.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Template".
+ */
+export interface Template {
+  id: string;
+  /**
+   * Chinese, plain.
+   */
+  name: string;
+  /**
+   * Two or three Chinese sentences: what it does, when it may work, when it may not.
+   */
+  description: string;
+  strategy: StrategySpec2;
+  /**
+   * The strategy's Chinese summary sentence.
+   */
+  summary: string;
+}
+/**
+ * What a rebalance strategy holds and when; defaults are left out of its canonical form.
+ *
+ * Cross-field rules (hold_rank > top_n, formula only with formula weighting, unique names) are checked by the core
+ * and reported with codes by strategy validate.
+ */
+export interface StrategySpec2 {
+  /**
+   * A condition expression: the scope, before the pool items.
+   */
+  universe?: string | JsonValue[];
+  filters?: (ConditionSpec | GroupSpec)[];
+  factors?: FactorSpec[];
+  /**
+   * Number of targets; null: every scored stock.
+   */
+  top_n?: number | null;
+  backups?: number;
+  period?: "day" | "week" | "month";
+  /**
+   * Rebalance every this many periods.
+   */
+  every?: number;
+  weighting?: "equal" | "score" | "formula";
+  /**
+   * The weight formula, with formula weighting only.
+   */
+  formula?: string | JsonValue[] | null;
+  /**
+   * Resize a kept target only when its weight is off by more than this share of its target; null: never.
+   */
+  band?: number | null;
+  /**
+   * The trading day expressions count from; null: the calendar's first day.
+   */
+  anchor?: string | null;
+  /**
+   * Keep a holding while it ranks within this many (> top_n); null: no buffer.
+   */
+  hold_rank?: number | null;
+  /**
+   * Cap on one target's weight; the excess goes to the other targets, cash only when none can take it.
+   */
+  max_weight?: number | null;
+  pool?: PoolSpec;
+}
+/**
+ * The strategy templates, in the order to show.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "Templates".
+ */
+export interface Templates {
+  rows: Template[];
+}
+/**
+ * Every strategy template.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "TemplatesRequest".
+ */
+export interface TemplatesRequest {}
+/**
  * Fetch BaoStock's trading days after the store's last one and merge them as one version.
  *
  * This interface was referenced by `ServiceModels`'s JSON-Schema
@@ -3671,6 +4600,20 @@ export interface UpdateRequest {}
  * via the `definition` "UsageRequest".
  */
 export interface UsageRequest {}
+/**
+ * Read and write another data root from now on.
+ *
+ * This interface was referenced by `ServiceModels`'s JSON-Schema
+ * via the `definition` "UseHomeRequest".
+ */
+export interface UseHomeRequest {
+  path: string;
+  /**
+   * Also a new or empty folder, made when missing (the setup's 换一个文件夹, F-33); a folder with other files is
+   * still refused (not_empty).
+   */
+  empty_ok?: boolean;
+}
 /**
  * The version requests read when they name none.
  *

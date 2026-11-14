@@ -18,13 +18,6 @@ export function MyStrategies() {
   const followed = follows.use();
   const rows = list.data?.rows ?? [];
   const [err, setErr] = useState<unknown>(null);
-  const blankDraft = () => {
-    try {
-      localStorage.removeItem("wequant.strategy.draft");
-    } catch {
-      // storage unavailable
-    }
-  };
   return (
     <main className="page">
       <StatusBar />
@@ -33,7 +26,7 @@ export function MyStrategies() {
           <h2>{st.list.title}</h2>
           <span className="small muted">{st.list.count(rows.length)}</span>
           <div className="row push">
-            <a className="btn" href={href.newStrategy()} onClick={blankDraft}>
+            <a className="btn" href={href.newStrategy()}>
               {st.list.new}
             </a>
             <FileButton
@@ -54,6 +47,14 @@ export function MyStrategies() {
           </div>
         </div>
         {err !== null && <Problem error={err} />}
+        {list.isSuccess && rows.length === 0 && (
+          <div className="empty">
+            <span>还没有保存过策略。新建一个（可以从模板开始），或者导入别人给你的策略文件。</span>
+            <a className="btn push" href={href.newStrategy()}>
+              {st.list.new}
+            </a>
+          </div>
+        )}
         <div className="list-grid">
           {rows.map((s) => (
             <Item key={s.id} s={s} run={runs.data?.rows.find((r) => r.saved_as.some((x) => x.id === s.id)) ?? null} on={followed.includes(s.id)} />

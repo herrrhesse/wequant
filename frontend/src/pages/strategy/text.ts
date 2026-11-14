@@ -1,4 +1,11 @@
 export const st = {
+  what: "这是什么",
+  help: {
+    scope: "先圈定从哪些股票里挑：沪深全部，或者某个指数的成分股；再去掉 ST 股和刚上市不久的股票。后面的筛选和排名都只在这个范围里进行。",
+    filters: "给股票设门槛，比如成交额要够大、波动不能太大，没过门槛的不参与排名。同一组里的条件，可以要求全部满足，也可以满足其中一条就行。",
+    factors: "给过了门槛的股票打分排名。每个因子先把股票排出名次，再按权重加在一起，得到综合分；综合分高的排在前面。",
+    trade: "决定买几只、多久调一次仓、每只买多少。排名靠前的买入；已经持有的股票可以给一个更宽的名次，没掉出去就继续拿着，少来回买卖。",
+  },
   nameLabel: "策略名称",
   newName: "新策略",
   state: {
@@ -16,6 +23,7 @@ export const st = {
   saveAs: "另存为",
   historyBtn: "修改历史",
   mine: "我的策略",
+  newOne: "新建",
   backtest: "回测",
   backtestTitle: "打开回测页，用当前策略设置日期和资金后开始回测",
   saved: "已保存，修改历史里多了一条。",
@@ -27,7 +35,7 @@ export const st = {
   scope: {
     title: "1 · 范围",
     lead: "每一项剔除多少只，看右边的实时预览",
-    index: "指数",
+    index: "股票范围",
     all: "沪深全部",
     boards: "板块",
     st: "剔除 ST",
@@ -41,6 +49,9 @@ export const st = {
     note: "停牌股当天不参与。股票被调出范围后，下一个调仓日卖出。指数成分按每个调仓日当天的名单。",
     indexNames: { "000300.SH": "沪深 300", "000905.SH": "中证 500", "000906.SH": "中证 800", "000852.SH": "中证 1000", "000985.SH": "中证全指" } as Record<string, string>,
     customUniverse: "范围是自定义表达式，只能在 JSON 里改",
+    fromPool: (name: string, n: number) => `来自股票池“${name}”（${n} 只）`,
+    poolHelp: "自定义股票池是一份固定名单，回测时不会随时间变化；名单里当时还没上市的股票，会在上市后才参与。改了股票池以后，策略里的名单不会自己变，点“更新为最新名单”才会换成新的。",
+    legacy: (name: string) => `${name}是旧选项，新建策略不再提供；这个策略照常能用，也可以换成上面的其他范围`,
   },
   filters: {
     title: "2 · 筛选条件",
@@ -79,6 +90,8 @@ export const st = {
     collapse: "收起",
     customItem: "自定义表达式",
     customItemDesc: "直接写表达式，例如 GT(close, 5)",
+    unavailable: "这份数据里没有，暂不可用",
+    needsMerge: "来自合并的 BaoStock 数据",
     addGroup: "＋ 添加条件组",
     note: "排名在股票池内计算，条件的顺序不影响选出的股票。组与组之间是“并且”。",
     empty: "还没有筛选条件，股票池里的股票都参与打分。",
@@ -147,7 +160,7 @@ export const st = {
     stock: "股票",
     score: "综合分",
     role: "角色",
-    none: "这一天没有选出股票。",
+    none: "这一天没有股票通过全部条件。看看上面漏斗里哪一级剔除得最多，放宽左边对应的那一条。",
     chain: (code: string) => `${code} 的判断链`,
     total: (score: string, rank: number, role: string, w: string | null) => `综合分 ${score}，第 ${rank} 名，${role}${w ? `，目标权重 ${w}` : ""}`,
     lookup: "查股票",
@@ -187,7 +200,7 @@ export const st = {
   list: {
     title: "我的策略",
     count: (n: number) => `${n} 个策略`,
-    new: "＋ 新建空白策略",
+    new: "＋ 新建策略",
     back: "← 回到编辑",
     edit: "编辑",
     savedAt: (at: string) => `保存于 ${at}`,

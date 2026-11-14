@@ -192,7 +192,14 @@ function RecentRuns() {
         </a>
       </div>
       {runs.isError && <Problem error={runs.error} />}
-      {runs.data && runs.data.rows.length === 0 && <span className="note">{tt.runs.none}</span>}
+      {runs.data && runs.data.rows.length === 0 && (
+        <div className="empty">
+          <span>{tt.runs.none}</span>
+          <a className="btn push" href={href.backtest()}>
+            {tt.runs.go}
+          </a>
+        </div>
+      )}
       {runs.data && runs.data.rows.length > 0 && (
         <div className="rows" style={{ gridTemplateColumns: "minmax(0, 1fr) 200px 76px 76px 56px" }}>
           <span className="head">{tt.runs.strategy}</span>
@@ -218,13 +225,15 @@ function RecentRuns() {
   );
 }
 
-const INDEXES: [string, ...string[]] = ["000300.SH", "000905.SH", "000906.SH", "000852.SH"];
+const INDEXES: [string, ...string[]] = ["000300.SH", "000905.SH"];
 
 function Indexes() {
   const status = useCall("data_status", {});
   const last = status.data?.last_trade_date ?? null;
   const start = last ? new Date(Date.parse(`${last}T00:00:00Z`) - 100 * 864e5).toISOString().slice(0, 10) : null;
   const bars = useCall("data_index_bars", start ? { codes: INDEXES, start, end: last } : null);
+  // Indexes the data has no quotes for are left out; with none, the block is left out.
+  if (bars.data && !INDEXES.some((c) => bars.data.rows.some((r) => r.code === c))) return null;
   return (
     <section className="card" aria-label={tt.index.title}>
       <div className="card-head">
@@ -252,7 +261,6 @@ function Indexes() {
             </div>
           );
         })}
-      {bars.data && bars.data.missing.length > 0 && <span className="note">{tt.index.missing(bars.data.missing.map((c) => st.scope.indexNames[c] ?? c).join("、"))}</span>}
     </section>
   );
 }

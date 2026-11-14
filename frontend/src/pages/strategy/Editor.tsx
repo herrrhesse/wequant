@@ -1,10 +1,12 @@
 // The left column of the strategy editor: scope, filters, ranking and trading. Each row shows the backend's funnel
 // numbers for it ("剩余" = the step's left, "单独剔除" = pool size minus the step's own pass) and flashes the change.
 import { useState, type ReactNode } from "react";
-import type { ConditionSpec, FactorSpec, GroupSpec, Schedule, StrategySpec } from "../../api/types.gen";
+import type { ConditionSpec, FactorSpec, GroupSpec, PoolDrift, Schedule, StrategySpec } from "../../api/types.gen";
 import { useLabels } from "../../labels";
 import { NumInput } from "../../components/NumInput";
-import { poolIndexCodes } from "../../api/contract-info";
+import { IndexSeg, scopeOf } from "../../components/IndexSeg";
+import { fromPool, PoolPicker } from "./PoolPicker";
+import { MetricSelect, useIndicators } from "./indicators";
 import { metricForm, type Metric } from "../../strategy/expr";
 import { concerns, type Loc } from "../../strategy/locate";
 import {
@@ -13,8 +15,6 @@ import {
   exprOf,
   factorMetric,
   isGroup,
-  METRIC_PRESETS,
-  metricDesc,
   metricKey,
   metricName,
   namesIn,
@@ -44,11 +44,26 @@ export interface EditorProps {
   setHl: (step: string | null) => void;
   /** The data has no ST records at all (the backend's st_unknown warning with a known share of 0). */
   stNone: boolean;
+  /** The stock pool the scope's list came from has changed since (strategy validate's pool_drift). */
+  drift?: PoolDrift | null;
 }
 
 /** Whether a name is the automatic one (or it with a number added to keep it unique). */
 const isAuto = (name: string, auto: string) => name === auto || new RegExp(`^${auto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\d+$`).test(name);
 const errsAt = (errors: Err[], at: Loc) => errors.filter((e) => concerns(e.loc, at));
+
+/** A section's plain-words explanation, folded until asked for. */
+function What({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="what-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {st.what} {open ? "▾" : "▸"}
+      </button>
+      {open && <p className="what-text">{text}</p>}
+    </>
+  );
+}
 
 function ErrText({ errors }: { errors: Err[] }) {
   return errors.length ? <span className="err-text">{errors.map((e) => e.text).join(" ")}</span> : null;
@@ -56,8 +71,10 @@ function ErrText({ errors }: { errors: Err[] }) {
 
 /* ---------- 1 · scope ---------- */
 
-export function ScopeCard({ spec, edit, errors, hl, setHl, stNone }: EditorProps) {
+export function ScopeCard({ spec, edit, errors, hl, setHl, stNone, drift }: EditorProps) {
   const pool = spec.pool ?? {};
+  const [custom, setCustom] = useState(false);
+  const scope = custom && !pool.stocks ? "stocks" : scopeOf(pool);
   const setPool = (fn: (p: NonNullable<StrategySpec["pool"]>) => void) =>
     edit((d) => {
       d.pool = { ...(d.pool ?? {}) };
@@ -84,6 +101,7 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone }: EditorProps
     <section className="card" aria-label="范围">
       <div className="card-head">
         <h2>{st.scope.title}</h2>
+        <What text={st.help.scope} />
         <span className="push small muted">{st.scope.lead}</span>
       </div>
       {!universeDefault && <span className="warnbox">{st.scope.customUniverse}</span>}
@@ -91,13 +109,21 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone }: EditorProps
         {row(
           "index",
           st.scope.index,
-          <div className="seg" role="group" aria-label={st.scope.index}>
-            {[null, ...poolIndexCodes()].map((code) => (
-              <button key={code ?? "all"} type="button" aria-pressed={(pool.index ?? null) === code} onClick={() => setPool((p) => void (p.index = code as typeof p.index))}>
-                {code ? (st.scope.indexNames[code] ?? code) : st.scope.all}
-              </button>
-            ))}
-          </div>,
+          <>
+            <IndexSeg
+              label={st.scope.index}
+              value={scope}
+              onChange={(code) => {
+                setCustom(code === "stocks");
+                if (code === "stocks") return;
+                setPool((p) => {
+                  p.stocks = null;
+                  p.index = (code === "all" ? null : code) as typeof p.index;
+                });
+              }}
+            />
+            {scope === "stocks" && <PoolPicker pool={pool} drift={drift} apply={(p) => edit((d) => void (d.pool = fromPool(d.pool, p)))} />}
+          </>,
           ["pool", "index"],
         )}
         {row(
@@ -155,6 +181,8 @@ export function ScopeCard({ spec, edit, errors, hl, setHl, stNone }: EditorProps
 export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
   const [adding, setAdding] = useState<number | null>(null);
   const [query, setQuery] = useState("");
+  const [cat, setCat] = useState("");
+  const ind = useIndicators();
   const list = boxes(spec);
   const at = (d: StrategySpec, path: Loc): ConditionSpec => {
     const f = d.filters![path[1] as number]!;
@@ -177,18 +205,36 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
   const addPanel = (bi: number) => (
                 <div className="add-panel">
                   <input className="input" aria-label={st.filters.addSearch} placeholder={st.filters.addPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+                  {ind.categories.length > 0 && (
+                    <div className="seg" role="group" aria-label="指标分类">
+                      <button type="button" aria-pressed={cat === ""} onClick={() => setCat("")}>
+                        全部
+                      </button>
+                      {ind.categories.map((c) => (
+                        <button key={c.code} type="button" aria-pressed={cat === c.code} title={c.help} onClick={() => setCat(c.code)}>
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="add-grid">
-                    {presets.map((m) => (
+                    {shown.map((i) => (
                       <button
-                        key={metricKey(m)}
+                        key={i.key}
                         type="button"
+                        disabled={!i.available}
                         onClick={() => {
-                          addTo(bi, m);
+                          addTo(bi, i.metric);
                           setAdding(null);
                         }}
                       >
-                        <span className="b">{metricName(m)}</span>
-                        <span className="tiny muted">{metricDesc(m)}</span>
+                        <span className="b">
+                          {i.label}
+                          {i.category && <span className="tag ind-cat">{ind.catName(i.category)}</span>}
+                        </span>
+                        <span className="tiny muted">{i.help}</span>
+                        {!i.available && <span className="tiny warn-text">{i.reason || st.filters.unavailable}</span>}
+                        {i.available && i.needsMerge && <span className="tiny muted">{st.filters.needsMerge}</span>}
                       </button>
                     ))}
                     <button
@@ -208,11 +254,12 @@ export function FiltersCard({ spec, edit, errors, hl, setHl }: EditorProps) {
                 </div>
     );
   const q = query.trim();
-  const presets = METRIC_PRESETS.filter((m) => !q || metricName(m).includes(q) || metricDesc(m).includes(q));
+  const shown = ind.list.filter((i) => !i.legacy && (!cat || i.category === cat) && (!q || i.label.includes(q) || i.help.includes(q)));
   return (
     <section className="card" aria-label="筛选条件">
       <div className="card-head">
         <h2>{st.filters.title}</h2>
+        <What text={st.help.filters} />
         <span className="push small muted">{st.filters.lead}</span>
       </div>
       {list.length === 0 && (
@@ -338,7 +385,9 @@ interface CondProps {
 }
 
 function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProps) {
+  const indicators = useIndicators();
   const row = readCondition(c.expr);
+  const info = row.custom ? undefined : indicators.byKey.get(metricKey(row.metric));
   const off = c.enabled === false;
   const auto = autoName(row);
   const named = !isAuto(c.name, auto);
@@ -360,7 +409,7 @@ function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProp
     const side = row.dir === "high" ? st.filters.high : st.filters.low;
     hint = st.filters.rankBase(side, row.mode === "topn" ? st.filters.topN(row.value) : st.filters.topPct(row.value));
   } else if (row.custom) hint = st.filters.customHint;
-  const metrics = row.custom ? [] : METRIC_PRESETS.some((m) => metricKey(m) === metricKey(row.metric)) ? METRIC_PRESETS : [row.metric, ...METRIC_PRESETS];
+  else if (info) hint = `${info.label}：${info.help}`;
   return (
     <div
       id={`loc-${path.join("-")}`}
@@ -376,16 +425,7 @@ function CondRow({ path, c, errors, hl, setHl, taken, update, remove }: CondProp
         ) : (
           <>
             <div className="row nowrap">
-              <select className="select grow" aria-label={st.filters.field} value={metricKey(row.metric)} onChange={(e) => {
-                const m = metrics.find((x) => metricKey(x) === e.target.value)!;
-                write({ ...row, metric: m, unit: metricUnit(m), value: row.mode === "gt" || row.mode === "lt" ? "0" : row.value });
-              }}>
-                {metrics.map((m) => (
-                  <option key={metricKey(m)} value={metricKey(m)}>
-                    {metricName(m)}
-                  </option>
-                ))}
-              </select>
+              <MetricSelect className="grow" label={st.filters.field} value={row.metric} onChange={(m) => write({ ...row, metric: m, unit: metricUnit(m), value: row.mode === "gt" || row.mode === "lt" ? "0" : row.value })} />
               <select className="select" style={{ width: 112 }} aria-label={st.filters.mode} value={row.mode} onChange={(e) => {
                 const mode = e.target.value as Mode;
                 const value = mode === "topn" ? (Number(row.value) >= 1 && row.mode !== "gt" && row.mode !== "lt" ? row.value : "50") : mode === "toppct" ? (Number(row.value) > 0 && Number(row.value) <= 100 && row.mode === "toppct" ? row.value : "30") : row.mode === mode ? row.value : "0";
@@ -452,6 +492,7 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
     <section id="loc-factors" className={`card ${errs.some((e) => e.loc.length === 1) ? "has-err" : ""}`} aria-label="排名打分">
       <div className="card-head">
         <h2>{st.factors.title}</h2>
+        <What text={st.help.factors} />
         <span className="push small muted">{st.factors.lead}</span>
       </div>
       {factors.length === 0 && <span className="note">{st.factors.empty}</span>}
@@ -465,7 +506,6 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
           <span className="head" />
           {factors.map((f, i) => {
             const m = factorMetric(f);
-            const metrics = m && !METRIC_PRESETS.some((x) => metricKey(x) === metricKey(m)) ? [m, ...METRIC_PRESETS] : METRIC_PRESETS;
             const fe = errsAt(errors, ["factors", i]);
             const share = shares?.[f.name];
             return (
@@ -473,12 +513,10 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
                 <input type="checkbox" aria-label={st.factors.on} checked={f.enabled !== false} onChange={() => up(i, (x) => void (x.enabled = f.enabled === false))} />
                 <div className="col tight">
                   {m ? (
-                    <select
-                      className="select"
-                      aria-label={st.factors.metric}
-                      value={metricKey(m)}
-                      onChange={(e) => {
-                        const next = metrics.find((x) => metricKey(x) === e.target.value)!;
+                    <MetricSelect
+                      label={st.factors.metric}
+                      value={m}
+                      onChange={(next) =>
                         edit((d) => {
                           const x = d.factors![i]!;
                           const wasAuto = isAuto(x.name, metricName(m));
@@ -488,15 +526,9 @@ export function FactorsCard({ spec, edit, errors, shares }: EditorProps & { shar
                             others.delete(x.name);
                             x.name = uniqueName(metricName(next), others);
                           }
-                        });
-                      }}
-                    >
-                      {metrics.map((x) => (
-                        <option key={metricKey(x)} value={metricKey(x)}>
-                          {metricName(x)}
-                        </option>
-                      ))}
-                    </select>
+                        })
+                      }
+                    />
                   ) : (
                     <input className="input mono" aria-label={st.factors.metric} defaultValue={typeof f.expr === "string" ? f.expr : JSON.stringify(f.expr)} onBlur={(e) => up(i, (x) => void (x.expr = readCustom(e.target.value)))} />
                   )}
@@ -585,6 +617,7 @@ export function TradeCard({ spec, edit, errors, schedule }: EditorProps & { sche
     <section className="card" aria-label="交易与仓位">
       <div className="card-head">
         <h2>{st.trade.title}</h2>
+        <What text={st.help.trade} />
       </div>
       <div className="row">
         {field("top_n", st.trade.hold, <><NumInput aria-label={st.trade.hold} style={{ width: 60 }} value={spec.top_n ?? null} onValue={(v) => edit((d) => void (d.top_n = v))} />{st.trade.holdUnit}</>)}

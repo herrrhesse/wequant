@@ -18,6 +18,18 @@ export interface Operations {
   data_pin_version: { request: M.PinVersionRequest; result: M.SettingsOut };
   data_export: { request: M.ExportVersionRequest; result: M.Exported };
   data_import: { request: M.ImportRequest; result: M.VersionImported };
+  data_use_home: { request: M.UseHomeRequest; result: M.HomeSwitched };
+  data_relocate: { request: M.RelocateRequest; result: M.Relocated };
+  fs_places: { request: M.PlacesRequest; result: M.Places };
+  fs_list: { request: M.FolderRequest; result: M.Listing };
+  fs_mkdir: { request: M.MkdirRequest; result: M.Made };
+  setup_status: { request: M.SetupStatusRequest; result: M.SetupStatus };
+  setup_save: { request: M.SetupSaveRequest; result: M.SetupStatus };
+  data_build_estimate: { request: M.BuildEstimateRequest; result: M.BuildEstimate };
+  data_build: { request: M.BuildRequest; result: M.BuildResult };
+  data_backfill: { request: M.BackfillRequest; result: M.BackfillResult };
+  data_own_check: { request: M.OwnRequest; result: M.OwnCheck };
+  data_own_import: { request: M.OwnRequest; result: M.OwnImported };
   data_verify_submit: { request: M.VerifySubmitRequest; result: M.VerifySubmitResult };
   data_verify_list: { request: M.VerifyListRequest; result: M.VerifyPage };
   data_resolve_list: { request: M.ResolveListRequest; result: M.ResolvePage };
@@ -25,6 +37,7 @@ export interface Operations {
   data_resolve_reject: { request: M.DecisionRequest; result: M.Decision };
   expr_check: { request: M.ExprRequest; result: M.ExprCheck };
   expr_eval: { request: M.EvalRequest; result: M.EvalResult };
+  expr_indicators: { request: M.IndicatorsRequest; result: M.Indicators };
   strategy_validate: { request: M.StrategyRequest; result: M.StrategyCheck };
   strategy_summary: { request: M.StrategyRequest; result: M.StrategySummary };
   strategy_schema: { request: M.StrategySchemaRequest; result: M.StrategySchema };
@@ -36,6 +49,15 @@ export interface Operations {
   strategy_export: { request: M.ExportStrategyRequest; result: M.Exported };
   strategy_import: { request: M.ImportRequest; result: M.StrategyImported };
   strategy_schedule: { request: M.ScheduleRequest; result: M.Schedule };
+  strategy_templates: { request: M.TemplatesRequest; result: M.Templates };
+  pools_list: { request: M.PoolsListRequest; result: M.PoolList };
+  pools_show: { request: M.PoolRequest; result: M.PoolOut };
+  pools_save: { request: M.PoolSaveRequest; result: M.PoolOut };
+  pools_delete: { request: M.PoolRequest; result: M.PoolOut };
+  pools_parse: { request: M.ParseRequest; result: M.ParsedStocks };
+  pools_from_index: { request: M.IndexPoolRequest; result: M.IndexPool };
+  pools_export: { request: M.PoolRequest; result: M.PoolCsv };
+  pools_import: { request: M.PoolImportRequest; result: M.PoolImported };
   screen: { request: M.ScreenRequest; result: M.ScreenResult };
   backtest: { request: M.BacktestRequest; result: M.BacktestResult };
   runs_list: { request: M.RunsListRequest; result: M.RunsPage };
@@ -83,6 +105,18 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_pin_version: { method: "POST", path: "/api/data_pin_version" },
   data_export: { method: "POST", path: "/api/data_export" },
   data_import: { method: "POST", path: "/api/data_import" },
+  data_use_home: { method: "POST", path: "/api/data_use_home" },
+  data_relocate: { method: "POST", path: "/api/data_relocate" },
+  fs_places: { method: "POST", path: "/api/fs_places" },
+  fs_list: { method: "POST", path: "/api/fs_list" },
+  fs_mkdir: { method: "POST", path: "/api/fs_mkdir" },
+  setup_status: { method: "POST", path: "/api/setup_status" },
+  setup_save: { method: "POST", path: "/api/setup_save" },
+  data_build_estimate: { method: "POST", path: "/api/data_build_estimate" },
+  data_build: { method: "POST", path: "/api/data_build" },
+  data_backfill: { method: "POST", path: "/api/data_backfill" },
+  data_own_check: { method: "POST", path: "/api/data_own_check" },
+  data_own_import: { method: "POST", path: "/api/data_own_import" },
   data_verify_submit: { method: "POST", path: "/api/data_verify_submit" },
   data_verify_list: { method: "POST", path: "/api/data_verify_list" },
   data_resolve_list: { method: "POST", path: "/api/data_resolve_list" },
@@ -90,6 +124,7 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   data_resolve_reject: { method: "POST", path: "/api/data_resolve_reject" },
   expr_check: { method: "POST", path: "/api/expr_check" },
   expr_eval: { method: "POST", path: "/api/expr_eval" },
+  expr_indicators: { method: "POST", path: "/api/expr_indicators" },
   strategy_validate: { method: "POST", path: "/api/strategy_validate" },
   strategy_summary: { method: "POST", path: "/api/strategy_summary" },
   strategy_schema: { method: "POST", path: "/api/strategy_schema" },
@@ -101,6 +136,15 @@ export const ROUTES: Record<Operation, { method: string; path: string }> = {
   strategy_export: { method: "POST", path: "/api/strategy_export" },
   strategy_import: { method: "POST", path: "/api/strategy_import" },
   strategy_schedule: { method: "POST", path: "/api/strategy_schedule" },
+  strategy_templates: { method: "POST", path: "/api/strategy_templates" },
+  pools_list: { method: "POST", path: "/api/pools_list" },
+  pools_show: { method: "POST", path: "/api/pools_show" },
+  pools_save: { method: "POST", path: "/api/pools_save" },
+  pools_delete: { method: "POST", path: "/api/pools_delete" },
+  pools_parse: { method: "POST", path: "/api/pools_parse" },
+  pools_from_index: { method: "POST", path: "/api/pools_from_index" },
+  pools_export: { method: "POST", path: "/api/pools_export" },
+  pools_import: { method: "POST", path: "/api/pools_import" },
   screen: { method: "POST", path: "/api/screen" },
   backtest: { method: "POST", path: "/api/backtest" },
   runs_list: { method: "POST", path: "/api/runs_list" },

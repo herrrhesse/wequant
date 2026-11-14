@@ -41,6 +41,7 @@ export function makeBook(labels: Labels | undefined): LabelBook {
     }
   }
   const warnings = new Map((labels?.warnings ?? []).map((w) => [w.code, w]));
+  const scopeNames = new Map((labels?.scopes ?? []).filter((x) => x.kind === "index").map((x) => [x.code, x.label]));
   const reasons = new Map((labels?.version_reasons ?? []).map((r) => [r.code, r]));
   const stages = new Map((labels?.job_stages ?? []).map((r) => [r.code, r]));
   const updates = new Map((labels?.update_statuses ?? []).map((r) => [r.code, r]));
@@ -51,7 +52,10 @@ export function makeBook(labels: Labels | undefined): LabelBook {
     help: (table, code) => (code ? (index.get(table)?.get(code)?.help ?? "") : ""),
     warning: (w) => {
       const label = warnings.get(w.code);
-      return label ? fill(label, w.params) : "";
+      if (!label) return "";
+      // An index code in a warning reads as its name (labels.scopes), never as the code.
+      const params = Object.fromEntries(Object.entries(w.params).map(([k, v]) => [k, typeof v === "string" ? (scopeNames.get(v) ?? v) : v]));
+      return fill(label, params);
     },
     warningName: (code) => warnings.get(code)?.label ?? "",
     reason: (code, params) => {

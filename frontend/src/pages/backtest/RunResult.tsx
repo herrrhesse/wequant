@@ -15,6 +15,7 @@ import { useRunningSeconds } from "../../hooks";
 import { t } from "../../i18n";
 import { lb } from "../../labels";
 import { href } from "../../router";
+import { useUi } from "../../ui";
 import { metricShown, percent, shares } from "../../runs/display";
 import { ChainView } from "../../components/ChainView";
 import { AnomalyTable } from "./shared";
@@ -133,7 +134,7 @@ export function Kpis({ run }: { run: RunDetail }) {
   const tile = (k: string) => {
     const m = metricShown(run.metrics[k]);
     return (
-      <div key={k} className="stat">
+      <div key={k} className="stat" tabIndex={0} data-tip={[lb().of("metrics", k), lb().help("metrics", k)].filter(Boolean).join("：")}>
         <span className="stat-l">{lb().of("metrics", k)}</span>
         <span className="stat-v num">{m.text}</span>
         {m.reason && <span className="stat-s">{lb().of("metric_reasons", m.reason)}</span>}
@@ -555,6 +556,7 @@ function RunExplain({ id, date, code }: { id: string; date: string; code: string
 }
 
 export function Rerun({ id }: { id: string }) {
+  const ui = useUi();
   const rerun = useCallMutation("runs_rerun");
   const seconds = useRunningSeconds(rerun.isPending);
   const result = rerun.data;
@@ -569,17 +571,20 @@ export function Rerun({ id }: { id: string }) {
       {rerun.error && <Problem error={rerun.error} />}
       {result && (
         <div data-testid="rerun">
-          <p className={result.identical ? "lead" : "approx-note"}>{result.identical ? r.identical : r.different}</p>
-          {Object.entries(result.differences).map(([file, what]) => (
-            <div key={file} className="note mono">
-              {file}: {what}
-            </div>
-          ))}
-          {result.notes.map((n) => (
-            <div key={n} className="note">
-              {n}
-            </div>
-          ))}
+          <p className={result.identical ? "lead" : "approx-note"}>{result.identical ? r.identical : r.different(Object.keys(result.differences).length)}</p>
+          {/* The backend's details are technical English: developer mode only. */}
+          {ui.dev &&
+            Object.entries(result.differences).map(([file, what]) => (
+              <div key={file} className="note mono">
+                {file}: {what}
+              </div>
+            ))}
+          {ui.dev &&
+            result.notes.map((n) => (
+              <div key={n} className="note mono">
+                {n}
+              </div>
+            ))}
         </div>
       )}
     </Card>
